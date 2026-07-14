@@ -1,0 +1,1 @@
+- [Fan-out slices](project_fanout_slices.md) — org-wide config fan-out (#11) slices; #12 landed via PR #20; release-immutability has no API.
