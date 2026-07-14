@@ -1,0 +1,6 @@
+{
+  // Prose docs in /docs use Markdown tables and fenced ASCII trees whose
+  // rows cannot wrap to a fixed width without breaking them. Disable the
+  // line-length rule repo-wide; keep every other rule at its default.
+  "MD013": false
+}
