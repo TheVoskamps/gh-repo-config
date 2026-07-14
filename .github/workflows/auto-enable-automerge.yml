@@ -1,0 +1,649 @@
+# Template for /gh-repo-setup-pr-automation. Rendered into the target
+# repo at .github/workflows/auto-enable-automerge.yml.
+#
+# Placeholders (see the github-setup plugin payload README for the convention):
+#   main   default branch PRs target (e.g. main)
+#   thevoskamps-pr-automations         GitHub App slug used for automation
+#   AUTOMERGE_APP_ID    repo secret holding the App ID
+#                        (e.g. AUTOMERGE_APP_ID)
+#   AUTOMERGE_APP_PRIVATE_KEY  repo secret holding the App private key
+#                        (e.g. AUTOMERGE_APP_PRIVATE_KEY)
+#   MERGE     GraphQL merge method: MERGE | SQUASH | REBASE
+#   merge  REST merge method (lowercase): merge | squash | rebase
+#   do-not-merge  label that opts a PR out of automation
+#   gh-repo-config-auto-rebase[bot]         git identity used for in-workflow rebase commits,
+#                        e.g. "<repo>-auto-rebase[bot]"
+#   no-back-merging-guard  name of a repo workflow that produces a
+#                        required PR check; its completion triggers the
+#                        Dependabot REST-merge re-evaluation. The
+#                        /gh-repo-setup-pr-automation skill expands this
+#                        into the workflow_run `workflows:` list (it may
+#                        list several). If the repo has no required-check
+#                        workflow, the skill drops the whole
+#                        dependabot-rest-merge job and the workflow_run /
+#                        schedule triggers, leaving only the human
+#                        enable-automerge path.
+name: auto-enable-automerge
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+    branches: [main]
+  # The Dependabot REST-merge job below re-evaluates eligibility whenever a
+  # required-check-producing workflow completes (a PR's checks finishing is
+  # the trigger that matters), plus a manual button and a once-daily
+  # backstop. It gates on GitHub's own aggregate verdict
+  # statusCheckRollup.state == SUCCESS, so a workflow_run firing while OTHER
+  # required workflows are still in flight sees a non-SUCCESS rollup and
+  # no-ops; the run after the LAST required workflow completes sees SUCCESS
+  # and proceeds. No per-suite race, no delay heuristic -- the rollup IS the
+  # "all complete" moment. workflow_run (the same trigger source
+  # auto-rebase-prs.yml uses) is preferred over check_suite: a single PR head
+  # has multiple check suites, so check_suite: completed fires once PER SUITE
+  # and races the rollup; workflow_run fires once per workflow completion and,
+  # combined with the rollup gate, converges cleanly. List every workflow
+  # that produces a required check so the LAST one's completion is guaranteed
+  # to fire after the rollup goes green. The enable-automerge job ignores
+  # these triggers via its event guard.
+  workflow_run:
+    workflows: [no-back-merging-guard]
+    types: [completed]
+  workflow_dispatch:
+  schedule:
+    # Once-daily backstop. The per-completion workflow_run trigger above
+    # does the real work; this sweep only catches anything that slipped (a
+    # dropped completion event, or a PR that went green with no firing). A
+    # full hourly/3-hourly sweep is the WRONG engine here -- most of its
+    # work is wasted because it cannot, by construction, merge a
+    # behind-base PR until it is rebased, and the per-completion path
+    # already rebases-and-merges promptly. 12:00 UTC daily.
+    - cron: '0 12 * * *'
+
+# This workflow has two jobs with disjoint trigger sets:
+#
+#  1. enable-automerge -- runs on pull_request opened/reopened/
+#     ready_for_review. Enables GitHub's native auto-merge on every PR to
+#     main so the PR merges automatically once required
+#     checks + approvals are green. This is the path for HUMAN PRs: native
+#     auto-merge waits for the full ruleset (review + code-owner + status
+#     checks) to be genuinely satisfied, so a human change to a code-owned
+#     path still needs its code-owner.
+#
+#  2. dependabot-rest-merge -- runs on workflow_run completed for every
+#     required-check-producing workflow (plus workflow_dispatch / a
+#     once-daily schedule backstop). For a PR whose authoritative author is
+#     Dependabot AND whose required status checks are ALL green, it merges
+#     via the REST merge endpoint directly. If the App is a `pull_request`
+#     bypass actor in the repo's branch-protection ruleset, a direct REST
+#     merge ENGAGES the bypass and waives the review/code-owner requirement
+#     -- so a green Dependabot PR merges unattended, code-owned paths
+#     included. Native `--auto` does NOT engage bypass (it waits for the
+#     rules to be satisfied), which is why this job uses the REST endpoint,
+#     not enablePullRequestAutoMerge.
+#
+#     The job actually drains the queue rather than stalling on
+#     behind-base Dependabot PRs:
+#       - Trigger gates on the rollup. The naive check_suite: completed
+#         trigger fires once per check suite, and a PR head has several; a
+#         firing while other suites were still running correctly declines
+#         to merge a not-yet-green PR, and the PR then goes green with no
+#         further event and sits. Instead the job gates on GitHub's
+#         aggregate statusCheckRollup.state == SUCCESS, so a premature
+#         firing no-ops and the firing after the last required workflow
+#         completes proceeds.
+#       - Behind-base is throughput, not a stall. The auto-rebase-prs
+#         workflow deliberately EXCLUDES Dependabot-authored PRs, so
+#         nothing else brings a green-but-behind Dependabot PR current.
+#         This job therefore REBASES a green-behind PR onto the base IN-
+#         WORKFLOW (it already has a checkout + App token): a clean rebase
+#         is force-pushed and immediately bypass-merged; a conflicting
+#         rebase is aborted and the PR left for a human. This self-drains
+#         the cascade -- one merge advances the base and makes others
+#         behind, and each other PR's next completion event rebases-and-
+#         merges it.
+#       - Periodic full sweep is a backstop, not the engine. A frequent
+#         cron could not, by construction, merge behind-base PRs, so it is
+#         cut to a once-daily backstop; the per-completion trigger does the
+#         real work.
+#
+# SECURITY BOUNDARY: a bypass-actor REST merge waives ALL branch-
+# protection rules, not just review -- the ruleset cannot selectively keep
+# status checks enforced while waiving review for a bypass actor. So
+# enforcement moves INTO this job's preconditions, and these are
+# load-bearing or unreviewed code could merge:
+#   (a) the required status checks (incl. any build gate) are genuinely
+#       required AND this job verifies they are ALL green before merging.
+#       "Green" is read STRICTLY, matching what the waived ruleset would
+#       have enforced:
+#         - same integration: a ruleset that pins each required check to an
+#           integration_id (e.g. 15368 for GitHub Actions) is honoured.
+#           This job matches a green check to a required one by (context,
+#           integration_id), not by context name alone, so a colliding name
+#           from a different integration cannot satisfy the gate. (A
+#           required check left unpinned in the ruleset falls back to
+#           name-only, which is exactly what the ruleset itself enforces
+#           for it.)
+#         - head current with base: if the ruleset sets
+#           strict_required_status_checks_policy: true, a check only counts
+#           when the head is current with the base. A green-against-stale-
+#           base head is never merged AS-IS. This job re-implements the
+#           policy with `git merge-base --is-ancestor origin/main
+#           <HEAD_OID>`: a current head merges directly; a behind-base head
+#           is REBASED onto the base in-workflow and the merge is re-targeted
+#           at the rebased head, which is green-by-construction (we started
+#           from a fully-green required-check set and performed only a clean
+#           rebase). A conflicting rebase is left for a human. So the strict
+#           policy is satisfied either by the head already being current or
+#           by making it current before merging.
+#   (b) the author gate uses the AUTHORITATIVE Dependabot identity, not a
+#       spoofable field. We verify `author.login == "dependabot"` AND the
+#       HEAD commit author login is `dependabot[bot]` (the same
+#       authoritative signal auto-rebase-prs.yml uses), so a human who
+#       merely titles a PR "dependabot" cannot trip the gate.
+# Human PRs never reach the merge call in job 2; they fall through to the
+# normal review + CODEOWNERS path via job 1.
+#
+# Auth: BOTH jobs MUST run as the GitHub App "thevoskamps-pr-automations", not the
+# default GITHUB_TOKEN. The default token integration cannot call
+# enablePullRequestAutoMerge ("FORBIDDEN: Resource not accessible by
+# integration"), and only the App -- added as a `pull_request` bypass actor
+# in the branch-protection ruleset -- can REST-merge past the review rule.
+#
+# The workflow consumes two repo secrets: AUTOMERGE_APP_ID and
+# AUTOMERGE_APP_PRIVATE_KEY. A short-lived installation token is minted at
+# workflow runtime by actions/create-github-app-token, which signs a JWT
+# with the private key and exchanges it for an installation access token
+# via the App's installation endpoint. There is no long-lived "App token"
+# to store; the canonical pattern is App ID + private key in repo secrets,
+# token minted per-run. /gh-repo-setup-pr-automation seeds the two secrets.
+# Without them, actions/create-github-app-token fails fast with a clear
+# error, which is the intended behaviour: do NOT fall back to GITHUB_TOKEN.
+#
+# NOTE on the bypass actor: the dependabot-rest-merge job only achieves an
+# unattended merge of a code-owner-protected PR if the App "thevoskamps-pr-automations"
+# is added as a `pull_request` bypass actor in the repo's branch-protection
+# ruleset. Adding the bypass actor is a branch-protection concern owned by
+# /gh-repo-setup-protection, not this skill. Without the bypass, a green
+# Dependabot PR on an un-code-owned path still merges (no review required);
+# one on a code-owned path is left for a human, exactly as a human PR would
+# be.
+
+# Serialize runs so concurrent passes do not race on a merge/mutation.
+# Keyed on PR number for pull_request events (close-spaced opened ->
+# ready_for_review), and on the workflow name otherwise (workflow_run /
+# schedule / dispatch sweep the whole PR set, so one at a time).
+# cancel-in-progress: false so each event is processed in order; the
+# idempotency guards in both jobs make a repeat run a no-op.
+concurrency:
+  group: auto-enable-automerge-${{ github.event.pull_request.number || github.workflow }}
+  cancel-in-progress: false
+
+# The privileged work uses an installation token minted at runtime from
+# AUTOMERGE_APP_ID + AUTOMERGE_APP_PRIVATE_KEY by
+# actions/create-github-app-token (see header comment), not the default
+# GITHUB_TOKEN. This permissions block governs only the default
+# GITHUB_TOKEN, which no step here reads. contents: read is the
+# conventional minimum in case a future step adds actions/checkout or reads
+# repo metadata via the default token. pull-requests: write is
+# intentionally NOT granted -- the App's installation token authorises the
+# mutation.
+permissions:
+  contents: read
+
+jobs:
+  enable-automerge:
+    # Native-auto-merge path for ALL PRs (human and Dependabot alike).
+    # Only the pull_request triggers carry a single PR to act on; the
+    # workflow_run / schedule / workflow_dispatch triggers exist for the
+    # Dependabot REST-merge job below, so guard this job to pull_request.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      !contains(github.event.pull_request.labels.*.name, 'do-not-merge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+      - name: Enable auto-merge with custom commit message
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NODE_ID: ${{ github.event.pull_request.node_id }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          REPO_OWNER: ${{ github.event.repository.owner.login }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          # Idempotency guard: skip when auto-merge is already enabled on
+          # this PR. The pull_request `reopened` event fires after a
+          # reopen-after-close, and a second enablePullRequestAutoMerge
+          # mutation on a PR that already has auto-merge enabled returns
+          # an error, producing a noisy red workflow run. Pre-check
+          # autoMergeRequest.enabledAt instead.
+          ENABLED_AT=$(gh api graphql \
+            -f query='query($owner:String!,$repo:String!,$num:Int!) {
+              repository(owner:$owner, name:$repo) {
+                pullRequest(number:$num) {
+                  autoMergeRequest { enabledAt }
+                }
+              }
+            }' \
+            -f owner="$REPO_OWNER" \
+            -f repo="$REPO_NAME" \
+            -F num="$PR_NUMBER" \
+            --jq '.data.repository.pullRequest.autoMergeRequest.enabledAt')
+          if [ -n "$ENABLED_AT" ] && [ "$ENABLED_AT" != "null" ]; then
+            echo "auto-merge already enabled at ${ENABLED_AT}, skipping"
+            exit 0
+          fi
+          HEADLINE="Merge PR: ${PR_TITLE} (#${PR_NUMBER})"
+          # GraphQL enablePullRequestAutoMerge: commitHeadline /
+          # commitBody set the merge commit message.
+          gh api graphql \
+            -f query='mutation($prId: ID!, $headline: String!, $body: String!) {
+              enablePullRequestAutoMerge(input: {
+                pullRequestId: $prId,
+                mergeMethod: MERGE,
+                commitHeadline: $headline,
+                commitBody: $body
+              }) {
+                pullRequest { number autoMergeRequest { enabledAt } }
+              }
+            }' \
+            -f prId="$PR_NODE_ID" \
+            -f headline="$HEADLINE" \
+            -f body="${PR_BODY:-}"
+
+  dependabot-rest-merge:
+    # Unattended auto-merge of green Dependabot PRs. Runs on workflow_run
+    # completed for every required-check-producing workflow (a PR's checks
+    # finishing is the trigger that matters), plus workflow_dispatch / a
+    # once-daily schedule backstop. NOT on pull_request (checks are never
+    # green yet at open time). Each run sweeps the whole eligible PR set,
+    # mirroring auto-rebase-prs.yml, so the triggers need no per-PR payload
+    # -- a workflow_run completion for ANY PR re-evaluates EVERY eligible
+    # PR, which is exactly what is wanted after the base advances from one
+    # merge.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+
+      # Needed for the behind-base ancestry test AND the in-workflow rebase
+      # (security boundary (a)). A ruleset with
+      # strict_required_status_checks_policy: true requires the PR head to
+      # be current with the base before a required check counts. A bypass
+      # REST merge waives THAT rule too, so a check that went green against
+      # a now-stale base could otherwise merge. We re-implement the policy
+      # with `git merge-base --is-ancestor origin/main <HEAD_OID>`
+      # (the same primitive auto-rebase-prs.yml uses): a current head merges
+      # directly; a behind-base head is rebased onto the base here and the
+      # rebased (green-by-construction) head is merged. fetch-depth: 0 gives
+      # full history so the ancestry test and the rebase are exact. The App
+      # token (not the default GITHUB_TOKEN) is passed so the rebase
+      # force-push re-triggers downstream checks (GitHub does not re-run
+      # workflows for a GITHUB_TOKEN push).
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure git identity
+        run: |
+          set -euo pipefail
+          git config user.name "gh-repo-config-auto-rebase[bot]"
+          git config user.email "gh-repo-config-auto-rebase[bot]@users.noreply.github.com"
+
+      - name: REST-merge green Dependabot PRs
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          BASE_BRANCH: main
+        run: |
+          set -euo pipefail
+
+          OWNER="${REPO%/*}"
+          NAME="${REPO#*/}"
+
+          # ---------------------------------------------------------------
+          # 1. Resolve the set of REQUIRED status checks from the LIVE
+          #    rulesets at runtime, rather than hardcoding a list that rots
+          #    when a check is added/removed. Security boundary (a): "green"
+          #    must mean every required check passed, so we must know exactly
+          #    which checks are required.
+          #
+          #    We carry the per-check `integration_id` alongside the context,
+          #    NOT the context name alone. A ruleset that pins each required
+          #    check to an integration_id (e.g. 15368 for GitHub Actions) is
+          #    honoured. Matching the green set by NAME ONLY would let a green
+          #    status/check with a colliding name from a DIFFERENT integration
+          #    satisfy the gate -- strictly weaker than the rule we are
+          #    waiving. So a required `(context, integration_id)` is satisfied
+          #    below only by a green check from the SAME integration. A
+          #    required check with no integration pin (integration_id absent)
+          #    keeps the old name-only behaviour for that entry (any
+          #    integration may satisfy it), which matches what the ruleset
+          #    itself enforces.
+          #
+          #    We collect across all ACTIVE rulesets that apply (matching by
+          #    rule type, not by ruleset name, so a rename does not silently
+          #    drop the gate), and fail closed (exit 1) if the aggregate is
+          #    empty -- merging while blind to the required set would defeat
+          #    the security boundary. Aggregating across every active ruleset
+          #    is conservative by construction: an extra required check can
+          #    only make this job MORE likely to refuse a merge, never less,
+          #    so it cannot cause an under-checked merge.
+          #
+          #    Each required entry is emitted as "<context>\t<integration_id>"
+          #    with the integration_id rendered as the empty string when the
+          #    ruleset left it unpinned.
+          RULESETS=$(gh api "repos/${OWNER}/${NAME}/rulesets?includes_parents=false" --paginate)
+          REQUIRED_CHECKS=""
+          for RS_ID in $(echo "$RULESETS" | jq -r '.[].id'); do
+            RS=$(gh api "repos/${OWNER}/${NAME}/rulesets/${RS_ID}")
+            # Only consider active rulesets that target the branch.
+            ENFORCEMENT=$(echo "$RS" | jq -r '.enforcement')
+            [ "$ENFORCEMENT" = "active" ] || continue
+            CHECKS=$(echo "$RS" | jq -r '
+              .rules[]
+              | select(.type == "required_status_checks")
+              | .parameters.required_status_checks[]
+              | "\(.context)\t\(.integration_id // "")"' 2>/dev/null || true)
+            if [ -n "$CHECKS" ]; then
+              REQUIRED_CHECKS="${REQUIRED_CHECKS}${CHECKS}"$'\n'
+            fi
+          done
+          # Deduplicate and drop blank lines.
+          REQUIRED_CHECKS=$(printf '%s' "$REQUIRED_CHECKS" | grep -v '^[[:space:]]*$' | sort -u || true)
+          if [ -z "$REQUIRED_CHECKS" ]; then
+            echo "::error::Could not resolve any required status checks from active rulesets on ${REPO}. Refusing to bypass-merge while blind to the required set (security boundary a)."
+            exit 1
+          fi
+          echo "Required status checks (context + integration_id, from live ruleset):"
+          while IFS=$'\t' read -r rc_ctx rc_int; do
+            [ -n "$rc_ctx" ] || continue
+            echo "  - ${rc_ctx} @integration:${rc_int:-<unpinned>}"
+          done <<< "$REQUIRED_CHECKS"
+
+          # ---------------------------------------------------------------
+          # 2. Enumerate open, non-draft, non-do-not-merge PRs targeting the
+          #    base branch, with the authoritative author signal and the head
+          #    commit's full status-check rollup. The author gate (security
+          #    boundary b) is authoritative: a PR is Dependabot's iff
+          #    `author.login == "dependabot"` AND the HEAD commit author
+          #    login is `dependabot[bot]` (the same signal auto-rebase-prs
+          #    uses). A spoofable field (title/body) is never consulted.
+          PRS_JSON=$(gh api graphql -f query='
+            query($owner: String!, $name: String!, $base: String!) {
+              repository(owner: $owner, name: $name) {
+                pullRequests(states: OPEN, first: 100, baseRefName: $base) {
+                  nodes {
+                    number
+                    isDraft
+                    author { login }
+                    headRefName
+                    headRefOid
+                    headRepositoryOwner { login }
+                    labels(first: 50) { nodes { name } }
+                    commits(last: 1) {
+                      nodes {
+                        commit {
+                          author { user { login } }
+                          statusCheckRollup {
+                            state
+                            contexts(first: 100) {
+                              nodes {
+                                __typename
+                                ... on CheckRun {
+                                  name
+                                  conclusion
+                                  status
+                                  checkSuite { app { databaseId } }
+                                }
+                                ... on StatusContext { context state }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
+
+          # Candidate Dependabot PRs: not draft, not do-not-merge,
+          # authoritative Dependabot author, AND GitHub's aggregate verdict
+          # statusCheckRollup.state == SUCCESS. The rollup state is the
+          # accurate "every check on this head has completed and passed"
+          # signal -- the per-suite check_suite event is not (a head has
+          # several suites). Gating here means a workflow_run firing while
+          # other required workflows are still in flight sees a non-SUCCESS
+          # rollup and produces zero candidates, a clean no-op; the firing
+          # after the LAST required workflow completes sees SUCCESS and this
+          # PR becomes a candidate. The per-required-check verification
+          # below (the strict security boundary) still runs -- the rollup
+          # gate is the convergence signal, not the authorization. A PR with
+          # no checks at all has rollup state null and is correctly dropped.
+          #
+          # Emit "<number>\t<headOwner>\t<headOid>\t<headRefName>". headOid
+          # is the exact commit whose checks we evaluated; headRefName is
+          # needed to force-push a rebase. Passing headOid (or, after a
+          # rebase, the rebased head) as the merge `sha` makes the merge
+          # reject (409) if the head moved since -- closing the window
+          # between reading the checks and merging.
+          mapfile -t CANDIDATES < <(echo "$PRS_JSON" | jq -r '
+            .data.repository.pullRequests.nodes[]
+            | select(.isDraft == false)
+            | select([.labels.nodes[].name] | index("do-not-merge") | not)
+            | select(.author.login == "dependabot")
+            | select((.commits.nodes[0].commit.author.user.login // "") == "dependabot[bot]")
+            | select((.commits.nodes[0].commit.statusCheckRollup.state // "") == "SUCCESS")
+            | "\(.number)\t\(.headRepositoryOwner.login)\t\(.headRefOid)\t\(.headRefName)"
+          ')
+
+          if [ "${#CANDIDATES[@]}" -eq 0 ]; then
+            echo "No eligible Dependabot PRs to consider."
+            exit 0
+          fi
+
+          for line in "${CANDIDATES[@]}"; do
+            PR_NUMBER=$(echo "$line" | cut -f1)
+            HEAD_OWNER=$(echo "$line" | cut -f2)
+            HEAD_OID=$(echo "$line" | cut -f3)
+            HEAD_REF=$(echo "$line" | cut -f4)
+            # MERGE_OID is the head we ultimately merge: HEAD_OID if the PR
+            # is already current with the base, or the rebased head if we
+            # rebase it below. The merge `sha` is pinned to this value.
+            MERGE_OID="$HEAD_OID"
+
+            # Same-repo only; we cannot merge fork PRs with this token and
+            # Dependabot PRs are same-repo anyway.
+            if [ "$HEAD_OWNER" != "$OWNER" ]; then
+              echo "PR #$PR_NUMBER: skipping (head is a fork: $HEAD_OWNER)"
+              continue
+            fi
+
+            # A fetch failure here must NOT be swallowed: the ancestry test
+            # and the rebase base below would silently use a possibly-stale
+            # origin/$BASE_BRANCH, so log loudly and skip just this PR (per-PR
+            # idiom, so set -e does not abort the whole sweep) rather than
+            # proceeding against a stale base. The next sweep retries.
+            if ! git fetch --quiet origin "$BASE_BRANCH" 2>/dev/null; then
+              echo "::warning::PR #$PR_NUMBER: could not fetch origin $BASE_BRANCH; skipping to avoid acting on a stale base. Leaving for the next sweep."
+              continue
+            fi
+            if ! git fetch --quiet origin "$HEAD_OID" 2>/dev/null; then
+              echo "PR #$PR_NUMBER: could not fetch head $HEAD_OID; leaving for the next sweep."
+              continue
+            fi
+
+            # Build the set of green (context, integration_id) pairs for this
+            # PR's head commit. A CheckRun is green iff status COMPLETED and
+            # conclusion SUCCESS; its integration_id is its check suite's app
+            # databaseId. A StatusContext is green iff state SUCCESS; GraphQL
+            # exposes no integration id for a StatusContext, so it is emitted
+            # with an empty integration_id and can therefore satisfy only a
+            # required check that is itself unpinned (integration_id absent).
+            # Anything else (in-progress, failure, neutral, cancelled,
+            # skipped, ...) is NOT counted as green. Each pair is
+            # "<context>\t<integration_id>".
+            GREEN_CHECKS=$(echo "$PRS_JSON" | jq -r --argjson num "$PR_NUMBER" '
+              .data.repository.pullRequests.nodes[]
+              | select(.number == $num)
+              | .commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]?
+              | if .__typename == "CheckRun" then
+                  (select(.status == "COMPLETED" and .conclusion == "SUCCESS")
+                    | "\(.name)\t\(.checkSuite.app.databaseId // "")")
+                elif .__typename == "StatusContext" then
+                  (select(.state == "SUCCESS") | "\(.context)\t")
+                else empty end
+            ' | sort -u)
+
+            # Every required check must be satisfied by a green check with
+            # the SAME context AND a matching integration: the green pair's
+            # integration_id must equal the required integration_id, unless
+            # the required check left it unpinned (empty), in which case any
+            # integration -- including a StatusContext -- may satisfy it.
+            MISSING=""
+            while IFS=$'\t' read -r req_ctx req_int; do
+              [ -n "$req_ctx" ] || continue
+              if [ -n "$req_int" ]; then
+                want="${req_ctx}"$'\t'"${req_int}"
+                if ! printf '%s\n' "$GREEN_CHECKS" | grep -qxF "$want"; then
+                  MISSING="${MISSING}${req_ctx}@${req_int} "
+                fi
+              else
+                # Unpinned required check: match the context regardless of
+                # the green check's integration_id.
+                if ! printf '%s\n' "$GREEN_CHECKS" | cut -f1 | grep -qxF "$req_ctx"; then
+                  MISSING="${MISSING}${req_ctx} "
+                fi
+              fi
+            done <<< "$REQUIRED_CHECKS"
+
+            if [ -n "$MISSING" ]; then
+              echo "PR #$PR_NUMBER: not merging -- required checks not all green from the required integration (missing/non-success: ${MISSING})"
+              continue
+            fi
+
+            # Head-current-with-base, by rebasing in-workflow when behind. A
+            # ruleset with strict_required_status_checks_policy: true means a
+            # required check only counts when the head is current with the
+            # base; a bypass REST merge waives that too. Instead of SKIPPING
+            # a green-but-behind PR (which would stall because auto-rebase-prs
+            # excludes Dependabot PRs, so nothing ever brought them current),
+            # bring it current HERE and merge the rebased head:
+            #   - already current  -> merge HEAD_OID as-is.
+            #   - behind, clean rebase -> force-push the rebased head and
+            #     merge IT. Sound because we started from a fully-green
+            #     required-check set and performed only a clean rebase, so
+            #     the rebased head is green-by-construction; the bypass that
+            #     already waives review waives the rebased head's not-yet-
+            #     re-run checks too. MERGE_OID is updated to the rebased head
+            #     so the SHA pin tracks it.
+            #   - behind, conflicting rebase -> abort and leave the PR
+            #     untouched (no comment, no failure); a human resolves it.
+            #     This is the only case that orphans a Dependabot PR (a
+            #     non-Dependabot push stops Dependabot managing it), and it
+            #     would have stalled regardless.
+            # This kills the cascade: one merge advances the base and makes
+            # the others behind, but each other PR's next completion event
+            # rebases-and-merges it, so the queue self-drains with no
+            # external auto-rebase needed (which would not act on Dependabot
+            # PRs anyway). The rebase-push being immediately followed by the
+            # merge means there is no lingering orphaned PR to manage.
+            if git merge-base --is-ancestor "origin/$BASE_BRANCH" "$HEAD_OID"; then
+              echo "PR #$PR_NUMBER: head already current with $BASE_BRANCH."
+            else
+              echo "PR #$PR_NUMBER: head behind $BASE_BRANCH; rebasing in-workflow before merge."
+              EXPECTED_SHA=$(git rev-parse "$HEAD_OID")
+              # Detach onto the PR head so we rebase without claiming the
+              # branch ref locally (same pattern as auto-rebase-prs.yml).
+              git checkout -B "auto-merge-rebase-$PR_NUMBER" --no-track "$HEAD_OID"
+              if git rebase "origin/$BASE_BRANCH"; then
+                REBASED_OID=$(git rev-parse HEAD)
+                # --force-with-lease rejects the push if a concurrent author
+                # push moved the branch since we read HEAD_OID, instead of
+                # clobbering it. The push is as the App, so downstream checks
+                # re-run on the rebased head (harmless: we merge immediately
+                # with the SHA pin, but it keeps the PR honest if the merge
+                # 409s and the PR sits to the next sweep).
+                if git push --force-with-lease="$HEAD_REF:$EXPECTED_SHA" origin "HEAD:refs/heads/$HEAD_REF"; then
+                  MERGE_OID="$REBASED_OID"
+                  echo "PR #$PR_NUMBER: rebased onto $BASE_BRANCH and force-pushed ($MERGE_OID); merging the rebased head."
+                else
+                  echo "PR #$PR_NUMBER: rebase push rejected (lease lost or auth); leaving for the next sweep."
+                  git checkout --detach
+                  git branch -D "auto-merge-rebase-$PR_NUMBER" || true
+                  continue
+                fi
+              else
+                echo "PR #$PR_NUMBER: rebase produced conflicts; aborting and leaving for a human."
+                git rebase --abort || true
+                git checkout --detach
+                git branch -D "auto-merge-rebase-$PR_NUMBER" || true
+                continue
+              fi
+              git checkout --detach
+              git branch -D "auto-merge-rebase-$PR_NUMBER" || true
+            fi
+
+            # The audit line must reflect HOW the head became mergeable. On
+            # the rebased path the checks were green on HEAD_OID but have not
+            # re-run on the rebased head (which is green-by-construction), so
+            # do not claim "head current with base" as if it were merged
+            # as-is. MERGE_OID != HEAD_OID is the existing rebase signal.
+            if [ "$MERGE_OID" = "$HEAD_OID" ]; then
+              echo "PR #$PR_NUMBER: all required checks green from the required integration and head already current with $BASE_BRANCH; merging it as-is via REST (engages bypass to waive review only)."
+            else
+              echo "PR #$PR_NUMBER: required checks were green on the pre-rebase head; rebased in-workflow onto $BASE_BRANCH ($MERGE_OID) and merging the rebased head via REST (engages bypass to waive review only)."
+            fi
+
+            # Direct REST merge ENGAGES the App's pull_request bypass and
+            # waives the review/code-owner rule. `--auto` (native
+            # auto-merge) does NOT engage bypass and would just hang on the
+            # unmet review requirement, which is why job 1's
+            # enablePullRequestAutoMerge cannot merge a Dependabot PR that
+            # touches a code-owner path. The commit subject follows the same
+            # "Merge PR: <title> (#<num>)" convention as job 1. Title/body
+            # come from REST (not fetched in the GraphQL enumeration above)
+            # and only shape the merge-commit message. Fail-safe: a transient
+            # error on this single read skips just this PR rather than
+            # aborting the whole sweep under set -e.
+            if ! PR_VIEW=$(gh api "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}"); then
+              echo "PR #$PR_NUMBER: could not fetch PR view (transient API error); leaving for the next sweep."
+              continue
+            fi
+            PR_TITLE=$(echo "$PR_VIEW" | jq -r '.title')
+            PR_BODY=$(echo "$PR_VIEW" | jq -r '.body // ""')
+
+            # Pass the EVALUATED head sha (MERGE_OID -- HEAD_OID if the PR was
+            # current, or the rebased head if we rebased it above) so the
+            # merge is rejected (409) if the head moved AT ALL since we
+            # verified/produced it -- e.g. a concurrent author push, or the
+            # downstream re-run we just triggered force-pushed nothing but a
+            # foreign actor did. We then skip rather than merge an unverified
+            # head; the next workflow_run/schedule sweep re-evaluates the new
+            # head. After an in-workflow rebase this is load-bearing: the
+            # rebased head is the only SHA known to be green-by-construction.
+            if gh api --method PUT "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/merge" \
+              -f sha="$MERGE_OID" \
+              -f merge_method="merge" \
+              -f commit_title="Merge PR: ${PR_TITLE} (#${PR_NUMBER})" \
+              -f commit_message="${PR_BODY}"; then
+              echo "PR #$PR_NUMBER: merged."
+            else
+              echo "PR #$PR_NUMBER: REST merge did not succeed (head may have moved, or a transient API error); leaving for the next sweep."
+            fi
+          done
