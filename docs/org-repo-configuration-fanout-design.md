@@ -55,8 +55,8 @@ diverge. This is the whole point.
 ### Canonical source: one public repo, consumed as an immutable release
 
 The converger lives in **one public repo under TheVoskamps**, named
-semantically (candidate: `gh-repo-config`). Own CODEOWNERS,
-locked to fork-and-PR contribution, secured by this same fan-out.
+semantically: `gh-repo-config`. Own CODEOWNERS, locked to fork-and-PR
+contribution, secured by this same fan-out.
 
 Distribution is **not** by fork (forks pull the wrong way, drift
 silently, and EMU cannot fork). Distribution is by **immutable GitHub
@@ -201,7 +201,6 @@ GHAS toggle), which is orthogonal to the config file.
 - Stamp granularity: one stamp per release, or per-concern
   (`protection` / `pr-automation`) if the concerns will ever version
   independently.
-- Final repo name.
 
 ## Sources
 

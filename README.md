@@ -1,6 +1,19 @@
 # gh-repo-config
 GitHub Organization-wide Repo configuration for fan-out of rulesets, actions, and workflows to protect and automate
 
+## Development
+
+```bash
+npm ci
+npm run build
+npm test
+```
+
+Releases are published as immutable, attested GitHub Releases from
+`.github/workflows/release.yml` on `v*` tag push — see
+`docs/org-repo-configuration-fanout-design.md` for the distribution
+design.
+
 ## Contributing
 
 This is a public repository. Contributions are welcome:
