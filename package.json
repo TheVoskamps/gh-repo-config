@@ -1,0 +1,23 @@
+{
+  "name": "gh-repo-config",
+  "version": "0.1.0",
+  "description": "Org-wide repo-configuration converger — deterministic core consumed as an immutable GitHub Release.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "gh-repo-config": "bin/gh-repo-config.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/**/*.test.js",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "22.14.1",
+    "typescript": "5.9.3"
+  }
+}
