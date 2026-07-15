@@ -1,1 +1,1 @@
-- [Fan-out slices](project_fanout_slices.md) — org-wide config fan-out (#11) slices; #12 landed via PR #20; release-immutability has no API.
+- [Fan-out slices](project_fanout_slices.md) — org-wide config fan-out (#11) slices; #12 via PR #20, #13 (selection sweep) via PR #21; converger App + custom-property provisioning is operator-owned.
