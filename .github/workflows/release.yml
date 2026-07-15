@@ -1,0 +1,77 @@
+# Builds the converger and publishes it as a tagged GitHub Release
+# asset, with a Sigstore-format build-provenance attestation.
+#
+# Slice 1 of the org-wide repo-configuration fan-out (issue #12):
+# this workflow is the only supported way this repo's releases are
+# created. It does not enable release immutability itself — GitHub
+# does not (yet) expose an API/CLI for that repo setting, only a
+# one-time manual toggle under Settings > General > Releases. See the
+# release-immutability note in docs/org-repo-configuration-fanout-design.md.
+#
+# Trigger: push of a `v*` tag (e.g. `v0.1.0`), created and pushed by a
+# maintainer once package.json's version is bumped.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package.json version
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version="$(node -p "require('./package.json').version")"
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $pkg_version" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Package release asset
+        run: |
+          mkdir -p .release
+          asset="gh-repo-config-${GITHUB_REF_NAME}.tgz"
+          tar -czf ".release/${asset}" \
+            dist bin package.json
+          echo "asset_path=.release/${asset}" >> "$GITHUB_ENV"
+
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: ${{ env.asset_path }}
+
+      - name: Create GitHub Release with asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "${asset_path}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
