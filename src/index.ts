@@ -31,6 +31,7 @@ export {
 
 export {
   OrgPropertiesClient,
+  PartialStampError,
   PROPERTY_NAMES,
   MAX_REPOS_PER_BATCH,
   type OrgPropertiesClientOptions,

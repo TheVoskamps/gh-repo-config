@@ -30,6 +30,19 @@ test("tolerates a v prefix and trailing metadata", () => {
   assert.equal(isBehind("0.1.0", "v0.1.0"), false);
 });
 
+test("rejects a corrupted stamp that merely starts with a valid core", () => {
+  // A stamp that isn't cleanly X.Y.Z (optionally + pre-release/build)
+  // must be treated as unparseable -> never converged -> behind, not
+  // silently truncated to its leading X.Y.Z and treated as current.
+  assert.equal(isBehind("1.2.3junk", "1.2.3"), true);
+  assert.equal(isBehind("1.2.3.4", "1.2.3"), true);
+});
+
+test("still tolerates real pre-release/build metadata after the corrupted-stamp tightening", () => {
+  assert.equal(isBehind("1.2.3-rc.1", "1.2.3"), false);
+  assert.equal(isBehind("1.2.3+build5", "1.2.3"), false);
+});
+
 test("throws when the current version is unparseable", () => {
   assert.throws(() => isBehind("0.1.0", "garbage"), /CURRENT_VERSION/);
 });

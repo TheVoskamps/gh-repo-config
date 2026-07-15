@@ -20,15 +20,22 @@ interface SemverCore {
 
 /**
  * Parse the leading `MAJOR.MINOR.PATCH` of a version string, tolerating a
- * `v` prefix and any trailing pre-release/build metadata. Returns
- * `undefined` for a value that has no parseable numeric core (including
- * an empty or absent stamp), which the caller treats as "never stamped."
+ * `v` prefix and semver's own pre-release/build metadata separators
+ * (`1.2.3-rc.1`, `1.2.3+build5`). Returns `undefined` for a value that
+ * has no parseable numeric core (including an empty or absent stamp, or
+ * a core followed by anything other than end-of-string / `-` / `+`),
+ * which the caller treats as "never (validly) stamped" and therefore
+ * behind — the fail-safe direction. This is deliberately *not* a loose
+ * "starts with digits" match: a corrupted stamp like `1.2.3junk` or
+ * `1.2.3.4` must fail to parse and fall into the re-converge path rather
+ * than silently matching its leading `1.2.3` and being treated as
+ * current forever.
  */
 function parseCore(version: string | undefined | null): SemverCore | undefined {
   if (!version) {
     return undefined;
   }
-  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:$|[-+])/.exec(version.trim());
   if (!match) {
     return undefined;
   }

@@ -31,6 +31,35 @@ export const PROPERTY_NAMES = {
 /** GitHub's batch-write cap for `PATCH /orgs/{org}/properties/values`. */
 export const MAX_REPOS_PER_BATCH = 30;
 
+/**
+ * Thrown by {@link OrgPropertiesClient.stampVersion} when a batch write
+ * fails partway through a multi-batch stamp. `stamped` carries the repo
+ * names from the batches that *did* succeed before the failing one, so
+ * the caller can report accurate partial progress instead of losing
+ * track of which repos were actually written.
+ */
+export class PartialStampError extends Error {
+  /** Repo names successfully stamped before the failing batch. */
+  readonly stamped: readonly string[];
+  /** Repo names in the batch that failed (not stamped). */
+  readonly failedBatch: readonly string[];
+  /** Repo names never attempted because an earlier batch failed first. */
+  readonly notAttempted: readonly string[];
+
+  constructor(
+    message: string,
+    stamped: readonly string[],
+    failedBatch: readonly string[],
+    notAttempted: readonly string[],
+  ) {
+    super(message);
+    this.name = "PartialStampError";
+    this.stamped = stamped;
+    this.failedBatch = failedBatch;
+    this.notAttempted = notAttempted;
+  }
+}
+
 /** The selection/stamp property values resolved for one repo. */
 export interface RepoPropertyValues {
   /** Repo name (without owner), as returned by the values endpoint. */
@@ -161,6 +190,13 @@ export class OrgPropertiesClient {
    * at GitHub's 30-repos-per-call limit for
    * `PATCH /orgs/{org}/properties/values`.
    *
+   * A mid-batch failure does not lose track of the batches that already
+   * succeeded: if any batch's `PATCH` fails, this throws a
+   * {@link PartialStampError} carrying the repo names already stamped by
+   * prior batches, the names in the failing batch, and the names never
+   * attempted — rather than a plain `Error` that discards which repos
+   * were actually written.
+   *
    * @param repoNames repo names (without owner) to stamp.
    * @param version   the value to write to `gh-repo-config-version`.
    */
@@ -168,6 +204,7 @@ export class OrgPropertiesClient {
     repoNames: readonly string[],
     version: string,
   ): Promise<void> {
+    const stamped: string[] = [];
     for (let i = 0; i < repoNames.length; i += MAX_REPOS_PER_BATCH) {
       const chunk = repoNames.slice(i, i + MAX_REPOS_PER_BATCH);
       const url = `${this.apiBase}/orgs/${this.org}/properties/values`;
@@ -182,10 +219,15 @@ export class OrgPropertiesClient {
         }),
       });
       if (!res.ok) {
-        throw new Error(
+        const notAttempted = repoNames.slice(i + chunk.length);
+        throw new PartialStampError(
           `Failed to stamp ${chunk.length} repo(s) with ${PROPERTY_NAMES.version}=${version}: ${res.status} ${res.statusText}`,
+          stamped,
+          chunk,
+          notAttempted,
         );
       }
+      stamped.push(...chunk);
     }
   }
 }

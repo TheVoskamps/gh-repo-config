@@ -24,11 +24,18 @@ switch (command) {
     try {
       const report = await runSweepFromEnv();
       console.log(
-        `Sweep complete: ${report.converged.length} converged, ` +
+        `Sweep complete: ${report.stamped.length} stamped, ` +
           `${report.skippedCurrent} up-to-date, ` +
-          `${report.skippedUnmanaged} unmanaged` +
+          `${report.skippedUnmanaged} unmanaged, ` +
+          `${report.failed.length} failed` +
           (report.dryRun ? " (dry-run, no stamps written)" : ""),
       );
+      if (report.failed.length > 0) {
+        console.error(
+          `Sweep had ${report.failed.length} failed repo(s): ${report.failed.join(", ")}`,
+        );
+        process.exit(1);
+      }
     } catch (err) {
       console.error(`Sweep failed: ${err instanceof Error ? err.message : err}`);
       process.exit(1);

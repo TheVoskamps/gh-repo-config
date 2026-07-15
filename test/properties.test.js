@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   OrgPropertiesClient,
+  PartialStampError,
   PROPERTY_NAMES,
   MAX_REPOS_PER_BATCH,
 } from "../dist/index.js";
@@ -97,6 +98,43 @@ test("stampVersion batches at the 30-repo cap", async () => {
   assert.equal(first.properties[0].property_name, PROPERTY_NAMES.version);
   assert.equal(first.properties[0].value, "0.2.0");
   assert.equal(JSON.parse(patches[2].body).repository_names.length, 5);
+});
+
+test("stampVersion reports partial progress on a mid-batch failure", async () => {
+  // First batch (30 repos) succeeds; second batch (30 repos) fails;
+  // third batch (5 repos) is never attempted. The client must not lose
+  // track of the first batch's success when it throws.
+  let patchCount = 0;
+  const fetch = async (url, init = {}) => {
+    const method = init.method ?? "GET";
+    if (url.includes("/properties/values") && method === "PATCH") {
+      patchCount++;
+      if (patchCount === 2) {
+        return {
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+          json: async () => ({}),
+        };
+      }
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
+    }
+    throw new Error(`unexpected fetch: ${method} ${url}`);
+  };
+  const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
+  const repos = Array.from({ length: 65 }, (_, i) => `r${i}`);
+
+  await assert.rejects(
+    () => client.stampVersion(repos, "0.2.0"),
+    (err) => {
+      assert.ok(err instanceof PartialStampError);
+      assert.deepEqual(err.stamped, repos.slice(0, 30));
+      assert.deepEqual(err.failedBatch, repos.slice(30, 60));
+      assert.deepEqual(err.notAttempted, repos.slice(60));
+      return true;
+    },
+  );
+  assert.equal(patchCount, 2); // third batch never attempted
 });
 
 test("readAllRepoValues throws on a non-ok values response", async () => {

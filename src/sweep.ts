@@ -14,6 +14,7 @@ import {
 import { decideRepo, type RepoAction } from "./stamp/decide.js";
 import {
   OrgPropertiesClient,
+  PartialStampError,
   type OrgPropertiesClientOptions,
   type RepoPropertyValues,
 } from "./github/properties.js";
@@ -34,8 +35,32 @@ export interface SweepReport {
   /** `true` when no stamping was performed (see {@link SweepOptions}). */
   readonly dryRun: boolean;
   readonly results: readonly SweepRepoResult[];
-  /** Repos that were (or would have been) converged and stamped. */
+  /**
+   * Repos whose converge step succeeded and that were selected for
+   * stamping (in dry-run, "would have been stamped"; otherwise identical
+   * to `stamped` unless a mid-batch stamp write failed partway — see
+   * {@link stamped}).
+   */
   readonly converged: readonly string[];
+  /**
+   * Repos actually confirmed stamped by the properties API. Equal to
+   * `converged` on a fully successful (non-dry-run) sweep. When a batch
+   * `stampVersion` write fails partway through, this reflects only the
+   * repos from batches that completed before the failure — the
+   * authoritative "what actually got written" list, distinct from
+   * `converged` ("what the sweep intended to stamp"). Empty on a
+   * `dryRun` sweep (nothing is ever written).
+   */
+  readonly stamped: readonly string[];
+  /**
+   * Repos that did not end the sweep successfully: either the converge
+   * step threw, or convergence succeeded but the subsequent
+   * `stampVersion` batch write for that repo failed. Not stamped, not
+   * up to date — must be retried on the next sweep. A non-empty `failed`
+   * means the sweep as a whole did not fully succeed; see
+   * `runSweepFromEnv`'s exit-code contract in `bin/gh-repo-config.js`.
+   */
+  readonly failed: readonly string[];
   readonly skippedUnmanaged: number;
   readonly skippedCurrent: number;
 }
@@ -50,9 +75,11 @@ export interface SweepOptions {
   readonly dryRun?: boolean;
   /**
    * Injectable converge step. This slice's default is a no-op stub;
-   * later slices replace it with the real converger. Returning normally
-   * means "converged, safe to stamp"; throwing aborts stamping for that
-   * repo (the sweep records it as still behind).
+   * later slices replace it with the real (throwing-on-failure)
+   * converger. Returning normally means "converged, safe to stamp";
+   * throwing records that repo's outcome as `failed` in the report (not
+   * stamped, not treated as up to date) and causes the sweep as a whole
+   * to be reported as failed — see {@link SweepReport.failed}.
    */
   readonly converge?: (repo: string) => Promise<void> | void;
   /** Injectable logger (defaults to `console`). */
@@ -102,23 +129,55 @@ export async function runSweep(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log(`  ${repo.repo}: convergence failed, not stamping — ${msg}`);
-        // Record the failure by downgrading this repo's recorded action
-        // so the report does not claim it as converged.
+        // A convergence failure is its own outcome — distinct from
+        // "already up to date" (skip-current) — so the report can't be
+        // misread as a clean run. It is not stamped and must be retried.
         results[results.length - 1] = {
           repo: repo.repo,
-          action: "skip-current",
+          action: "failed",
           reason: `convergence failed: ${msg}`,
         };
       }
     }
   }
 
+  let stamped: string[] = [];
   if (toStamp.length > 0 && !dryRun) {
     log(`Stamping ${toStamp.length} repo(s) with ${version}...`);
-    await client.stampVersion(toStamp, version);
+    try {
+      await client.stampVersion(toStamp, version);
+      stamped = [...toStamp];
+    } catch (err) {
+      if (err instanceof PartialStampError) {
+        stamped = [...err.stamped];
+        const notStamped = [...err.failedBatch, ...err.notAttempted];
+        log(
+          `  stampVersion failed partway: ${stamped.length} repo(s) stamped, ` +
+            `${notStamped.length} repo(s) not stamped (${notStamped.join(", ")}) — ${err.message}`,
+        );
+        // Downgrade the not-actually-stamped repos' recorded action to
+        // `failed` so the report reflects reality: they were converged
+        // but the stamp write never landed, so a re-sweep must retry
+        // them rather than the report silently claiming success.
+        for (const repoName of notStamped) {
+          const idx = results.findIndex((r) => r.repo === repoName);
+          if (idx !== -1) {
+            results[idx] = {
+              repo: repoName,
+              action: "failed",
+              reason: `converged but stamp write failed: ${err.message}`,
+            };
+          }
+        }
+      } else {
+        throw err;
+      }
+    }
   } else if (toStamp.length > 0) {
     log(`[dry-run] would stamp ${toStamp.length} repo(s) with ${version}`);
   }
+
+  const failed = results.filter((r) => r.action === "failed").map((r) => r.repo);
 
   return {
     org,
@@ -127,6 +186,8 @@ export async function runSweep(
     dryRun,
     results,
     converged: toStamp,
+    stamped: dryRun ? [] : stamped,
+    failed,
     skippedUnmanaged: results.filter((r) => r.action === "skip-unmanaged").length,
     skippedCurrent: results.filter((r) => r.action === "skip-current").length,
   };

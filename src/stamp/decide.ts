@@ -15,14 +15,32 @@ import {
 } from "../config/selection.js";
 import { isBehind } from "../version-compare.js";
 
-/** What the sweep should do with a single repo. */
+/**
+ * What the sweep should do with a single repo, or (for `failed`) what it
+ * ended up doing after an attempted convergence didn't succeed.
+ *
+ * {@link decideRepo} only ever returns the first three — `failed` is not
+ * a selection/version-skip verdict, it is a post-hoc outcome the sweep
+ * itself assigns in {@link SweepRepoResult} when a `converge` decision's
+ * convergence step throws. It is part of this shared union (rather than
+ * a separate sweep-only type) so callers that switch over
+ * `SweepRepoResult.action` get exhaustiveness checking against the same
+ * type `decideRepo` produces.
+ */
 export type RepoAction =
   /** Not managed (excluded by selection) — the sweep leaves it alone. */
   | "skip-unmanaged"
   /** Managed, but already at/ahead of the current version — no work. */
   | "skip-current"
   /** Managed and behind — converge (stubbed this slice) and re-stamp. */
-  | "converge";
+  | "converge"
+  /**
+   * Managed and behind, convergence was attempted, and it threw. Distinct
+   * from `skip-current` (which means "already up to date") — a `failed`
+   * repo is *not* stamped and *not* up to date; it must be retried on the
+   * next sweep and must not be silently reported as a success.
+   */
+  | "failed";
 
 /** The raw custom-property values read for one repo, before normalization. */
 export interface RepoProperties {
