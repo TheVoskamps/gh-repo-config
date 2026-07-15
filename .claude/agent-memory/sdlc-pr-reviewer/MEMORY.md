@@ -1,0 +1,1 @@
+- [Fan-out slice PRs](project_fanout_review.md) — org-wide config fan-out (#11) ships in slices; provisioning (org App, custom properties) is operator-owned and out of PR scope.
