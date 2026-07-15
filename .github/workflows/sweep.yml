@@ -1,0 +1,91 @@
+# Selection-loop sweep — the org-wide fan-out's control plane.
+#
+# Slice 2 of the org-wide repo-configuration fan-out (issue #13): the
+# scheduled + manual sweep. It runs the converger's `sweep` subcommand,
+# which reads the three selection/stamp org custom properties
+# (gh-repo-config-mode, gh-repo-config-default, gh-repo-config-version),
+# applies the precedence table + version-skip, "converges" each due repo
+# (a stub/no-op this slice — later slices #14-#18 give it teeth), and
+# stamps the processed repos with the current release version.
+#
+# Auth: this workflow runs as the dedicated *converger* org GitHub App,
+# NOT the default GITHUB_TOKEN and NOT the pr-automation App. The
+# converger App is least-privilege for the converger's call surface (see
+# the "Converger App" permission table in
+# docs/org-repo-configuration-fanout-decomposition.md); for this slice it
+# only needs Organization custom properties: write. The App is a separate
+# App precisely because later slices need Administration / Org
+# administration scope the pr-automation App must never hold (decision 4).
+#
+# Operator prerequisite (provisioned via the user-scoped /gh-create-app
+# skill, NOT by this workflow): register the converger org App, install it
+# on TheVoskamps (and .github), and store its App ID + private key as the
+# org secrets CONVERGER_APP_ID and CONVERGER_APP_PRIVATE_KEY. Until those
+# secrets exist, the token-mint step below fails fast with a clear error
+# from actions/create-github-app-token; that failure is intended.
+#
+# The three org custom properties must also be defined at the org level
+# (gh-repo-config-mode: single-select process|ignore;
+# gh-repo-config-default: single-select opt-in|opt-out with the org-level
+# default set; gh-repo-config-version: string). Defining them is an
+# operator step, not this workflow's job.
+name: sweep
+
+on:
+  schedule:
+    # Daily at 07:00 UTC. Cadence is arbitrary for the walking skeleton;
+    # the sweep is idempotent (a repo already at the current version is
+    # skipped) so over-running is harmless.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Decide and log selection without stamping any repo"
+        type: boolean
+        default: false
+
+# All work below runs with the minted App installation token, not the
+# default GITHUB_TOKEN. Keep the default token permission-less.
+permissions: {}
+
+concurrency:
+  group: sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint converger App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CONVERGER_APP_ID }}
+          private-key: ${{ secrets.CONVERGER_APP_PRIVATE_KEY }}
+          # Org-installation token: custom properties are org-scoped, so
+          # the token must be minted for the org installation, not a
+          # single repo.
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run sweep
+        env:
+          GH_REPO_CONFIG_ORG: ${{ github.repository_owner }}
+          GH_REPO_CONFIG_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO_CONFIG_DRY_RUN: ${{ inputs.dry-run }}
+        run: node bin/gh-repo-config.js sweep
