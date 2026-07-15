@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 // CLI entry point, built from src/ (see package.json "bin").
 //
-// Slice 1 (issue #12) supports exactly one subcommand: `version`,
-// which prints the converger's current version so the sweep (a later
-// slice) and humans running `gh release download` can read what they
-// got. Further subcommands (the selection loop, convergence) are
-// later slices' scope.
-import { CURRENT_VERSION } from "../dist/index.js";
+// Subcommands:
+//   version  — print the converger's current version (slice 1, #12).
+//   sweep    — run the selection-loop sweep over an org, reading the
+//              three selection/stamp custom properties, applying the
+//              precedence table + version-skip, stubbing convergence,
+//              and stamping processed repos (slice 2, #13). Reads config
+//              from the environment (GH_REPO_CONFIG_ORG,
+//              GH_REPO_CONFIG_TOKEN, optional GH_REPO_CONFIG_DRY_RUN);
+//              intended to be invoked by the scheduled + workflow_dispatch
+//              sweep workflow, which mints the App installation token.
+import { CURRENT_VERSION, runSweepFromEnv } from "../dist/index.js";
 
 const [, , command] = process.argv;
 
@@ -15,8 +20,29 @@ switch (command) {
   case undefined:
     console.log(CURRENT_VERSION);
     break;
+  case "sweep":
+    try {
+      const report = await runSweepFromEnv();
+      console.log(
+        `Sweep complete: ${report.stamped.length} stamped, ` +
+          `${report.skippedCurrent} up-to-date, ` +
+          `${report.skippedUnmanaged} unmanaged, ` +
+          `${report.failed.length} failed` +
+          (report.dryRun ? " (dry-run, no stamps written)" : ""),
+      );
+      if (report.failed.length > 0) {
+        console.error(
+          `Sweep had ${report.failed.length} failed repo(s): ${report.failed.join(", ")}`,
+        );
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error(`Sweep failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+    break;
   default:
     console.error(`Unknown command: ${command}`);
-    console.error("Usage: gh-repo-config [version]");
+    console.error("Usage: gh-repo-config [version|sweep]");
     process.exit(1);
 }

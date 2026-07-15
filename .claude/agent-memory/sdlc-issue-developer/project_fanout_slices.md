@@ -24,11 +24,46 @@ GitHub Release on `v*` tag push.
 immutable, attested GitHub Release (not a fork), consumed by later
 convergence slices and the CI fan-out sweep.
 
-**How to apply:** later slices (#13-#18) build convergence logic on
+**How to apply:** later slices (#14-#18) build convergence logic on
 top of this package skeleton — `src/config`, `src/detect`,
 `src/render`, `src/converge/*`, `src/stamp` per the decomposition's
 "Converger shape" section. Don't re-scaffold `package.json`/
 `tsconfig.json` — extend the existing ones.
+
+Slice 2 (#13, selection-loop walking skeleton) landed via PR #21: the
+sweep control plane. `src/config/selection.ts` (managed-or-not
+precedence), `src/version-compare.ts` (`isBehind` version-skip),
+`src/stamp/decide.ts` (per-repo verdict), `src/github/properties.ts`
+(dependency-free `fetch` REST client for the three org custom
+properties: paginated read, batched <=30 stamp write, bearer-token
+auth), `src/sweep.ts` (`runSweep`/`runSweepFromEnv`), a `sweep` CLI
+subcommand, and `.github/workflows/sweep.yml` (scheduled +
+workflow_dispatch). Convergence is a **stub** (injectable no-op
+`converge` step in `runSweep`) — slices #14-#18 replace it. The stub
+lives at the `converge` option in `src/sweep.ts`, not a separate
+module yet.
+
+**Placement decision on #13 (non-obvious):** the design doc
+(distribution map) puts the fan-out *driver* workflow in `<org>/.github`
+downloading the converger release, but I placed the walking-skeleton
+sweep workflow *in this repo* running `npm ci && npm run build` against
+the checked-out source. Rationale: it's the walking skeleton and the
+issue's "files affected" listed a workflow under this repo's
+`.github/workflows/`. A later slice may need to relocate the driver to
+`<org>/.github` and consume the release asset instead of building from
+source — revisit when convergence gets teeth.
+
+**Operator-provisioning contract for #13 (not yet done, PR #21 lists
+it):** a *separate* converger org App (org secrets `CONVERGER_APP_ID` /
+`CONVERGER_APP_PRIVATE_KEY`) distinct from the pr-automation App
+(decision 4); three org custom properties (`gh-repo-config-mode`
+single-select process|ignore, `gh-repo-config-default` single-select
+opt-in|opt-out with the *org-level default value* set — the sweep reads
+it from the property *schema's* `default_value`, not a per-repo value;
+`gh-repo-config-version` string stamp); fixture repos. The
+`gh-repo-config-default` schema-default read is the subtle one: it is
+org-level so it comes from `GET .../properties/schema/<name>`, whereas
+`mode`/`version` are per-repo from `.../properties/values`.
 
 **Non-obvious finding from #12:** GitHub's release-immutability toggle
 has no REST API or `gh` CLI surface as of 2026-07 — only a one-time
