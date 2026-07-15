@@ -46,7 +46,9 @@ npm run build && npm test
 - `bin/gh-repo-config.js` — CLI entry point (`package.json` `bin`).
   Subcommands: `version` (default) and `sweep` (reads
   `GH_REPO_CONFIG_ORG` / `GH_REPO_CONFIG_TOKEN` / optional
-  `GH_REPO_CONFIG_DRY_RUN` from the environment).
+  `GH_REPO_CONFIG_DRY_RUN` from the environment; exits non-zero when
+  any repo's convergence or stamp write failed, so a scheduled sweep
+  run cannot fail silently).
 - `test/` — `node:test` files, run via `node --test test/**/*.test.js`.
 - `.github/workflows/release.yml` — publishes a tagged (`v*`) immutable
   GitHub Release with a build-provenance attestation. Bumping the
