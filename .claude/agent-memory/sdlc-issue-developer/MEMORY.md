@@ -1,1 +1,1 @@
-- [Fan-out slices](project_fanout_slices.md) — org-wide config fan-out (#11) slices; #12 via PR #20, #13 (selection sweep) via PR #21; converger App + custom-property provisioning is operator-owned.
+- [Fan-out slices](project_fanout_slices.md) — org-wide config fan-out (#11) slices; #12 via PR #20, #13 (selection sweep) via PR #21, #24 (sweep merges own green PRs) via PR #27; converger App + custom-property provisioning is operator-owned.

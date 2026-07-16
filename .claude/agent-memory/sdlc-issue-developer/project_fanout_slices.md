@@ -80,5 +80,26 @@ being managed in a separate, concurrent workflow outside the fan-out
 issues. Don't assume a fixed visibility when testing release/attestation
 flows; don't attempt to flip visibility from a fan-out slice's PR.
 
+Issue #24 (sweep merges its own green converger PRs — the control
+plane's "unattended end to end" half) landed via PR #27: new
+`src/github/merge.ts` (`MergeClient`, same dependency-free-`fetch`
+shape as `properties.ts`), wired into `runSweep` as an optional
+`mergeClient`/`appSlug` pair on `SweepOptions` (omitted -> merge pass
+skipped, so it doesn't force every `runSweep` caller/test to fake a
+merge client), and `runSweepFromEnv` now requires a new env var
+`GH_REPO_CONFIG_APP_SLUG` (sourced in `sweep.yml` from the existing
+token-mint step's `app-slug` output, not a new secret). The merge pass
+runs over *every* repo the properties API returns each tick,
+independent of that repo's version-skip decision — a stamped repo can
+still have an unmerged PR sitting open from a prior tick. Required
+checks are resolved from the rules API
+(`/repos/{o}/{r}/rules/branches/{branch}`, matching the
+`protect-main` ruleset model, not legacy branch protection); an empty
+required-check set is mergeable outright (unprotected fixtures). A
+405/409 from the merge PUT itself is `awaiting-retry`, not a failure —
+distinct from a red/pending required check (`blocked`/`pending`,
+surfaced in the new `SweepReport.awaitingChecks`, also not a sweep
+failure).
+
 See also [[fanout-design-doc-pointers]] (not yet written) if design
 doc locations change.
