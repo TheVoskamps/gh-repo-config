@@ -52,6 +52,29 @@ match the all-TS stack). Two entry points consume the *same* converger:
 Both paths run identical code, so CI and interactive runs cannot
 diverge. This is the whole point.
 
+### Fan-out mode resolves the skills' interactive inputs to constants
+
+The interactive skills detect or prompt for per-repo values: which
+required-check workflow keys the auto-rebase `workflow_run` trigger and
+the Dependabot REST-merge job, whether the dependency-install-gate is
+present (it gates the lockfile-regen pass), the merge method. When such
+a value is absent, the pr-automation skill *drops* the dependent
+surface (the `workflow_run` trigger, the whole REST-merge job, the
+regen scripts) rather than render it inert.
+
+On a converger-managed repo none of that detection is needed, because
+the converger itself guarantees the environment: the same run that
+renders the pr-automation workflows also installs the gates and guards
+they key off. Every interactive input therefore resolves to a
+**constant** in fan-out mode — required-check workflow = the
+converger's own gate/guard set, install-gate = present, merge method =
+the org standard — and the skills' conditional-drop logic never fires.
+
+This resolution is **control-plane work**: it belongs with the sweep's
+`ResolvedConfig` construction (the selection-loop machinery), not
+inside any render step. The render slices consume resolved constants;
+they do not probe repos.
+
 ### Canonical source: one public repo, consumed as an immutable release
 
 The converger lives in **one public repo under TheVoskamps**, named
@@ -125,6 +148,13 @@ Verified REST shape (available on **Team**):
   (`source_type: Repository`) copy and defers to the org ruleset. The
   per-repo ruleset path remains as the fallback for repos not covered by
   an org ruleset.
+- **Bypass actor travels with the ruleset.** The unattended Dependabot
+  REST-merge only waives review on a code-owned PR when the AUTOMERGE
+  App is a `pull_request` **bypass actor** in whichever `protect-main`
+  ruleset governs the repo. Converging the ruleset (org- or repo-level)
+  therefore includes converging that bypass-actor entry; without it the
+  REST-merge degrades to un-code-owned PRs only — safe, but not the
+  standard.
 
 GHE/EMU migration is planned (import the org). Org rulesets and custom
 properties are org-scoped objects that travel with the org on migration,
@@ -161,6 +191,33 @@ per-repo `dependabot.yml` exactly as the protection skill does today. The
 only org-level Dependabot lever is alert / security-update *enablement* (a
 GHAS toggle), which is orthogonal to the config file.
 
+### PR automation is in the fan-out — and runs as a second App
+
+The converged PR-automation surface is everything
+`gh-repo-setup-pr-automation` renders today, not just "auto-merge and
+rebase":
+
+- **auto-merge enablement** — every PR to the default branch gets
+  auto-merge turned on.
+- **auto-rebase** — event-driven rebase of behind PRs, a scheduled
+  sweep as backstop, and the `/rebase` comment responder.
+- **unattended Dependabot rebase-and-merge** — a green Dependabot PR is
+  REST-merged with no human action, rebased in-workflow when behind.
+- **lockfile-regen** — the `.github/scripts/` pass that regenerates an
+  npm lockfile desynced from its manifest on gate-red Dependabot PRs.
+
+Two App identities are involved, and they stay separate:
+
+- The rendered workflows **run as the AUTOMERGE App**, reading the
+  org-level `AUTOMERGE_APP_ID` / `AUTOMERGE_APP_PRIVATE_KEY` secrets
+  (already set once for the org). The fan-out renders files that
+  *reference* those secret names; it never reads, sets, or rotates
+  them.
+- The **converger App** (Contents/PR write, Administration, custom
+  properties) renders and PRs the workflow files but never holds or
+  uses the automerge identity. The skills' interactive secret-set step
+  is skipped entirely in fan-out mode.
+
 ## Distribution map
 
 | Artifact | Home | Versioned by | Fan-out involvement |
@@ -168,7 +225,7 @@ GHAS toggle), which is orthogonal to the config file.
 | Converger (payloads + TS driver) | Public repo, TheVoskamps | Release tag | Source of truth; consumed as a release |
 | Fan-out driver workflow | `<org>/.github`, scheduled + on-repo-create | — | Downloads converger release, runs it per repo |
 | Community-health files | `<org>/.github` (public) | — | None — true inheritance |
-| Workflows (auto-merge, rebase, gates, guard) | Rendered per repo by converger | Release tag (stamp) | The fan-out |
+| Workflows + scripts (auto-merge incl. Dependabot REST-merge, rebase, lockfile-regen, gates, guard) | Rendered per repo by converger | Release tag (stamp) | The fan-out |
 | `dependabot.yml` | Rendered per repo by converger | Release tag (stamp) | The fan-out |
 | Repo API settings (GHAS, merge button) | PATCHed per repo by converger | Release tag (stamp) | The fan-out |
 | `protect-main` | Org ruleset, `~ALL` | — | Set once per org |
