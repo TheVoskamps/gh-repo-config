@@ -52,6 +52,52 @@ match the all-TS stack). Two entry points consume the *same* converger:
 Both paths run identical code, so CI and interactive runs cannot
 diverge. This is the whole point.
 
+### There are no per-repo inputs — the gates absorb variance at runtime
+
+The converged standard has no per-repo configuration inputs. Ecosystem
+and CodeQL choices are unconditional; the install/pinned gates are a
+dynamic matrix that discovers a repo's actual surface at runtime, so
+the same fixed workflow set is correct on every repo. The pr-automation
+placeholders that the interactive skill historically detected or
+prompted for (required-check workflow, install-gate presence) are
+therefore invariants of the standard itself, and its conditional-drop
+logic never applies to a managed repo. Remaining inputs (merge method,
+do-not-merge label, App/secret names) are org-level constants in the
+converger's config.
+
+Consequently the interactive skills become thin wrappers. In a
+fan-out-enabled org, converging one repo interactively means: assert
+the repo's selection property and trigger a sweep run. Invoking the
+core locally remains only as the bootstrap path — the converger repo
+itself, and orgs where the fan-out is not yet installed.
+
+### Converger PRs merge unattended — by the converger itself
+
+The review that matters happens once, upstream: converger changes are
+human-reviewed in this repo, released immutably, and attested.
+Re-reviewing the mechanical fan-out of that artifact once per repo per
+release adds toil, not scrutiny — and a rubber-stamp approval from a
+second bot identity would be review theater.
+
+So the converger merges its own PRs, as part of its own work. The
+converger App is a `pull_request` bypass actor in `protect-main`, and
+each sweep pass handles the merge alongside the render: per repo, an
+open converger PR whose required checks are all green is REST-merged
+(bypassing the review requirement); a repo whose stamp is behind gets
+render + a new PR. No polling within a run; the next tick merges what
+this tick opened. A red check leaves the PR open — that *is* the
+escalation-to-human path.
+
+It cannot be the rendered pr-automation workflows' job instead: on a
+newly-managed repo the first converger PR is the one that *installs*
+those workflows, and `workflow_run` / `schedule` triggers only run
+from the default branch — the bootstrap PR would wait forever. And
+bypass-merging is no privilege escalation for the converger App: it
+already holds `Administration: write` (it converges the ruleset
+itself), so it is already fully trusted. The gates that still bind are
+the required checks on every converger PR and the release attestation
+on what it renders.
+
 ### Canonical source: one public repo, consumed as an immutable release
 
 The converger lives in **one public repo under TheVoskamps**, named
@@ -125,6 +171,11 @@ Verified REST shape (available on **Team**):
   (`source_type: Repository`) copy and defers to the org ruleset. The
   per-repo ruleset path remains as the fallback for repos not covered by
   an org ruleset.
+- **Bypass actors travel with the ruleset.** The AUTOMERGE App (for the
+  unattended Dependabot REST-merge) and the converger App (for merging
+  its own fan-out PRs) are always `pull_request` **bypass actors** in
+  `protect-main` when they exist in the org. Converging the ruleset
+  (org- or repo-level) includes converging those entries.
 
 GHE/EMU migration is planned (import the org). Org rulesets and custom
 properties are org-scoped objects that travel with the org on migration,
@@ -161,6 +212,33 @@ per-repo `dependabot.yml` exactly as the protection skill does today. The
 only org-level Dependabot lever is alert / security-update *enablement* (a
 GHAS toggle), which is orthogonal to the config file.
 
+### PR automation is in the fan-out — and runs as a second App
+
+The converged PR-automation surface is everything
+`gh-repo-setup-pr-automation` renders today, not just "auto-merge and
+rebase":
+
+- **auto-merge enablement** — every PR to the default branch gets
+  auto-merge turned on.
+- **auto-rebase** — event-driven rebase of behind PRs, a scheduled
+  sweep as backstop, and the `/rebase` comment responder.
+- **unattended Dependabot rebase-and-merge** — a green Dependabot PR is
+  REST-merged with no human action, rebased in-workflow when behind.
+- **lockfile-regen** — the `.github/scripts/` pass that regenerates an
+  npm lockfile desynced from its manifest on gate-red Dependabot PRs.
+
+Two App identities are involved, and they stay separate:
+
+- The rendered workflows **run as the AUTOMERGE App**, reading the
+  org-level `AUTOMERGE_APP_ID` / `AUTOMERGE_APP_PRIVATE_KEY` secrets
+  (already set once for the org). The fan-out renders files that
+  *reference* those secret names; it never reads, sets, or rotates
+  them.
+- The **converger App** (Contents/PR write, Administration, custom
+  properties) renders and PRs the workflow files but never holds or
+  uses the automerge identity. The skills' interactive secret-set step
+  is skipped entirely in fan-out mode.
+
 ## Distribution map
 
 | Artifact | Home | Versioned by | Fan-out involvement |
@@ -168,7 +246,7 @@ GHAS toggle), which is orthogonal to the config file.
 | Converger (payloads + TS driver) | Public repo, TheVoskamps | Release tag | Source of truth; consumed as a release |
 | Fan-out driver workflow | `<org>/.github`, scheduled + on-repo-create | — | Downloads converger release, runs it per repo |
 | Community-health files | `<org>/.github` (public) | — | None — true inheritance |
-| Workflows (auto-merge, rebase, gates, guard) | Rendered per repo by converger | Release tag (stamp) | The fan-out |
+| Workflows + scripts (auto-merge incl. Dependabot REST-merge, rebase, lockfile-regen, gates, guard) | Rendered per repo by converger | Release tag (stamp) | The fan-out |
 | `dependabot.yml` | Rendered per repo by converger | Release tag (stamp) | The fan-out |
 | Repo API settings (GHAS, merge button) | PATCHed per repo by converger | Release tag (stamp) | The fan-out |
 | `protect-main` | Org ruleset, `~ALL` | — | Set once per org |
