@@ -228,7 +228,7 @@ test("runSweepFromEnv requires GH_REPO_CONFIG_APP_SLUG", async () => {
   );
 });
 
-test("the merge pass runs over every repo independent of the version-skip decision", async () => {
+test("the merge pass runs over every managed repo independent of the version-skip decision", async () => {
   const client = fakeClient({
     orgDefault: "opt-in",
     repos: [
@@ -271,6 +271,81 @@ test("the merge pass runs over every repo independent of the version-skip decisi
   ]);
   assert.equal(report.merged.length, 1);
   assert.equal(report.merged[0].pr.number, 7);
+  assert.deepEqual(report.awaitingChecks, []);
+});
+
+test("the merge pass never probes an unmanaged (skip-unmanaged) repo", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [
+      { repo: "fixture-ignore", mode: "ignore", version: undefined }, // skip-unmanaged
+      { repo: "fixture-process", mode: "process", version: V }, // skip-current, managed
+    ],
+  });
+
+  const mergeCalls = [];
+  const mergeClient = {
+    listOwnOpenPullRequests: async (org, repo, appSlug) => {
+      mergeCalls.push(repo);
+      return [];
+    },
+    evaluateAndMerge: async () => {
+      throw new Error("should not be called — no PRs returned");
+    },
+  };
+
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: () => {},
+    mergeClient,
+    appSlug: "test-converger",
+  });
+
+  assert.equal(report.skippedUnmanaged, 1);
+  // Scope is explicit in the iteration itself, not incidental to the
+  // author filter: the unmanaged repo's name never even reaches
+  // listOwnOpenPullRequests.
+  assert.deepEqual(mergeCalls, ["fixture-process"]);
+});
+
+test("the merge pass merges every currently-green converger PR on a repo, with no cap", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [{ repo: "fixture-process", mode: "process", version: V }],
+  });
+
+  const openPrs = [1, 2, 3].map((number) => ({
+    number,
+    headSha: `sha${number}`,
+    headRef: `converger/work-${number}`,
+    baseRef: "main",
+    authorLogin: "test-converger[bot]",
+    authorType: "Bot",
+  }));
+  const evaluated = [];
+  const mergeClient = {
+    listOwnOpenPullRequests: async () => openPrs,
+    evaluateAndMerge: async (org, repo, pr) => {
+      evaluated.push(pr.number);
+      return {
+        pr,
+        outcome: "merged",
+        checks: [{ context: "ci", state: "green" }],
+        reason: "all required checks green, merged",
+      };
+    },
+  };
+
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: () => {},
+    mergeClient,
+    appSlug: "test-converger",
+  });
+
+  assert.deepEqual(evaluated, [1, 2, 3]);
+  assert.deepEqual(
+    report.merged.map((m) => m.pr.number),
+    [1, 2, 3],
+  );
   assert.deepEqual(report.awaitingChecks, []);
 });
 

@@ -295,7 +295,10 @@ export class MergeClient {
     repo: string,
     ref: string,
   ): Promise<RawCheckRun[]> {
-    const url = `${this.apiBase}/repos/${owner}/${repo}/commits/${ref}/check-runs?per_page=100`;
+    // `filter=latest` is GitHub's implicit default (only the most
+    // recent check-run per name/app), but making it explicit avoids
+    // relying on that default holding across API changes.
+    const url = `${this.apiBase}/repos/${owner}/${repo}/commits/${ref}/check-runs?per_page=100&filter=latest`;
     const res = await this.doFetch(url, { headers: this.headers() });
     if (!res.ok) {
       throw new Error(

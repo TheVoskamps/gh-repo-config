@@ -8,13 +8,16 @@
  * repos with the current release version. Convergence itself (rendering
  * files, GHAS toggles, rulesets) is later slices' scope (#14–#18).
  *
- * Independent of the version-skip decision, every managed *and*
- * unmanaged repo also gets a merge pass: list the converger App's own
- * open PRs on that repo and merge whichever are green. A repo can have
- * an unmerged converger PR sitting open regardless of whether it's due
- * for a new convergence this tick, so the merge pass runs over every
- * repo the properties API returns, not just the ones selected for
- * `converge`.
+ * Independent of the version-skip decision, every *managed* repo also
+ * gets a merge pass: list the converger App's own open PRs on that
+ * repo and merge whichever are green. A repo can have an unmerged
+ * converger PR sitting open regardless of whether it's due for a new
+ * convergence this tick, so the merge pass runs over every repo whose
+ * decision is `converge` or `skip-current` — not just the ones
+ * selected for `converge` this tick. Unmanaged (`skip-unmanaged`)
+ * repos are never probed at all: the converger has no business on a
+ * repo that opted out, so scoping is explicit in the iteration rather
+ * than resting on the author filter alone.
  */
 import {
   normalizeOrgDefault,
@@ -155,6 +158,13 @@ export async function runSweep(
 
   const results: SweepRepoResult[] = [];
   const toStamp: string[] = [];
+  // Repos whose selection decision was NOT skip-unmanaged — i.e. the
+  // repo is managed, whether or not it happened to be due for
+  // convergence this tick. The merge pass (below) is scoped to this
+  // list explicitly, rather than resting on the author filter alone,
+  // per issue #24's "per managed repo" step-1 scope: an unmanaged repo
+  // must never be probed, even defensively.
+  const managedRepos: RepoPropertyValues[] = [];
 
   for (const repo of repos) {
     const decision = decideRepo(
@@ -164,6 +174,10 @@ export async function runSweep(
     );
     results.push({ repo: repo.repo, action: decision.action, reason: decision.reason });
     log(`  ${repo.repo}: ${decision.action} — ${decision.reason}`);
+
+    if (decision.action !== "skip-unmanaged") {
+      managedRepos.push(repo);
+    }
 
     if (decision.action === "converge") {
       try {
@@ -230,10 +244,12 @@ export async function runSweep(
     if (!appSlug) {
       throw new Error("appSlug is required when mergeClient is supplied");
     }
-    // The merge pass runs over every repo the properties API returned,
-    // independent of that repo's version-skip decision — a stamped
-    // repo can still have an unmerged converger PR sitting open.
-    for (const repo of repos) {
+    // The merge pass runs over every *managed* repo, independent of
+    // that repo's version-skip decision — a stamped repo can still
+    // have an unmerged converger PR sitting open. Unmanaged repos are
+    // excluded from the iteration itself (not just filtered out by
+    // author match), so an unmanaged repo is never probed at all.
+    for (const repo of managedRepos) {
       const prs = await mergeClient.listOwnOpenPullRequests(
         org,
         repo.repo,

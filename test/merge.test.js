@@ -133,6 +133,25 @@ test("evaluateRequiredChecks conclusion-mapping table", async () => {
   assert.equal(byContext["missing-check"], "pending");
 });
 
+test("evaluateRequiredChecks requests check-runs with an explicit filter=latest", async () => {
+  const fetch = fakeFetch([
+    {
+      match: "/commits/sha1/check-runs",
+      body: {
+        check_runs: [{ name: "ci", status: "completed", conclusion: "success" }],
+      },
+    },
+    { match: "/commits/sha1/status", body: { statuses: [] } },
+  ]);
+  const client = new MergeClient({ token: "t", fetch });
+  await client.evaluateRequiredChecks("Org", "repo", "sha1", ["ci"]);
+  const call = fetch.calls.find((c) => c.url.includes("/check-runs"));
+  assert.ok(
+    call.url.includes("filter=latest"),
+    `expected filter=latest in ${call.url}`,
+  );
+});
+
 test("evaluateRequiredChecks falls back to the legacy combined status when a context has no check-run", async () => {
   const fetch = fakeFetch([
     { match: "/commits/sha1/check-runs", body: { check_runs: [] } },
