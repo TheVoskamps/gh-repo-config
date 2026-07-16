@@ -52,28 +52,51 @@ match the all-TS stack). Two entry points consume the *same* converger:
 Both paths run identical code, so CI and interactive runs cannot
 diverge. This is the whole point.
 
-### Fan-out mode resolves the skills' interactive inputs to constants
+### There are no per-repo inputs — the gates absorb variance at runtime
 
-The interactive skills detect or prompt for per-repo values: which
-required-check workflow keys the auto-rebase `workflow_run` trigger and
-the Dependabot REST-merge job, whether the dependency-install-gate is
-present (it gates the lockfile-regen pass), the merge method. When such
-a value is absent, the pr-automation skill *drops* the dependent
-surface (the `workflow_run` trigger, the whole REST-merge job, the
-regen scripts) rather than render it inert.
+The converged standard has no per-repo configuration inputs. Ecosystem
+and CodeQL choices are unconditional; the install/pinned gates are a
+dynamic matrix that discovers a repo's actual surface at runtime, so
+the same fixed workflow set is correct on every repo. The pr-automation
+placeholders that the interactive skill historically detected or
+prompted for (required-check workflow, install-gate presence) are
+therefore invariants of the standard itself, and its conditional-drop
+logic never applies to a managed repo. Remaining inputs (merge method,
+do-not-merge label, App/secret names) are org-level constants in the
+converger's config.
 
-On a converger-managed repo none of that detection is needed, because
-the converger itself guarantees the environment: the same run that
-renders the pr-automation workflows also installs the gates and guards
-they key off. Every interactive input therefore resolves to a
-**constant** in fan-out mode — required-check workflow = the
-converger's own gate/guard set, install-gate = present, merge method =
-the org standard — and the skills' conditional-drop logic never fires.
+Consequently the interactive skills become thin wrappers. In a
+fan-out-enabled org, converging one repo interactively means: assert
+the repo's selection property and trigger a sweep run. Invoking the
+core locally remains only as the bootstrap path — the converger repo
+itself, and orgs where the fan-out is not yet installed.
 
-This resolution is **control-plane work**: it belongs with the sweep's
-`ResolvedConfig` construction (the selection-loop machinery), not
-inside any render step. The render slices consume resolved constants;
-they do not probe repos.
+### Converger PRs merge unattended — by the converger itself
+
+The review that matters happens once, upstream: converger changes are
+human-reviewed in this repo, released immutably, and attested.
+Re-reviewing the mechanical fan-out of that artifact once per repo per
+release adds toil, not scrutiny — and a rubber-stamp approval from a
+second bot identity would be review theater.
+
+So the converger merges its own PRs, as part of its own work. The
+converger App is a `pull_request` bypass actor in `protect-main`, and
+each sweep pass handles the merge alongside the render: per repo, an
+open converger PR whose required checks are all green is REST-merged
+(bypassing the review requirement); a repo whose stamp is behind gets
+render + a new PR. No polling within a run; the next tick merges what
+this tick opened. A red check leaves the PR open — that *is* the
+escalation-to-human path.
+
+It cannot be the rendered pr-automation workflows' job instead: on a
+newly-managed repo the first converger PR is the one that *installs*
+those workflows, and `workflow_run` / `schedule` triggers only run
+from the default branch — the bootstrap PR would wait forever. And
+bypass-merging is no privilege escalation for the converger App: it
+already holds `Administration: write` (it converges the ruleset
+itself), so it is already fully trusted. The gates that still bind are
+the required checks on every converger PR and the release attestation
+on what it renders.
 
 ### Canonical source: one public repo, consumed as an immutable release
 
@@ -148,13 +171,11 @@ Verified REST shape (available on **Team**):
   (`source_type: Repository`) copy and defers to the org ruleset. The
   per-repo ruleset path remains as the fallback for repos not covered by
   an org ruleset.
-- **Bypass actor travels with the ruleset.** The unattended Dependabot
-  REST-merge only waives review on a code-owned PR when the AUTOMERGE
-  App is a `pull_request` **bypass actor** in whichever `protect-main`
-  ruleset governs the repo. Converging the ruleset (org- or repo-level)
-  therefore includes converging that bypass-actor entry; without it the
-  REST-merge degrades to un-code-owned PRs only — safe, but not the
-  standard.
+- **Bypass actors travel with the ruleset.** The AUTOMERGE App (for the
+  unattended Dependabot REST-merge) and the converger App (for merging
+  its own fan-out PRs) are always `pull_request` **bypass actors** in
+  `protect-main` when they exist in the org. Converging the ruleset
+  (org- or repo-level) includes converging those entries.
 
 GHE/EMU migration is planned (import the org). Org rulesets and custom
 properties are org-scoped objects that travel with the org on migration,
