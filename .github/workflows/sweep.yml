@@ -8,13 +8,23 @@
 # (a stub/no-op this slice — later slices #14-#18 give it teeth), and
 # stamps the processed repos with the current release version.
 #
+# Issue #24 adds the merge pass: independent of the version-skip
+# decision, the sweep also lists each repo's open PRs authored by this
+# same converger App and merges the ones whose required checks are all
+# green, so fan-out runs are unattended end to end. GH_REPO_CONFIG_APP_SLUG
+# below is the App's slug (read from the token-mint step's own output,
+# not a separate secret) so the sweep can match `user.login ===
+# "<slug>[bot]"` and never merge a PR authored by anyone else.
+#
 # Auth: this workflow runs as the dedicated *converger* org GitHub App,
 # NOT the default GITHUB_TOKEN and NOT the pr-automation App. The
 # converger App is least-privilege for the converger's call surface (see
 # the "Converger App" permission table in
-# docs/org-repo-configuration-fanout-decomposition.md); for this slice it
-# only needs Organization custom properties: write. The App is a separate
-# App precisely because later slices need Administration / Org
+# docs/org-repo-configuration-fanout-decomposition.md): Organization
+# custom properties: write (selection/stamping) plus Pull requests:
+# write (the #24 merge pass — reading PR/check state and merging;
+# already held, no new scope needed). The App is a separate App
+# precisely because later slices need Administration / Org
 # administration scope the pr-automation App must never hold (decision 4).
 #
 # Operator prerequisite (provisioned via the user-scoped /gh-create-app
@@ -87,5 +97,6 @@ jobs:
         env:
           GH_REPO_CONFIG_ORG: ${{ github.repository_owner }}
           GH_REPO_CONFIG_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO_CONFIG_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
           GH_REPO_CONFIG_DRY_RUN: ${{ inputs.dry-run }}
         run: node bin/gh-repo-config.js sweep

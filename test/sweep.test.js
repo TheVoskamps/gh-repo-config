@@ -191,6 +191,9 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     if (url.includes("/properties/values") && method === "PATCH") {
       return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
     }
+    if (url.includes("/pulls?state=open")) {
+      return { ok: true, status: 200, statusText: "OK", json: async () => [] };
+    }
     throw new Error(`unexpected fetch: ${method} ${url}`);
   };
 
@@ -198,6 +201,7 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     const report = await runSweepFromEnv({
       GH_REPO_CONFIG_ORG: "TheVoskamps",
       GH_REPO_CONFIG_TOKEN: "test-token",
+      GH_REPO_CONFIG_APP_SLUG: "test-converger",
     });
 
     assert.equal(report.version, CURRENT_VERSION);
@@ -206,7 +210,158 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     assert.deepEqual(report.failed, []);
     assert.equal(report.skippedCurrent, 1); // fixture-current, already at CURRENT_VERSION
     assert.ok(calls.some((c) => c.method === "PATCH"));
+    assert.deepEqual(report.merged, []);
+    assert.deepEqual(report.awaitingChecks, []);
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test("runSweepFromEnv requires GH_REPO_CONFIG_APP_SLUG", async () => {
+  await assert.rejects(
+    () =>
+      runSweepFromEnv({
+        GH_REPO_CONFIG_ORG: "TheVoskamps",
+        GH_REPO_CONFIG_TOKEN: "test-token",
+      }),
+    /GH_REPO_CONFIG_APP_SLUG is required/,
+  );
+});
+
+test("the merge pass runs over every repo independent of the version-skip decision", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [
+      { repo: "fixture-current", mode: "process", version: V }, // skip-current, but may still have an open PR
+    ],
+  });
+
+  const mergeCalls = [];
+  const mergeClient = {
+    listOwnOpenPullRequests: async (org, repo, appSlug) => {
+      mergeCalls.push({ org, repo, appSlug });
+      return [
+        {
+          number: 7,
+          headSha: "abc123",
+          headRef: "converger/work",
+          baseRef: "main",
+          authorLogin: "test-converger[bot]",
+          authorType: "Bot",
+        },
+      ];
+    },
+    evaluateAndMerge: async (org, repo, pr, dryRun) => ({
+      pr,
+      outcome: "merged",
+      checks: [{ context: "ci", state: "green" }],
+      reason: "all required checks green, merged",
+    }),
+  };
+
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: () => {},
+    mergeClient,
+    appSlug: "test-converger",
+  });
+
+  assert.equal(report.skippedCurrent, 1);
+  assert.deepEqual(mergeCalls, [
+    { org: "TheVoskamps", repo: "fixture-current", appSlug: "test-converger" },
+  ]);
+  assert.equal(report.merged.length, 1);
+  assert.equal(report.merged[0].pr.number, 7);
+  assert.deepEqual(report.awaitingChecks, []);
+});
+
+test("a blocked/pending/awaiting-retry merge outcome is reported as awaitingChecks, not failed", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [{ repo: "fixture-a", mode: "process", version: V }],
+  });
+
+  const openPr = {
+    number: 1,
+    headSha: "sha1",
+    headRef: "converger/work",
+    baseRef: "main",
+    authorLogin: "test-converger[bot]",
+    authorType: "Bot",
+  };
+  const mergeClient = {
+    listOwnOpenPullRequests: async () => [openPr],
+    evaluateAndMerge: async () => ({
+      pr: openPr,
+      outcome: "blocked",
+      checks: [{ context: "ci", state: "red" }],
+      reason: "required check(s) red: ci",
+    }),
+  };
+
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: () => {},
+    mergeClient,
+    appSlug: "test-converger",
+  });
+
+  assert.deepEqual(report.merged, []);
+  assert.equal(report.awaitingChecks.length, 1);
+  assert.equal(report.awaitingChecks[0].outcome, "blocked");
+  // Not a sweep failure — an open-awaiting-checks PR is not `failed`.
+  assert.deepEqual(report.failed, []);
+});
+
+test("appSlug is required when mergeClient is supplied", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [],
+  });
+  await assert.rejects(
+    () =>
+      runSweep(client, "TheVoskamps", V, {
+        log: () => {},
+        mergeClient: { listOwnOpenPullRequests: async () => [] },
+      }),
+    /appSlug is required/,
+  );
+});
+
+test("dryRun is passed through to evaluateAndMerge so the merge pass never issues a merge", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [{ repo: "fixture-a", mode: "process", version: "0.1.0" }],
+  });
+
+  const dryRunFlags = [];
+  const openPr = {
+    number: 3,
+    headSha: "sha3",
+    headRef: "converger/work",
+    baseRef: "main",
+    authorLogin: "test-converger[bot]",
+    authorType: "Bot",
+  };
+  const mergeClient = {
+    listOwnOpenPullRequests: async () => [openPr],
+    evaluateAndMerge: async (org, repo, pr, dryRun) => {
+      dryRunFlags.push(dryRun);
+      return {
+        pr,
+        outcome: "merged",
+        checks: [],
+        reason: "[dry-run] all required checks green, would merge",
+      };
+    },
+  };
+
+  const report = await runSweep(client, "TheVoskamps", V, {
+    dryRun: true,
+    log: () => {},
+    mergeClient,
+    appSlug: "test-converger",
+  });
+
+  assert.deepEqual(dryRunFlags, [true]);
+  assert.equal(report.merged.length, 1);
+  assert.deepEqual(report.stamped, []); // dryRun symmetry with stamping
 });

@@ -1,11 +1,20 @@
 /**
- * The selection-loop walking skeleton (issue #13, slice 2).
+ * The selection-loop walking skeleton (issue #13, slice 2), plus the
+ * merge pass that makes fan-out runs unattended end to end (issue #24).
  *
  * Reads the three selection/stamp org custom properties, applies the
  * precedence table + version-skip to every repo, "converges" each due
  * repo (a **stub** — log/no-op this slice), and re-stamps the converged
  * repos with the current release version. Convergence itself (rendering
  * files, GHAS toggles, rulesets) is later slices' scope (#14–#18).
+ *
+ * Independent of the version-skip decision, every managed *and*
+ * unmanaged repo also gets a merge pass: list the converger App's own
+ * open PRs on that repo and merge whichever are green. A repo can have
+ * an unmerged converger PR sitting open regardless of whether it's due
+ * for a new convergence this tick, so the merge pass runs over every
+ * repo the properties API returns, not just the ones selected for
+ * `converge`.
  */
 import {
   normalizeOrgDefault,
@@ -18,6 +27,11 @@ import {
   type OrgPropertiesClientOptions,
   type RepoPropertyValues,
 } from "./github/properties.js";
+import {
+  MergeClient,
+  type MergeAttemptResult,
+  type MergeClientOptions,
+} from "./github/merge.js";
 import { CURRENT_VERSION } from "./version.js";
 
 /** One repo's outcome in a sweep run. */
@@ -63,6 +77,22 @@ export interface SweepReport {
   readonly failed: readonly string[];
   readonly skippedUnmanaged: number;
   readonly skippedCurrent: number;
+  /**
+   * Converger-authored PRs merged this tick (all required checks green,
+   * mergeable, merge-commit issued — or, under `dryRun`, would have
+   * been). Runs over every repo the properties API returned, independent
+   * of that repo's version-skip decision.
+   */
+  readonly merged: readonly MergeAttemptResult[];
+  /**
+   * Converger-authored PRs left open this tick: a required check is red
+   * (the escalation-to-human path), a required check is still pending
+   * (not yet, retried next tick), or the merge call itself was rejected
+   * with a 405/409 between the read and the merge attempt (head moved /
+   * no-longer-mergeable — also retried next tick). None of these count
+   * as a sweep failure.
+   */
+  readonly awaitingChecks: readonly MergeAttemptResult[];
 }
 
 /** How to run the sweep. */
@@ -84,6 +114,19 @@ export interface SweepOptions {
   readonly converge?: (repo: string) => Promise<void> | void;
   /** Injectable logger (defaults to `console`). */
   readonly log?: (message: string) => void;
+  /**
+   * The merge client used for the merge pass (issue #24). When omitted,
+   * the merge pass is skipped entirely (`merged`/`awaitingChecks` come
+   * back empty) — used by callers/tests that only care about the
+   * selection loop. `runSweepFromEnv` always supplies one.
+   */
+  readonly mergeClient?: MergeClient;
+  /**
+   * The converger App's slug (e.g. `my-converger-app`), used to match
+   * `user.login === "<appSlug>[bot]"` when listing a repo's open PRs.
+   * Required whenever `mergeClient` is supplied.
+   */
+  readonly appSlug?: string;
 }
 
 /**
@@ -179,6 +222,42 @@ export async function runSweep(
 
   const failed = results.filter((r) => r.action === "failed").map((r) => r.repo);
 
+  const merged: MergeAttemptResult[] = [];
+  const awaitingChecks: MergeAttemptResult[] = [];
+  const mergeClient = options.mergeClient;
+  if (mergeClient) {
+    const appSlug = options.appSlug;
+    if (!appSlug) {
+      throw new Error("appSlug is required when mergeClient is supplied");
+    }
+    // The merge pass runs over every repo the properties API returned,
+    // independent of that repo's version-skip decision — a stamped
+    // repo can still have an unmerged converger PR sitting open.
+    for (const repo of repos) {
+      const prs = await mergeClient.listOwnOpenPullRequests(
+        org,
+        repo.repo,
+        appSlug,
+      );
+      for (const pr of prs) {
+        const attempt = await mergeClient.evaluateAndMerge(
+          org,
+          repo.repo,
+          pr,
+          dryRun,
+        );
+        log(
+          `  ${repo.repo}#${pr.number}: ${attempt.outcome} — ${attempt.reason}`,
+        );
+        if (attempt.outcome === "merged") {
+          merged.push(attempt);
+        } else {
+          awaitingChecks.push(attempt);
+        }
+      }
+    }
+  }
+
   return {
     org,
     version,
@@ -190,6 +269,8 @@ export async function runSweep(
     failed,
     skippedUnmanaged: results.filter((r) => r.action === "skip-unmanaged").length,
     skippedCurrent: results.filter((r) => r.action === "skip-current").length,
+    merged,
+    awaitingChecks,
   };
 }
 
@@ -200,9 +281,14 @@ export async function runSweep(
  * Required env:
  * - `GH_REPO_CONFIG_ORG` — the org to sweep.
  * - `GH_REPO_CONFIG_TOKEN` — a bearer token (the App installation token).
+ * - `GH_REPO_CONFIG_APP_SLUG` — the converger App's slug, used by the
+ *   merge pass (issue #24) to match `user.login === "<slug>[bot]"` when
+ *   listing a repo's open PRs. `sweep.yml` already knows this — it's
+ *   the App the token-mint step mints from.
  *
  * Optional env:
- * - `GH_REPO_CONFIG_DRY_RUN` — `true` to decide/log without stamping.
+ * - `GH_REPO_CONFIG_DRY_RUN` — `true` to decide/log without stamping or
+ *   merging.
  * - `GITHUB_API_URL` — API base (GitHub Actions sets this).
  */
 export async function runSweepFromEnv(
@@ -210,21 +296,34 @@ export async function runSweepFromEnv(
 ): Promise<SweepReport> {
   const org = env.GH_REPO_CONFIG_ORG;
   const token = env.GH_REPO_CONFIG_TOKEN;
+  const appSlug = env.GH_REPO_CONFIG_APP_SLUG;
   if (!org) {
     throw new Error("GH_REPO_CONFIG_ORG is required");
   }
   if (!token) {
     throw new Error("GH_REPO_CONFIG_TOKEN is required");
   }
+  if (!appSlug) {
+    throw new Error("GH_REPO_CONFIG_APP_SLUG is required");
+  }
 
+  const apiBase = env.GITHUB_API_URL;
   const clientOptions: OrgPropertiesClientOptions = {
     org,
     token,
-    ...(env.GITHUB_API_URL ? { apiBase: env.GITHUB_API_URL } : {}),
+    ...(apiBase ? { apiBase } : {}),
   };
   const client = new OrgPropertiesClient(clientOptions);
 
+  const mergeClientOptions: MergeClientOptions = {
+    token,
+    ...(apiBase ? { apiBase } : {}),
+  };
+  const mergeClient = new MergeClient(mergeClientOptions);
+
   return runSweep(client, org, CURRENT_VERSION, {
     dryRun: env.GH_REPO_CONFIG_DRY_RUN === "true",
+    mergeClient,
+    appSlug,
   });
 }
