@@ -102,6 +102,38 @@ export interface SweepReport {
   readonly awaitingChecks: readonly MergeAttemptResult[];
 }
 
+/**
+ * Record a repo's outcome as `failed` in `results`, in place.
+ *
+ * The three call sites in {@link runSweep} (convergence-loop catch,
+ * `PartialStampError` downgrade, merge-loop catch) all need to encode
+ * "this repo did not end the sweep successfully, here's why" into the
+ * same `results` array, so a re-sweep retries it. This is the one
+ * canonical way to do that:
+ *
+ * - Finds the repo's existing entry by name (every repo already got a
+ *   `results.push` from the initial selection loop, so an entry always
+ *   exists by the time any of the three call sites run).
+ * - Leaves a prior `failed` entry alone rather than clobbering it with a
+ *   less-specific reason — e.g. a repo whose `converge` step already
+ *   threw this tick must not have that recorded failure overwritten by a
+ *   later merge-pass error for the same repo.
+ *
+ * @param results the sweep's in-progress results array, mutated in place.
+ * @param repo the repo name to mark failed.
+ * @param reason the human-readable failure reason for this repo.
+ */
+function markFailed(
+  results: SweepRepoResult[],
+  repo: string,
+  reason: string,
+): void {
+  const idx = results.findIndex((r) => r.repo === repo);
+  if (idx !== -1 && results[idx].action !== "failed") {
+    results[idx] = { repo, action: "failed", reason };
+  }
+}
+
 /** How to run the sweep. */
 export interface SweepOptions {
   /**
@@ -193,11 +225,7 @@ export async function runSweep(
         // A convergence failure is its own outcome — distinct from
         // "already up to date" (skip-current) — so the report can't be
         // misread as a clean run. It is not stamped and must be retried.
-        results[results.length - 1] = {
-          repo: repo.repo,
-          action: "failed",
-          reason: `convergence failed: ${msg}`,
-        };
+        markFailed(results, repo.repo, `convergence failed: ${msg}`);
       }
     }
   }
@@ -221,14 +249,11 @@ export async function runSweep(
         // but the stamp write never landed, so a re-sweep must retry
         // them rather than the report silently claiming success.
         for (const repoName of notStamped) {
-          const idx = results.findIndex((r) => r.repo === repoName);
-          if (idx !== -1) {
-            results[idx] = {
-              repo: repoName,
-              action: "failed",
-              reason: `converged but stamp write failed: ${err.message}`,
-            };
-          }
+          markFailed(
+            results,
+            repoName,
+            `converged but stamp write failed: ${err.message}`,
+          );
         }
       } else {
         throw err;
@@ -291,14 +316,7 @@ export async function runSweep(
         // retried next tick. Don't clobber a convergence failure already
         // recorded for this repo (e.g. `converge` threw earlier this
         // tick) — that's already `failed` and already the right reason.
-        const idx = results.findIndex((r) => r.repo === repo.repo);
-        if (idx !== -1 && results[idx].action !== "failed") {
-          results[idx] = {
-            repo: repo.repo,
-            action: "failed",
-            reason: `merge pass failed: ${msg}`,
-          };
-        }
+        markFailed(results, repo.repo, `merge pass failed: ${msg}`);
       }
     }
   }
