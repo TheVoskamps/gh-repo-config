@@ -10,7 +10,7 @@
 #                        (e.g. AUTOMERGE_APP_PRIVATE_KEY)
 #   gh-repo-config-auto-rebase[bot]         git identity used for rebase commits, e.g.
 #                        "<repo>-auto-rebase[bot]"
-#   no-back-merging-guard  name of the repo's required-check
+#   no-back-merging-guard, dependency-install-gate, dependency-pinned-gate, codeql  name of the repo's required-check
 #                        workflow that, on completion, should trigger a
 #                        rebase pass (e.g. no-back-merging-guard). If the
 #                        repo has no such workflow, the
@@ -33,7 +33,7 @@ on:
   push:
     branches: [main]
   workflow_run:
-    workflows: [no-back-merging-guard]
+    workflows: [no-back-merging-guard, dependency-install-gate, dependency-pinned-gate, codeql]
     types: [completed]
   workflow_dispatch:
   schedule:
@@ -54,7 +54,7 @@ on:
 #
 # Triggers:
 #   - push to main -- every advance rebases eligible PRs
-#   - workflow_run on no-back-merging-guard completion -- as soon
+#   - workflow_run on no-back-merging-guard, dependency-install-gate, dependency-pinned-gate, codeql completion -- as soon
 #     as a PR's required check finishes, the rebase pass runs
 #   - workflow_dispatch -- manual "Run workflow" button (or
 #     `gh workflow run auto-rebase-prs.yml`). Recovery path for the
