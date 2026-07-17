@@ -33,6 +33,21 @@ switch (command) {
           `${report.awaitingChecks.length} PR(s) awaiting checks` +
           (report.dryRun ? " (dry-run, no stamps or merges written)" : ""),
       );
+      for (const { repo, result } of report.convergeResults) {
+        if (result.noop) {
+          console.log(`  ${repo}: no diff, no PR`);
+        } else if (result.pullRequest) {
+          console.log(
+            `  ${repo}: PR #${result.pullRequest.number} ` +
+              `${result.pullRequest.updated ? "updated" : "opened"} ` +
+              `(${result.pullRequest.url})`,
+          );
+        } else {
+          console.log(
+            `  ${repo}: ${result.changed.length} file(s) would change (dry-run, no PR)`,
+          );
+        }
+      }
       if (report.failed.length > 0) {
         console.error(
           `Sweep had ${report.failed.length} failed repo(s): ${report.failed.join(", ")}`,

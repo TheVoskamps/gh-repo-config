@@ -50,6 +50,72 @@ test("sweep converges behind managed repos, skips others, and stamps them", asyn
   assert.deepEqual(client.stamped, [
     { names: ["fixture-process"], version: V },
   ]);
+  // The default no-op converge stub returns nothing, so no
+  // convergeResults entries are contributed.
+  assert.deepEqual(report.convergeResults, []);
+});
+
+test("a converge step's returned ConvergeResult is surfaced in the sweep report, per repo", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [
+      { repo: "fixture-opened", mode: "process", version: "0.1.0" },
+      { repo: "fixture-updated", mode: "process", version: "0.1.0" },
+      { repo: "fixture-noop", mode: "process", version: "0.1.0" },
+    ],
+  });
+
+  const logs = [];
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: (m) => logs.push(m),
+    converge: (repo) => {
+      if (repo === "fixture-opened") {
+        return {
+          changed: [".github/dependabot.yml"],
+          pullRequest: {
+            number: 12,
+            url: "https://example/pr/12",
+            updated: false,
+          },
+          noop: false,
+        };
+      }
+      if (repo === "fixture-updated") {
+        return {
+          changed: [".github/dependabot.yml"],
+          pullRequest: {
+            number: 13,
+            url: "https://example/pr/13",
+            updated: true,
+          },
+          noop: false,
+        };
+      }
+      // fixture-noop: no diff, no PR.
+      return { changed: [], noop: true };
+    },
+  });
+
+  assert.deepEqual(
+    report.convergeResults.map((c) => c.repo).sort(),
+    ["fixture-noop", "fixture-opened", "fixture-updated"],
+  );
+
+  const byRepo = Object.fromEntries(
+    report.convergeResults.map((c) => [c.repo, c.result]),
+  );
+  assert.equal(byRepo["fixture-opened"].pullRequest.number, 12);
+  assert.equal(byRepo["fixture-opened"].pullRequest.updated, false);
+  assert.equal(byRepo["fixture-updated"].pullRequest.number, 13);
+  assert.equal(byRepo["fixture-updated"].pullRequest.updated, true);
+  assert.equal(byRepo["fixture-noop"].noop, true);
+  assert.equal(byRepo["fixture-noop"].pullRequest, undefined);
+
+  // The per-repo outcome is also logged, so a sweep run's console output
+  // shows what convergence actually did per repo.
+  assert.ok(logs.some((l) => l.includes("fixture-opened") && l.includes("PR #12") && l.includes("opened")));
+  assert.ok(logs.some((l) => l.includes("fixture-updated") && l.includes("PR #13") && l.includes("updated")));
+  assert.ok(logs.some((l) => l.includes("fixture-noop") && l.includes("no diff, no PR")));
 });
 
 test("flipping org default to opt-out converges the unset repo", async () => {
@@ -246,6 +312,19 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     assert.ok(calls.some((c) => c.method === "PATCH"));
     assert.deepEqual(report.merged, []);
     assert.deepEqual(report.awaitingChecks, []);
+
+    // Finding: runSweepFromEnv's converge callback must not discard the
+    // ConvergeResult — the real convergeRepoFiles() write path opened a
+    // PR for fixture-behind (an empty target tree makes every desired
+    // file "changed"), and that outcome must surface in the report.
+    assert.equal(report.convergeResults.length, 1);
+    assert.equal(report.convergeResults[0].repo, "fixture-behind");
+    const convergeResult = report.convergeResults[0].result;
+    assert.equal(convergeResult.noop, false);
+    assert.ok(convergeResult.changed.length > 0);
+    assert.equal(convergeResult.pullRequest.number, 1);
+    assert.equal(convergeResult.pullRequest.url, "https://example/pr/1");
+    assert.equal(convergeResult.pullRequest.updated, false);
   } finally {
     global.fetch = originalFetch;
   }

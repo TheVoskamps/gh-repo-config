@@ -117,6 +117,14 @@ function ecosystemClass(ecosystem: string): EcosystemClass {
  * comment header that documents the placeholders; only the YAML body is
  * rendered. The body begins at the first line that is neither blank nor
  * a `#` comment.
+ *
+ * The source assets are ordinary text files and so end with a trailing
+ * newline; a bare `split("\n")` on such a file yields a trailing empty
+ * element, which would otherwise surface as an extra blank line at the
+ * end of the returned body. Strip exactly one trailing newline (never
+ * more — callers care whether the body genuinely ends in a blank line
+ * vs. just the file's own terminator) so both {@link renderEcosystemBlock}
+ * and the outer-template body it feeds render without that artifact.
  */
 function stripLeadingComments(text: string): string {
   const lines = text.split("\n");
@@ -129,7 +137,8 @@ function stripLeadingComments(text: string): string {
     }
     break;
   }
-  return lines.slice(start).join("\n");
+  const body = lines.slice(start).join("\n");
+  return body.endsWith("\n") ? body.slice(0, -1) : body;
 }
 
 /**

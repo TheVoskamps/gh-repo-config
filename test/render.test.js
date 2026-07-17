@@ -136,6 +136,21 @@ test("render is deterministic (byte-for-byte stable across two renders)", () => 
   assert.equal(a, b);
 });
 
+test("rendered output ends with exactly one trailing newline, no trailing blank line", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  // Exactly one `\n` terminator — not zero (missing) and not two-or-more
+  // (a trailing blank line), which would previously slip in because the
+  // source assets' own trailing newline survived into each rendered
+  // ecosystem block. Also asserted between every pair of adjacent
+  // `package-ecosystem:` blocks, not just at the very end.
+  assert.match(out, /[^\n]\n$/);
+  assert.doesNotMatch(out, /\n\n$/);
+});
+
 test("target-branch reflects the per-repo default branch", () => {
   const out = renderDependabotYml(
     readAssetText("dependabot.yml"),
