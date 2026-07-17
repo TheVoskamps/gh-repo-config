@@ -10,8 +10,39 @@ permissions:
   contents: read
 
 jobs:
-  npm:
+  # Stage 1: decide WHICH ecosystems to gate, at runtime, per PR. Emits a
+  # JSON array (e.g. ["actions","go"]) of the ecosystems whose manifest
+  # is present in the tracked tree, reusing the gate script's discovery.
+  detect:
+    name: Detect present ecosystems
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      ecosystems: ${{ steps.detect.outputs.ecosystems }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Detect present ecosystems
+        id: detect
+        run: bash .github/scripts/dependency-pinned-gate.sh --present
+
+  # Stage 2: one pin-check leg per present ecosystem. Fed by the detect
+  # job's JSON array via fromJSON; an empty array spawns ZERO legs
+  # cleanly (fail-open — no phantom check, no empty-green noise).
+  gate:
+    name: Pinned gate (${{ matrix.ecosystem }})
+    needs: detect
+    if: ${{ needs.detect.outputs.ecosystems != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ecosystem: ${{ fromJSON(needs.detect.outputs.ecosystems) }}
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -24,39 +55,39 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Exact-version pin check over discovered package.json files
-        run: bash .github/scripts/dependency-pinned-gate.sh npm
+      - name: Exact-version pin check over discovered manifests
+        run: bash .github/scripts/dependency-pinned-gate.sh ${{ matrix.ecosystem }}
 
-  pip:
+  # Stage 3: the SINGLE required status check. Always runs (even when the
+  # matrix was empty), and concludes success on an empty matrix (no
+  # ecosystem present -> mergeable, NOT hung) or when every gate leg
+  # succeeded, and failure when any leg failed or was cancelled.
+  # `if: always()` is MANDATORY: without it the job is SKIPPED on an
+  # empty matrix, and a required check treats "skipped" as not-passed,
+  # reintroducing the #91/#230 phantom-check hang. The `protect-main`
+  # ruleset lists THIS job's name (`pinned-gate-required`) as the
+  # required check, never the per-leg `Pinned gate (<ecosystem>)` names.
+  pinned-gate-required:
+    name: pinned-gate-required
+    needs: gate
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: "3.11"
-
-      - name: Exact-version pin check over discovered requirements / pyproject
-        run: bash .github/scripts/dependency-pinned-gate.sh pip
-
-  actions:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: "3.11"
-
-      - name: SHA-pin check over discovered workflow `uses:` refs
-        run: bash .github/scripts/dependency-pinned-gate.sh actions
+      - name: Conclude on the gate matrix result
+        run: |
+          result="${{ needs.gate.result }}"
+          echo "gate job result: ${result}"
+          # An empty matrix leaves the gate job 'skipped' — the fail-OPEN
+          # case (no ecosystem present), so it is a PASS. 'success' is
+          # also a pass. Anything else (failure, cancelled) blocks the PR.
+          case "${result}" in
+            success|skipped)
+              echo "pinned-gate aggregator: PASS (${result})."
+              ;;
+            *)
+              echo "pinned-gate aggregator: FAIL — at least one gate leg did not succeed (${result})." >&2
+              exit 1
+              ;;
+          esac
