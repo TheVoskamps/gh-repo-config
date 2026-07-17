@@ -34,8 +34,15 @@ Each is a settled instruction.
    to `main` directly. It works on a branch and opens a PR — the same
    shape the skills use today, made deterministic. Once a repo has
    protection on, PR-to-`main` is the only way in, so first-run and
-   every re-converge are uniform. (Auto-merging that PR is the
-   pr-automation workflows' job, not the converger's.)
+   every re-converge are uniform. **Merging that PR is the converger's
+   own job** (#24): the converger App is a `pull_request` bypass actor
+   in `protect-main`, and each sweep pass REST-merges open converger
+   PRs whose required checks are all green — a red check leaves the PR
+   open as the escalation path. It cannot be the rendered
+   pr-automation workflows' job: on a newly-managed repo the first
+   converger PR is the one that installs those workflows, and
+   `workflow_run` / `schedule` triggers only run from the default
+   branch, so the bootstrap PR would wait forever.
 
 2. **All ecosystems, unconditionally — no confirmation.** Drop the
    protection skill's Step 2b `AskUserQuestion` ecosystem tabs entirely.
@@ -195,7 +202,7 @@ thin.
 | 1 Pre-flight | **Core** |
 | 2 Env-inferred placeholders | **Core** |
 | 3 Resolve GitHub App | **Shell** (first-run); CI consumes the App secret |
-| 4 Resolve remaining placeholders | **Core** |
+| 4 Resolve remaining placeholders | **Core** — every value is a fixed constant of the converged standard (no per-repo detection; the skill's conditional-drop logic never applies to a managed repo) |
 | 5 Halt #1 — confirm | **Shell** interactive; no halt in CI |
 | 6 Render+write workflow files | **Core** |
 | 6b Commit/push/PR | **Shell** / CI split as protection Step 7 |
@@ -301,46 +308,66 @@ an explicitly-`process`-flagged fixture is ever touched.
 - **Parent Feature: Org-wide repo-configuration fan-out** — body links
   the design + this decomposition; the sub-issues below nest under it.
 
-- **1. Release/versioning mechanism** — build the converger, publish as
-  an immutable release asset + attestation, enable release immutability;
-  expose a readable "current version." Feature. Medium. *First — every
-  skip-by-version check needs versions to compare against.* Testable:
-  `gh release view`, `gh attestation verify`.
-- **2. Selection-loop walking skeleton** — the scheduled **+
-  `workflow_dispatch`** (manual) sweep, running as the converger App:
-  reads the three selection properties, applies the precedence table,
-  version-skips managed repos, stamps processed ones. Convergence is a
-  stub (log / no-op). Feature. High. blocked-by 1. **Prereq in body, not
-  a ticket:** provision the converger org App via user-scoped
-  `gh-create-app` with the "Converger App" permission set (incl.
-  Contents: read on `.github`); install on TheVoskamps + `.github`; store
-  App ID + private key as org secrets. Testable: flag a fixture
-  `process`/`ignore`, flip the org default, bump the version,
+- **1. Release/versioning mechanism** (filed: #12, done) — build the
+  converger, publish as an immutable release asset + attestation, enable
+  release immutability; expose a readable "current version." Feature.
+  Medium. *First — every skip-by-version check needs versions to compare
+  against.* Testable: `gh release view`, `gh attestation verify`.
+- **2. Selection-loop walking skeleton** (filed: #13, done) — the
+  scheduled **+ `workflow_dispatch`** (manual) sweep, running as the
+  converger App: reads the three selection properties, applies the
+  precedence table, version-skips managed repos, stamps processed ones.
+  Convergence is a stub (log / no-op). Feature. High. blocked-by 1.
+  **Prereq in body, not a ticket:** provision the converger org App via
+  user-scoped `gh-create-app` with the "Converger App" permission set
+  (incl. Contents: read on `.github`); install on TheVoskamps +
+  `.github`; store App ID + private key as org secrets. Testable: flag a
+  fixture `process`/`ignore`, flip the org default, bump the version,
   manual-dispatch → watch it pick / skip / stamp correctly.
-- **3. Converge `dependabot.yml` + gates/guards** — first real teeth;
-  extract the skills' inline `*.sh`/`*.yml` payloads to `assets/`
-  verbatim; render + branch + PR. Feature. High. blocked-by 2. Testable:
-  bump version, dispatch → PR shows the files; re-dispatch at same
-  version → skipped.
-- **4. Converge GHAS + merge-button settings** (+ CodeQL default-off).
-  Feature. High. blocked-by 2. Testable: dispatch → toggles flip on the
+- **2b. Sweep merges green converger PRs** (filed: #24) — the merge
+  pass per decision 1: each sweep tick, REST-merge open converger-App
+  PRs whose required checks are all green (bypass-actor merge); red or
+  pending checks leave the PR open and reported, not failed. Runs for
+  every managed repo independent of the version-skip. Feature. Medium.
+  blocked-by 2 only — lands before or alongside the convergence slices
+  so their PRs self-merge. Testable: fixture with a green converger PR
+  → dispatch → merged; red-check PR → left open + reported.
+- **3. Converge `dependabot.yml` + gates/guards** (filed: #14) — first
+  real teeth; extract the protection skill's payloads to `assets/`
+  verbatim; establish the render pipeline (placeholder substitution,
+  whole-file write-if-changed, one shared work branch + PR per repo per
+  run). Feature. High. blocked-by 2. Testable: bump version, dispatch →
+  PR shows the files; re-dispatch at same version → skipped.
+- **3b. Converge pr-automation workflows + scripts** (filed: #25) —
+  feed the pr-automation payloads (auto-merge enablement incl.
+  Dependabot REST-merge, auto-rebase + `/rebase`, lockfile-regen
+  scripts) through slice 3's pipeline; all placeholders are fixed
+  constants of the standard. Feature. Medium. blocked-by 3 (the
+  pipeline). Testable: dispatch → both workflows + both scripts in the
+  fixture's PR, zero unresolved placeholders; re-dispatch → skipped.
+- **4. Converge GHAS + merge-button settings** (filed: #15). Feature.
+  High. blocked-by 2. Testable: dispatch → toggles flip on the
   fixture; re-dispatch → no-op; private fixture → 422 skip-and-report.
-- **5. Converge protect-main ruleset** (+ org-ruleset detection).
-  Feature. Medium. blocked-by 2. Testable: dispatch → ruleset appears;
-  re-dispatch → converged.
-- **6. Converge CodeQL** — advanced setup on, default off, + workflow.
-  Feature. Medium. blocked-by 2. (The CodeQL server-mode read lives here,
-  where it's used — not a standalone module.) Testable: dispatch →
-  workflow in PR, default-setup off server-side.
-- **7. Copy community files from `<org>/.github`** — seed-if-absent,
-  skip-and-report if `.github` missing/empty. Feature. Medium.
-  blocked-by 2. Testable: dispatch → the org's CONTRIBUTING/SECURITY land
-  in a bare fixture's PR; the with-own-files fixture keeps its own.
+- **5. Converge protect-main ruleset** (filed: #16) — + org-ruleset
+  detection, and the `pull_request` **bypass actors** as part of the
+  converged shape: the AUTOMERGE App and the converger App, whenever
+  the App exists in the org. Feature. Medium. blocked-by 2. Testable:
+  dispatch → ruleset appears with both bypass actors; re-dispatch →
+  converged.
+- **6. Converge CodeQL** (filed: #17) — advanced setup on, default off,
+  plus the workflow. Feature. Medium. blocked-by 2. (The CodeQL server-mode
+  read lives here, where it's used — not a standalone module.)
+  Testable: dispatch → workflow in PR, default-setup off server-side.
+- **7. Copy community files from `<org>/.github`** (filed: #18) —
+  seed-if-absent, skip-and-report if `.github` missing/empty. Feature.
+  Medium. blocked-by 2. Testable: dispatch → the org's
+  CONTRIBUTING/SECURITY land in a bare fixture's PR; the with-own-files
+  fixture keeps its own.
 
-Slices 3–7 are parallel-safe after 2 (distinct convergence concerns,
-distinct files) and share one test recipe: bump the release version,
-manual-dispatch, confirm the new thing converges *and* that a second run
-at that version skips.
+Slices 2b and 3–7 are parallel-safe after 2 (distinct concerns,
+distinct files); 3b follows 3. They share one test recipe: bump the
+release version, manual-dispatch, confirm the new thing converges *and*
+that a second run at that version skips.
 
 ### Tree B — `TheVoskamps/claude-plugins-marketplace` (the skills)
 
@@ -349,14 +376,21 @@ at that version skips.
   cross-repo blocked-by edges to Tree A's core issues, and references
   Tree A's parent by URL.
 
-- **Refactor `gh-repo-setup-protection` to call the core** — Steps
-  2/3/4/5/6 to the core, keeping the Step 7 approval as the only
-  interactive surface (Step 2b + CodeQL opt-in removed per decisions
-  2/3). Feature. High. blocked-by Tree A slices 3–6 (all convergence).
-- **Refactor `gh-repo-setup-pr-automation` to call the core** — Steps
-  2/4/6 to the core, keeping App resolution + halts as shell; skip Step 7
-  secret-set in fan-out mode. Feature. Medium. blocked-by Tree A slice 3
-  (render/convergence).
+- **Refactor `gh-repo-setup-protection` to a thin wrapper** — in a
+  fan-out-enabled org, converging one repo interactively means: assert
+  the repo's selection property (`gh-repo-config-mode: process`) and
+  trigger a sweep run, then report the PR the sweep opens. Invoking the
+  core locally remains only as the bootstrap path (orgs without the
+  fan-out; the converger repo itself). The skill keeps first-run-only
+  surfaces (App resolution, approval halts) and sheds its convergence
+  logic entirely — smaller than the originally-planned
+  steps-to-the-core refactor. Feature. High. blocked-by Tree A slices
+  3–6 (all convergence).
+- **Refactor `gh-repo-setup-pr-automation` to a thin wrapper** — same
+  shape: assert the selection property + trigger a sweep; local-core
+  path for bootstrap orgs only; the Step 7 secret-set stays first-run
+  interactive. Feature. Medium. blocked-by Tree A slice 3b (the
+  pr-automation convergence, #25) — not slice 3.
 - **New skill `gh-org-setup-protection-ruleset`** — org-level
   protect-main at `~ALL` (`POST /orgs/{org}/rulesets`); teach the repo
   skill to delete the redundant repo-level copy when an org ruleset
@@ -376,10 +410,11 @@ at that version skips.
 
 ## Orchestratability
 
-Convergence slices 3–7 are the clean parallel-safe set for
+Slices 2b and 3–7 are the clean parallel-safe set for
 `/sdlc:orchestrate` once slices 1–2 (release + walking skeleton) land:
-distinct convergence concerns, distinct files under `src/`, no logical
-inter-dependency, all blocked only by slice 2. Slices 1–2 are
+distinct concerns, distinct files under `src/`, no logical
+inter-dependency, all blocked only by slice 2. Slice 3b joins the pool
+once 3 lands. Slices 1–2 are
 first-implementation work that establishes the release, the App, and the
 sweep — better done as one foreground pass than fanned out. Tree B's
 refactors edit `claude-plugins-marketplace`, out of a `gh-repo-config`
