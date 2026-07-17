@@ -3,10 +3,14 @@
  * merge pass that makes fan-out runs unattended end to end (issue #24).
  *
  * Reads the three selection/stamp org custom properties, applies the
- * precedence table + version-skip to every repo, "converges" each due
- * repo (a **stub** — log/no-op this slice), and re-stamps the converged
- * repos with the current release version. Convergence itself (rendering
- * files, GHAS toggles, rulesets) is later slices' scope (#14–#18).
+ * precedence table + version-skip to every repo, converges each due
+ * repo, and re-stamps the converged repos with the current release
+ * version. `runSweep`'s `converge` step is an injectable callback — the
+ * function itself stays convergence-agnostic and tests supply their own
+ * stub. `runSweepFromEnv` wires in the real converge step (issue #14,
+ * `convergeRepoFiles` in `./converge/writer.js`), which renders this
+ * slice's payload set and opens/updates one PR per repo. GHAS toggles
+ * and ruleset management remain later slices' scope (#17, #18).
  *
  * Independent of the version-skip decision, every *managed* repo also
  * gets a merge pass: list the converger App's own open PRs on that
@@ -35,6 +39,11 @@ import {
   type MergeAttemptResult,
   type MergeClientOptions,
 } from "./github/merge.js";
+import {
+  ContentsClient,
+  type ContentsClientOptions,
+} from "./github/contents.js";
+import { convergeRepoFiles, type ConvergeResult } from "./converge/writer.js";
 import { CURRENT_VERSION } from "./version.js";
 
 /** One repo's outcome in a sweep run. */
@@ -42,6 +51,12 @@ export interface SweepRepoResult {
   readonly repo: string;
   readonly action: RepoAction;
   readonly reason: string;
+}
+
+/** One repo's file-convergence outcome, keyed by repo name. */
+export interface SweepConvergeResult {
+  readonly repo: string;
+  readonly result: ConvergeResult;
 }
 
 /** The full result of a sweep run, for logging and CI assertions. */
@@ -59,6 +74,19 @@ export interface SweepReport {
    * {@link stamped}).
    */
   readonly converged: readonly string[];
+  /**
+   * Per-repo file-convergence outcome (which files changed, whether a PR
+   * was opened/updated and its number/url, or `noop: true` when there
+   * was no diff to write) for every repo whose `converge` step returned
+   * a {@link ConvergeResult} — i.e. every repo in `converged` whose
+   * injected `converge` callback reported one. `runSweepFromEnv`'s real
+   * converge step (issue #14, {@link convergeRepoFiles}) always returns
+   * one; a test stub that returns nothing simply contributes no entry
+   * here. This is what lets a sweep run's report surface which
+   * converger PR was opened or updated per repo, rather than only
+   * whether convergence succeeded.
+   */
+  readonly convergeResults: readonly SweepConvergeResult[];
   /**
    * Repos actually confirmed stamped by the properties API. Equal to
    * `converged` on a fully successful (non-dry-run) sweep. When a batch
@@ -134,6 +162,23 @@ function markFailed(
   }
 }
 
+/**
+ * One-line human-readable summary of a repo's {@link ConvergeResult}, for
+ * the sweep's per-repo log line — e.g. "PR #12 opened", "PR #12 updated",
+ * or "no diff, no PR".
+ */
+function describeConvergeResult(result: ConvergeResult): string {
+  if (result.noop) {
+    return "no diff, no PR";
+  }
+  const pr = result.pullRequest;
+  if (!pr) {
+    // dryRun with a diff: files would change but no PR is opened.
+    return `${result.changed.length} file(s) would change (dry-run, no PR)`;
+  }
+  return `PR #${pr.number} ${pr.updated ? "updated" : "opened"} (${pr.url})`;
+}
+
 /** How to run the sweep. */
 export interface SweepOptions {
   /**
@@ -143,14 +188,25 @@ export interface SweepOptions {
    */
   readonly dryRun?: boolean;
   /**
-   * Injectable converge step. This slice's default is a no-op stub;
-   * later slices replace it with the real (throwing-on-failure)
-   * converger. Returning normally means "converged, safe to stamp";
-   * throwing records that repo's outcome as `failed` in the report (not
-   * stamped, not treated as up to date) and causes the sweep as a whole
-   * to be reported as failed — see {@link SweepReport.failed}.
+   * Injectable converge step. `runSweep` has no built-in default and
+   * stays convergence-agnostic; `runSweepFromEnv` supplies the real
+   * (throwing-on-failure) converger (issue #14,
+   * {@link convergeRepoFiles} in `./converge/writer.js`), and tests
+   * supply their own stub. Returning normally means "converged, safe to
+   * stamp"; throwing records that repo's outcome as `failed` in the
+   * report (not stamped, not treated as up to date) and causes the
+   * sweep as a whole to be reported as failed — see
+   * {@link SweepReport.failed}. The callback may optionally return a
+   * {@link ConvergeResult} describing what it wrote (or would have
+   * written, under `dryRun`); when it does, `runSweep` carries it into
+   * {@link SweepReport.convergeResults} so the report can surface which
+   * converger PR was opened or updated per repo. A stub that returns
+   * nothing (the common case in tests that don't care about file
+   * convergence) simply contributes no `convergeResults` entry.
    */
-  readonly converge?: (repo: string) => Promise<void> | void;
+  readonly converge?: (
+    repo: string,
+  ) => Promise<ConvergeResult | void> | ConvergeResult | void;
   /** Injectable logger (defaults to `console`). */
   readonly log?: (message: string) => void;
   /**
@@ -193,6 +249,7 @@ export async function runSweep(
   );
 
   const results: SweepRepoResult[] = [];
+  const convergeResults: SweepConvergeResult[] = [];
   const toStamp: string[] = [];
   // Repos whose selection decision was NOT skip-unmanaged — i.e. the
   // repo is managed, whether or not it happened to be due for
@@ -217,8 +274,12 @@ export async function runSweep(
 
     if (decision.action === "converge") {
       try {
-        await converge(repo.repo);
+        const convergeResult = await converge(repo.repo);
         toStamp.push(repo.repo);
+        if (convergeResult) {
+          convergeResults.push({ repo: repo.repo, result: convergeResult });
+          log(`  ${repo.repo}: ${describeConvergeResult(convergeResult)}`);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log(`  ${repo.repo}: convergence failed, not stamping — ${msg}`);
@@ -333,6 +394,7 @@ export async function runSweep(
     dryRun,
     results,
     converged: toStamp,
+    convergeResults,
     stamped: dryRun ? [] : stamped,
     failed,
     skippedUnmanaged: results.filter((r) => r.action === "skip-unmanaged").length,
@@ -389,8 +451,25 @@ export async function runSweepFromEnv(
   };
   const mergeClient = new MergeClient(mergeClientOptions);
 
+  const contentsClientOptions: ContentsClientOptions = {
+    token,
+    ...(apiBase ? { apiBase } : {}),
+  };
+  const contentsClient = new ContentsClient(contentsClientOptions);
+  const dryRun = env.GH_REPO_CONFIG_DRY_RUN === "true";
+
+  // The real converge step (issue #14): render this slice's payload set
+  // and open/update one PR per repo. It throws on any convergence
+  // failure (unresolved token, git-data write error), which
+  // `runSweep` records as that repo's `failed` outcome — the repo is
+  // not stamped and is retried next tick. Under `dryRun` it computes the
+  // file diff without writing. Its return value (which files changed,
+  // and the PR that was opened/updated, or `noop: true`) flows back into
+  // `runSweep`, which carries it into `SweepReport.convergeResults`.
   return runSweep(client, org, CURRENT_VERSION, {
-    dryRun: env.GH_REPO_CONFIG_DRY_RUN === "true",
+    dryRun,
+    converge: (repo: string) =>
+      convergeRepoFiles(contentsClient, org, repo, dryRun),
     mergeClient,
     appSlug,
   });

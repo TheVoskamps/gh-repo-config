@@ -1,0 +1,164 @@
+# Dependency-pinned-gate workflow rendered by /gh-repo-setup-protection.
+#
+# Installed at <repo-root>/.github/workflows/dependency-pinned-gate.yml
+# (alongside its sibling script at
+# <repo-root>/.github/scripts/dependency-pinned-gate.sh).
+#
+# ARMED WITH THE FULL SUPPORTED SET — runtime-gated, fails OPEN. This
+# workflow is armed with EVERY supported ecosystem (`npm`, `pip`,
+# `actions`, `docker`, `go`) at install time, and decides WHICH to gate
+# at RUNTIME, per PR. A `detect` job runs
+# `dependency-pinned-gate.sh --present` (the SAME `git ls-files`
+# discovery the gate itself uses) and emits a JSON array of the
+# ecosystems whose manifest is actually present; the `gate` job builds
+# its matrix from that array, so a leg exists for an ecosystem IFF its
+# manifest is in the tree right now:
+#   - present + clean          -> the leg is green,
+#   - present + floating spec  -> the leg is red (blocking),
+#   - absent                   -> NO leg at all (fails OPEN — no phantom
+#                                 check, no empty-green noise).
+# `actions` is effectively an always-present floor because the skill
+# always installs workflow files. An ecosystem whose manifest lands
+# AFTER setup (e.g. the repo's first `go.mod`) lights its leg up on the
+# next PR, with NO skill re-run.
+#
+# This is the SIBLING of the dependency-install-gate: the install-gate
+# protects the lockfile<->manifest *lock* relationship; THIS gate
+# protects how the manifest itself DECLARES versions. A package.json with
+# "^2.172.0", a requirements.txt with ">=1.40", a workflow
+# `uses: actions/checkout@v4`, or a `FROM node:22` resolves to a
+# DIFFERENT concrete version over time even when the lockfile is in
+# sync -- the "works on main, breaks on rebase" supply-chain drift that
+# slips past a green install-gate. Each leg fails the PR when any
+# DECLARED dependency in its ecosystem is not pinned to an exact version.
+#
+# THE AGGREGATOR IS THE REQUIRED CHECK. GitHub `required_status_checks`
+# is a static list of names and cannot express "require go only if it
+# runs". So the per-ecosystem legs are VISIBLE but NOT individually
+# required; the always-running `pinned-gate-required` aggregator is the
+# single required check. It concludes success iff every spawned leg
+# succeeded AND success when the matrix was empty — so a manifest-less
+# repo is mergeable, not hung.
+#
+# Categorical exemptions (legitimately not exact-pinnable) live in the
+# sibling script's classifier, NOT a maintained allowlist file:
+# npm peerDependencies carets, file:/workspace:/link:/git+ specs,
+# engines / requires-python floors, overrides/resolutions classified on
+# the override VALUE, and Docker `tag@sha256:` digests (the digest is
+# read; the floating tag is allowed alongside it). See the script
+# header for the full list.
+#
+# Pin-check ONLY -- there is NO install / build step. The discovery +
+# run-all-then-fail + classifier logic lives in the sibling script
+# .github/scripts/dependency-pinned-gate.sh.
+#
+# Hardening invariants (mirror the dependency-install-gate):
+#   - Every action is SHA-pinned (a floating @v4/@v5 tag is a supply-
+#     chain risk; the trailing comment records the human-readable tag).
+#     The gate would flag its own workflow otherwise.
+#   - `permissions: contents: read` (least privilege; the gate only
+#     reads the tree).
+#   - Each job checks out github.event.pull_request.head.sha so the
+#     gate validates the PR head, not a merge commit.
+#
+# Placeholders:
+#   __DEFAULT_BRANCH__   Default branch of the target repo. The gate
+#                        runs on pull_request events targeting it.
+#
+# There is intentionally NO per-job delimiter-comment rendering: the
+# armed set is the full supported set, fixed in this template, and
+# narrowed to the present set at RUNTIME by the detect job — never at
+# install time.
+name: dependency-pinned-gate
+
+on:
+  pull_request:
+    branches: [__DEFAULT_BRANCH__]
+
+# Least-privilege: the gate only reads the tree to classify declared
+# dependency versions. No write scopes are needed.
+permissions:
+  contents: read
+
+jobs:
+  # Stage 1: decide WHICH ecosystems to gate, at runtime, per PR. Emits a
+  # JSON array (e.g. ["actions","go"]) of the ecosystems whose manifest
+  # is present in the tracked tree, reusing the gate script's discovery.
+  detect:
+    name: Detect present ecosystems
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      ecosystems: ${{ steps.detect.outputs.ecosystems }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Detect present ecosystems
+        id: detect
+        run: bash .github/scripts/dependency-pinned-gate.sh --present
+
+  # Stage 2: one pin-check leg per present ecosystem. Fed by the detect
+  # job's JSON array via fromJSON; an empty array spawns ZERO legs
+  # cleanly (fail-open — no phantom check, no empty-green noise).
+  gate:
+    name: Pinned gate (${{ matrix.ecosystem }})
+    needs: detect
+    if: ${{ needs.detect.outputs.ecosystems != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ecosystem: ${{ fromJSON(needs.detect.outputs.ecosystems) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Exact-version pin check over discovered manifests
+        run: bash .github/scripts/dependency-pinned-gate.sh ${{ matrix.ecosystem }}
+
+  # Stage 3: the SINGLE required status check. Always runs (even when the
+  # matrix was empty), and concludes success on an empty matrix (no
+  # ecosystem present -> mergeable, NOT hung) or when every gate leg
+  # succeeded, and failure when any leg failed or was cancelled.
+  # `if: always()` is MANDATORY: without it the job is SKIPPED on an
+  # empty matrix, and a required check treats "skipped" as not-passed,
+  # reintroducing the #91/#230 phantom-check hang. The `protect-main`
+  # ruleset lists THIS job's name (`pinned-gate-required`) as the
+  # required check, never the per-leg `Pinned gate (<ecosystem>)` names.
+  pinned-gate-required:
+    name: pinned-gate-required
+    needs: gate
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Conclude on the gate matrix result
+        run: |
+          result="${{ needs.gate.result }}"
+          echo "gate job result: ${result}"
+          # An empty matrix leaves the gate job 'skipped' — the fail-OPEN
+          # case (no ecosystem present), so it is a PASS. 'success' is
+          # also a pass. Anything else (failure, cancelled) blocks the PR.
+          case "${result}" in
+            success|skipped)
+              echo "pinned-gate aggregator: PASS (${result})."
+              ;;
+            *)
+              echo "pinned-gate aggregator: FAIL — at least one gate leg did not succeed (${result})." >&2
+              exit 1
+              ;;
+          esac

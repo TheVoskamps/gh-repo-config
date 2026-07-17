@@ -1,6 +1,6 @@
 ---
 name: project-fanout-slices
-description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; slice 1 (release/versioning, #12) landed via PR #20.
+description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31.
 metadata:
   type: project
 ---
@@ -38,10 +38,10 @@ precedence), `src/version-compare.ts` (`isBehind` version-skip),
 properties: paginated read, batched <=30 stamp write, bearer-token
 auth), `src/sweep.ts` (`runSweep`/`runSweepFromEnv`), a `sweep` CLI
 subcommand, and `.github/workflows/sweep.yml` (scheduled +
-workflow_dispatch). Convergence is a **stub** (injectable no-op
-`converge` step in `runSweep`) — slices #14-#18 replace it. The stub
-lives at the `converge` option in `src/sweep.ts`, not a separate
-module yet.
+workflow_dispatch). Convergence was a **stub** (injectable no-op
+`converge` step in `runSweep`) at this point — slice #14 (below)
+wired in the real one via `runSweepFromEnv`. `runSweep`'s own
+`converge` option remains an injectable stub for tests.
 
 **Placement decision on #13 (non-obvious):** the design doc
 (distribution map) puts the fan-out *driver* workflow in `<org>/.github`
@@ -100,6 +100,23 @@ required-check set is mergeable outright (unprotected fixtures). A
 distinct from a red/pending required check (`blocked`/`pending`,
 surfaced in the new `SweepReport.awaitingChecks`, also not a sweep
 failure).
+
+Issue #14 (converge `dependabot.yml` + gates/guards, first real
+convergence teeth) landed via PR #31: `src/github/contents.ts`
+(`ContentsClient`, git-data-API file writer — blobs → tree → commit →
+ref, so scripts land mode `100755`, which the contents API cannot
+set) and `src/converge/` (`assets.ts`, `render.ts`, `files.ts`,
+`writer.ts` — see [[dependabot-render-spec]] for the
+`__DEPENDABOT_ECOSYSTEMS__` expansion rules). Templates extracted
+verbatim from the `github-setup` plugin's `gh-repo-setup-protection`
+payload into `assets/` at the repo root (packed into the release
+tarball alongside `dist`/`bin`/`package.json`). `runSweepFromEnv` now
+wires `convergeRepoFiles` as the real `converge` step; `runSweep`
+itself keeps an injectable stub for tests. Whole-file compare (a
+right-content-wrong-mode script counts as differing); no diff means
+no branch and no PR. Writes to the fixed `gh-repo-config/converge`
+branch, never to the default branch — merging is issue #24's job
+(already landed, see above).
 
 See also [[fanout-design-doc-pointers]] (not yet written) if design
 doc locations change.

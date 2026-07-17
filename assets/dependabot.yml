@@ -1,0 +1,28 @@
+# Dependabot configuration rendered by /gh-repo-setup-protection.
+#
+# Placeholders (see the github-setup plugin payload README for the syntax and
+# the skill's SKILL.md for how each is resolved):
+#
+#   __DEFAULT_BRANCH__       Default branch of the target repo. Used as
+#                            the `target-branch` for every ecosystem so
+#                            Dependabot opens PRs against the right base.
+#   __DEPENDABOT_ECOSYSTEMS__  The fully-rendered `updates:` entries for
+#                            EVERY supported package ecosystem (one block
+#                            per ecosystem — the full armed set, NOT just
+#                            the detected ones). The skill builds this
+#                            list from the per-ecosystem block below and
+#                            substitutes it in. Dependabot NO-OPS on an
+#                            ecosystem whose manifest is absent, so arming
+#                            the full set adds no spurious update PRs — it
+#                            just means an ecosystem's first manifest is
+#                            covered the moment it lands, with no skill
+#                            re-run. A `dependabot.yml` is therefore
+#                            ALWAYS written (see SKILL.md Step 3).
+#
+# This file is the OUTER template. The skill renders one copy of the
+# per-ecosystem block (kept in `ecosystem-block.yml` alongside this file)
+# for each SUPPORTED ecosystem, concatenates them, and substitutes the
+# result for __DEPENDABOT_ECOSYSTEMS__.
+version: 2
+updates:
+__DEPENDABOT_ECOSYSTEMS__

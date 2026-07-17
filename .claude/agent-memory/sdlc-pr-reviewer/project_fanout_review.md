@@ -1,18 +1,22 @@
 ---
 name: project-fanout-review
-description: Review context for the org-wide repo-config fan-out (#11) slice PRs — what is deliberately out of PR scope.
+description: Review context for the org-wide repo-config fan-out (#11) slice PRs — what is deliberately out of PR scope; #14 (real convergence) landed via PR #31.
 metadata:
   type: project
 ---
 
 The org-wide repo-configuration fan-out (umbrella issue #11) is built as
 a sequence of vertical slices. Slice 1 (#12, PR #20) = versioned release.
-Slice 2 (#13, PR #21) = selection-loop sweep control plane. Slices #14-#18
-= real convergence logic.
+Slice 2 (#13, PR #21) = selection-loop sweep control plane. Slice 2b
+(#24, PR #27) = sweep merges its own green converger PRs. Slice 3 (#14,
+PR #31) = first real convergence teeth (dependabot.yml + gates/guards,
+`src/converge/` + `src/github/contents.ts`). Slices #15-#18 = remaining
+convergence logic (GHAS, protect-main ruleset, CodeQL, community files).
 
 **Why:** each slice is a walking skeleton — proves one end-to-end path
-before the next adds teeth. Convergence is an injectable no-op stub until
-#14+.
+before the next adds teeth. Convergence was an injectable no-op stub
+through #13; #14 wired in the real one via `runSweepFromEnv` (`runSweep`
+itself still takes an injectable `converge` for tests).
 
 **How to apply when reviewing a slice PR:**
 - Operator provisioning (org GitHub App registration, org custom-property

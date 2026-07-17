@@ -1,0 +1,96 @@
+# Per-ecosystem Dependabot block, rendered once per SUPPORTED ecosystem
+# (the full armed set, not just the detected ones) and concatenated into
+# __DEPENDABOT_ECOSYSTEMS__ in dependabot.yml. Dependabot no-ops on an
+# ecosystem whose manifest is absent, so arming the full set costs only a
+# longer file and covers a new manifest the moment it lands.
+#
+# This is the HARDENED generated baseline (issue #51): cooldown soak,
+# versioning-strategy, recursive directory coverage, semver-major
+# ignore, and per-ecosystem schedules. Several values vary BY ECOSYSTEM
+# CLASS (npm/pip vs docker vs github-actions vs the rest), so the variant
+# parts are placeholders the skill resolves per ecosystem — see SKILL.md
+# "Step 3" for the resolution table, which covers EVERY armed ecosystem
+# class. A wrong variant (e.g. `versioning-strategy` on docker) makes
+# Dependabot reject the whole config, so the per-class resolution must be
+# correct for each ecosystem. Do NOT hard-code one ecosystem's values
+# here; the skill renders the right variant for each ecosystem.
+#
+# Multi-line block placeholders (__DIRECTORY_BLOCK__,
+# __VERSIONING_STRATEGY_BLOCK__, __COOLDOWN_BLOCK__) each sit alone on a
+# line at the SAME 4-space indent as the keys around them. The skill
+# substitutes a value whose FIRST line has no leading indent (the
+# template's 4 spaces supply it) and whose CONTINUATION lines carry
+# their own absolute indentation. When a block is empty for an ecosystem
+# (e.g. __VERSIONING_STRATEGY_BLOCK__ on docker/github-actions), the
+# skill drops the whole placeholder line so no blank/whitespace-only
+# line remains — see SKILL.md "Step 3 → empty-block collapse".
+#
+# Placeholders:
+#   __ECOSYSTEM__                Dependabot package-ecosystem value, e.g.
+#                                "npm", "pip", "github-actions", "gomod",
+#                                "bundler", "cargo", "docker", "terraform".
+#   __DIRECTORY_BLOCK__          Either a recursive `directories:` block
+#                                (root-anchored `**/*` globstar) for every
+#                                ecosystem EXCEPT github-actions, or a
+#                                singular `directory: "/"` for
+#                                github-actions (fixed search, not a
+#                                recursing path). Note: bare `**` under
+#                                `directories` does NOT recurse; `**/*` is
+#                                the verified pattern.
+#   __SCHEDULE_INTERVAL__        "daily" for npm/pip/docker, "weekly" for
+#                                github-actions.
+#   __VERSIONING_STRATEGY_BLOCK__  `versioning-strategy: increase` on
+#                                npm/pip ONLY (the only two ecosystems that
+#                                honour the key — preserves exact-pin
+#                                policy); empty (line dropped) for every
+#                                other ecosystem.
+#   __COOLDOWN_BLOCK__           `cooldown:` soak. npm/pip get per-semver
+#                                tiers (semver-major-days: 14,
+#                                semver-minor-days: 7, semver-patch-days: 7,
+#                                default-days: 7). docker/github-actions do
+#                                NOT support semver tiers (Dependabot
+#                                rejects them) — `default-days: 7` only.
+#                                Cooldown applies to version updates only;
+#                                security PRs bypass it.
+#   __DEFAULT_BRANCH__           Default branch of the target repo.
+#
+# The two `groups:` entries batch PRs per ecosystem:
+#   *-minor-and-patch    groups VERSION updates (applies-to defaults to
+#                        version-updates) so routine minor/patch bumps
+#                        land in one PR.
+#   *-security           groups SECURITY updates (applies-to:
+#                        security-updates) so Dependabot opens ONE
+#                        security PR per ecosystem instead of one per
+#                        advisory — issue #222 item 4 (grouped security
+#                        updates), the in-file deterministic half of the
+#                        feature. The settings-level toggle handles
+#                        ecosystems not listed here. Fablegate's source
+#                        config lacks this group; keep it — it is the one
+#                        place this generated baseline is ahead and must
+#                        not regress (issue #51).
+#
+# The `ignore:` entry drops semver-MAJOR version updates on every
+# ecosystem (majors are reviewed/applied deliberately, not auto-batched).
+#
+# Indentation is two spaces because this block nests under `updates:`.
+  - package-ecosystem: "__ECOSYSTEM__"
+    __DIRECTORY_BLOCK__
+    target-branch: "__DEFAULT_BRANCH__"
+    schedule:
+      interval: "__SCHEDULE_INTERVAL__"
+    __VERSIONING_STRATEGY_BLOCK__
+    __COOLDOWN_BLOCK__
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      __ECOSYSTEM__-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      __ECOSYSTEM__-security:
+        applies-to: security-updates
+        patterns:
+          - "*"

@@ -1,0 +1,169 @@
+# Dependency-install-gate workflow rendered by /gh-repo-setup-protection.
+#
+# Installed at <repo-root>/.github/workflows/dependency-install-gate.yml
+# (alongside its sibling script at
+# <repo-root>/.github/scripts/dependency-install-gate.sh).
+#
+# ARMED WITH THE FULL SUPPORTED SET — runtime-gated, fails OPEN. This
+# workflow is armed with EVERY supported package manager (`npm`, `pnpm`,
+# `yarn`, `pip`) at install time, and decides WHICH to gate at RUNTIME,
+# per PR. A `detect` job runs `dependency-install-gate.sh --present`
+# (the SAME `git ls-files` discovery the gate itself uses) and emits a
+# JSON array of the PMs whose manifest is actually present; the `gate`
+# job builds its matrix from that array, so a leg exists for a PM IFF
+# that PM's lockfile/manifest is in the tree right now:
+#   - present + clean  -> the leg is green,
+#   - present + drifted -> the leg is red (blocking),
+#   - absent           -> NO leg at all (fails OPEN — no phantom check,
+#                         no empty-green noise).
+# A PM whose manifest lands AFTER setup (e.g. the repo's first
+# `package-lock.json`) lights its leg up automatically on the next PR,
+# with NO skill re-run.
+#
+# Each Node package manager keys off its OWN lockfile (npm ->
+# package-lock.json, pnpm -> pnpm-lock.yaml, yarn -> yarn.lock), so a
+# pnpm/yarn repo is gated by the right tool instead of silently passing
+# an npm-only check (the dead-check / false-assurance bug this rendering
+# fixes, issue #111).
+#
+# THE AGGREGATOR IS THE REQUIRED CHECK. GitHub `required_status_checks`
+# is a static list of names and cannot express "require npm only if it
+# runs". So the per-PM legs are VISIBLE but NOT individually required;
+# the always-running `install-gate-required` aggregator is the single
+# required check. It concludes success iff every spawned leg succeeded
+# AND success when the matrix was empty (no PM present) — so a
+# manifest-less repo is mergeable, not hung.
+#
+# Purpose: block a drifted package.json/<lockfile> (or an unresolvable
+# requirements pin) from auto-merging into the default branch.
+# Dependabot PRs and hand edits can desync a lockfile from its manifest;
+# without a PR-time gate the desync merges and breaks local dev and
+# downstream pipelines. Proven against ExampleProject's
+# example-app-repo workflow.
+#
+# Install-integrity ONLY -- there is NO build step (`npm run build`,
+# `cdk synth`, etc.); build coverage is out of scope. The discovery +
+# run-all-then-fail logic lives in the sibling script
+# .github/scripts/dependency-install-gate.sh.
+#
+# Hardening invariants (do not regress these — see issue #222 item 9):
+#   - Every action is SHA-pinned (a floating @v4/@v5 tag is a supply-
+#     chain risk; the trailing comment records the human-readable tag).
+#   - `permissions: contents: read` (least privilege; the gate only
+#     reads the tree).
+#   - Each job checks out github.event.pull_request.head.sha so the
+#     gate validates the PR head, not a merge commit.
+#   - Every package-manager job blocks install/build lifecycle scripts
+#     (an arbitrary-code-execution vector from a malicious/compromised
+#     lockfile entry): npm `--ignore-scripts`, pnpm `--ignore-scripts`,
+#     yarn `--ignore-scripts` (v1) / `--mode=skip-build` (Berry). The
+#     integrity check never needs scripts to run, so none are allowed.
+#
+# Placeholders:
+#   __DEFAULT_BRANCH__   Default branch of the target repo. The gate
+#                        runs on pull_request events targeting it.
+#
+# There is intentionally NO per-job delimiter-comment rendering: the
+# armed set is the full supported set, fixed in this template, and
+# narrowed to the present set at RUNTIME by the detect job — never at
+# install time.
+name: dependency-install-gate
+
+on:
+  pull_request:
+    branches: [__DEFAULT_BRANCH__]
+
+# Least-privilege: the gate only reads the tree to replay lockfiles and
+# run the resolver pre-flight. No write scopes are needed.
+permissions:
+  contents: read
+
+jobs:
+  # Stage 1: decide WHICH package managers to gate, at runtime, per PR.
+  # Emits a JSON array (e.g. ["npm","pip"]) of the PMs whose manifest is
+  # present in the tracked tree, reusing the gate script's own discovery.
+  detect:
+    name: Detect present package managers
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      pms: ${{ steps.detect.outputs.pms }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Detect present package managers
+        id: detect
+        run: bash .github/scripts/dependency-install-gate.sh --present
+
+  # Stage 2: one strict-install leg per present PM. Fed by the detect
+  # job's JSON array via fromJSON; an empty array spawns ZERO legs
+  # cleanly (fail-open — no phantom check, no empty-green noise).
+  gate:
+    name: Install gate (${{ matrix.pm }})
+    needs: detect
+    if: ${{ needs.detect.outputs.pms != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pm: ${{ fromJSON(needs.detect.outputs.pms) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Node
+        if: ${{ matrix.pm != 'pip' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        if: ${{ matrix.pm == 'pip' }}
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Strict install over discovered manifests
+        run: bash .github/scripts/dependency-install-gate.sh ${{ matrix.pm }}
+
+  # Stage 3: the SINGLE required status check. Always runs (even when the
+  # matrix was empty), and concludes success on an empty matrix (no PM
+  # present -> mergeable, NOT hung) or when every gate leg succeeded, and
+  # failure when any leg failed or was cancelled. `if: always()` is
+  # MANDATORY: without it the job is SKIPPED on an empty matrix, and a
+  # required check treats "skipped" as not-passed, reintroducing the
+  # #91/#230 phantom-check hang. The `protect-main` ruleset lists THIS
+  # job's name (`install-gate-required`) as the required check, never the
+  # per-leg `Install gate (<pm>)` names.
+  install-gate-required:
+    name: install-gate-required
+    needs: gate
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Conclude on the gate matrix result
+        run: |
+          result="${{ needs.gate.result }}"
+          echo "gate job result: ${result}"
+          # An empty matrix leaves the gate job 'skipped' — the fail-OPEN
+          # case (no PM present), so it is a PASS. 'success' is also a
+          # pass. Anything else (failure, cancelled) blocks the PR.
+          case "${result}" in
+            success|skipped)
+              echo "install-gate aggregator: PASS (${result})."
+              ;;
+            *)
+              echo "install-gate aggregator: FAIL — at least one gate leg did not succeed (${result})." >&2
+              exit 1
+              ;;
+          esac
