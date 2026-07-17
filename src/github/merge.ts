@@ -252,8 +252,10 @@ export class MergeClient {
    * find its state among the head commit's check-runs (GitHub Checks)
    * and legacy combined statuses, then roll every context up into one
    * overall {@link CheckState}. An empty `requiredContexts` list rolls
-   * up to `"green"` unconditionally (an unprotected fixture is
-   * mergeable whenever GitHub reports the PR mergeable).
+   * up to `"green"` unconditionally (there is nothing to gate on).
+   * Actual mergeability is not precomputed here — it is enforced by
+   * the merge call itself, whose 405/409 rejection is recorded as
+   * `awaiting-retry`.
    */
   async evaluateRequiredChecks(
     owner: string,
