@@ -4,9 +4,10 @@
 # scheduled + manual sweep. It runs the converger's `sweep` subcommand,
 # which reads the three selection/stamp org custom properties
 # (gh-repo-config-mode, gh-repo-config-default, gh-repo-config-version),
-# applies the precedence table + version-skip, "converges" each due repo
-# (a stub/no-op this slice — later slices #14-#18 give it teeth), and
-# stamps the processed repos with the current release version.
+# applies the precedence table + version-skip, converges each due repo's
+# files (#14) and GHAS/repo-security + merge-button settings (#15), and
+# stamps the processed repos with the current release version. Ruleset
+# management remains a later slice's scope (#18).
 #
 # Issue #24 adds the merge pass: independent of the version-skip
 # decision, the sweep also lists each repo's open PRs authored by this
@@ -21,11 +22,13 @@
 # converger App is least-privilege for the converger's call surface (see
 # the "Converger App" permission table in
 # docs/org-repo-configuration-fanout-decomposition.md): Organization
-# custom properties: write (selection/stamping) plus Pull requests:
-# write (the #24 merge pass — reading PR/check state and merging;
-# already held, no new scope needed). The App is a separate App
-# precisely because later slices need Administration / Org
-# administration scope the pr-automation App must never hold (decision 4).
+# custom properties: write (selection/stamping), Pull requests: write
+# (the #24 merge pass — reading PR/check state and merging), and
+# Administration: write (the #15 GHAS/repo-security + merge-button
+# settings convergence — read-then-PATCH `/repos/{o}/{r}` and its
+# vulnerability-alerts/automated-security-fixes sibling endpoints). The
+# App is a separate App precisely because these repo-administration
+# scopes are ones the pr-automation App must never hold (decision 4).
 #
 # Operator prerequisite (provisioned via the user-scoped /gh-create-app
 # skill, NOT by this workflow): register the converger org App, install it

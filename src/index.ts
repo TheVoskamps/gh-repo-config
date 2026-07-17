@@ -8,8 +8,11 @@
  * Slice 3 (issue #14) adds the real convergence pipeline
  * (`src/converge/`): rendering `dependabot.yml` plus the gate/guard
  * workflows and scripts from `assets/`, and writing them via the
- * git-data API (`src/github/contents.ts`). GHAS toggles and ruleset
- * management remain later slices' scope (issues #17, #18).
+ * git-data API (`src/github/contents.ts`). Slice (issue #15) adds the
+ * GHAS / repo-security and merge-button settings convergence step
+ * (`src/converge/ghas.ts`, `src/github/settings.ts`) — pure API
+ * mutations, no files, no PR. Ruleset management remains a later
+ * slice's scope (issue #18).
  */
 export { CURRENT_VERSION, PACKAGE_NAME } from "./version.js";
 
@@ -55,6 +58,8 @@ export {
   runSweepFromEnv,
   type SweepReport,
   type SweepRepoResult,
+  type SweepConvergeResult,
+  type SweepGhasResult,
   type SweepOptions,
 } from "./sweep.js";
 
@@ -84,3 +89,18 @@ export {
   CONVERGE_BRANCH,
   type ConvergeResult,
 } from "./converge/writer.js";
+
+export {
+  RepoSettingsClient,
+  SettingsWriteError,
+  type RepoSettingsClientOptions,
+  type RepoSecuritySettings,
+  type SecurityAnalysisStatus,
+} from "./github/settings.js";
+
+export {
+  convergeGhasSettings,
+  type GhasConvergeResult,
+  type SettingResult,
+  type SettingOutcome,
+} from "./converge/ghas.js";

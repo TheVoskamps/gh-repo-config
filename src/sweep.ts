@@ -22,6 +22,12 @@
  * repos are never probed at all: the converger has no business on a
  * repo that opted out, so scoping is explicit in the iteration rather
  * than resting on the author filter alone.
+ *
+ * The GHAS / merge-button settings convergence step (issue #15) is
+ * pure API mutations (no files, no PR) and runs alongside the file
+ * converge step, in the same `converge`-decision branch: both are
+ * gated on the same version-skip decision, since both are things this
+ * release's convergence is responsible for landing.
  */
 import {
   normalizeOrgDefault,
@@ -44,6 +50,11 @@ import {
   type ContentsClientOptions,
 } from "./github/contents.js";
 import { convergeRepoFiles, type ConvergeResult } from "./converge/writer.js";
+import {
+  RepoSettingsClient,
+  type RepoSettingsClientOptions,
+} from "./github/settings.js";
+import { convergeGhasSettings, type GhasConvergeResult } from "./converge/ghas.js";
 import { CURRENT_VERSION } from "./version.js";
 
 /** One repo's outcome in a sweep run. */
@@ -57,6 +68,12 @@ export interface SweepRepoResult {
 export interface SweepConvergeResult {
   readonly repo: string;
   readonly result: ConvergeResult;
+}
+
+/** One repo's GHAS/merge-button settings-convergence outcome, keyed by repo name. */
+export interface SweepGhasResult {
+  readonly repo: string;
+  readonly result: GhasConvergeResult;
 }
 
 /** The full result of a sweep run, for logging and CI assertions. */
@@ -87,6 +104,14 @@ export interface SweepReport {
    * whether convergence succeeded.
    */
   readonly convergeResults: readonly SweepConvergeResult[];
+  /**
+   * Per-repo GHAS / merge-button settings-convergence outcome (issue
+   * #15) — which settings changed, were already converged, or were
+   * skipped (and why) — for every repo whose `convergeGhas` step ran.
+   * Mirrors `convergeResults`' per-repo shape but for the pure-API
+   * settings concern rather than the file-write concern.
+   */
+  readonly ghasResults: readonly SweepGhasResult[];
   /**
    * Repos actually confirmed stamped by the properties API. Equal to
    * `converged` on a fully successful (non-dry-run) sweep. When a batch
@@ -179,6 +204,29 @@ function describeConvergeResult(result: ConvergeResult): string {
   return `PR #${pr.number} ${pr.updated ? "updated" : "opened"} (${pr.url})`;
 }
 
+/**
+ * One-line human-readable summary of a repo's {@link GhasConvergeResult},
+ * for the sweep's per-repo log line — e.g. "3 changed, 2 already
+ * converged, 1 skipped".
+ */
+function describeGhasResult(result: GhasConvergeResult): string {
+  if (result.noop) {
+    return "settings already converged";
+  }
+  const changed = result.results.filter((r) => r.outcome === "changed").length;
+  const alreadyConverged = result.results.filter(
+    (r) => r.outcome === "already-converged",
+  ).length;
+  const skipped = result.results.filter((r) => r.outcome === "skipped");
+  const parts = [`${changed} changed`, `${alreadyConverged} already converged`];
+  if (skipped.length > 0) {
+    parts.push(
+      `${skipped.length} skipped (${skipped.map((s) => s.setting).join(", ")})`,
+    );
+  }
+  return parts.join(", ");
+}
+
 /** How to run the sweep. */
 export interface SweepOptions {
   /**
@@ -207,6 +255,22 @@ export interface SweepOptions {
   readonly converge?: (
     repo: string,
   ) => Promise<ConvergeResult | void> | ConvergeResult | void;
+  /**
+   * Injectable GHAS/merge-button settings-convergence step (issue #15).
+   * Like {@link converge}, stays convergence-agnostic here — tests
+   * supply their own stub, `runSweepFromEnv` wires in the real
+   * {@link convergeGhasSettings}. Runs in the same `converge`-decision
+   * branch, alongside the file converge step: a thrown error is caught
+   * independently (so a GHAS-settings failure doesn't also discard an
+   * otherwise-successful file convergence result, and vice versa) but
+   * either failure still marks the repo `failed` and skips stamping.
+   * Returning normally with a {@link GhasConvergeResult} surfaces it in
+   * {@link SweepReport.ghasResults}; a stub that returns nothing
+   * contributes no entry.
+   */
+  readonly convergeGhas?: (
+    repo: string,
+  ) => Promise<GhasConvergeResult | void> | GhasConvergeResult | void;
   /** Injectable logger (defaults to `console`). */
   readonly log?: (message: string) => void;
   /**
@@ -239,6 +303,7 @@ export async function runSweep(
 ): Promise<SweepReport> {
   const log = options.log ?? ((m: string) => console.log(m));
   const converge = options.converge ?? (() => {});
+  const convergeGhas = options.convergeGhas ?? (() => {});
   const dryRun = options.dryRun ?? false;
 
   const orgDefault = normalizeOrgDefault(await client.readOrgDefault());
@@ -250,6 +315,7 @@ export async function runSweep(
 
   const results: SweepRepoResult[] = [];
   const convergeResults: SweepConvergeResult[] = [];
+  const ghasResults: SweepGhasResult[] = [];
   const toStamp: string[] = [];
   // Repos whose selection decision was NOT skip-unmanaged — i.e. the
   // repo is managed, whether or not it happened to be due for
@@ -273,20 +339,45 @@ export async function runSweep(
     }
 
     if (decision.action === "converge") {
+      // File convergence and GHAS/merge-button settings convergence are
+      // independent concerns, each in its own try/catch: a failure in
+      // one must not swallow or skip the other, so both are always
+      // attempted. Either failure still marks the repo `failed` overall
+      // (via `markFailed`, which never clobbers an already-recorded
+      // failure) and excludes it from `toStamp`.
+      let fileConvergeOk = true;
       try {
         const convergeResult = await converge(repo.repo);
-        toStamp.push(repo.repo);
         if (convergeResult) {
           convergeResults.push({ repo: repo.repo, result: convergeResult });
           log(`  ${repo.repo}: ${describeConvergeResult(convergeResult)}`);
         }
       } catch (err) {
+        fileConvergeOk = false;
         const msg = err instanceof Error ? err.message : String(err);
         log(`  ${repo.repo}: convergence failed, not stamping — ${msg}`);
         // A convergence failure is its own outcome — distinct from
         // "already up to date" (skip-current) — so the report can't be
         // misread as a clean run. It is not stamped and must be retried.
         markFailed(results, repo.repo, `convergence failed: ${msg}`);
+      }
+
+      let ghasConvergeOk = true;
+      try {
+        const ghasResult = await convergeGhas(repo.repo);
+        if (ghasResult) {
+          ghasResults.push({ repo: repo.repo, result: ghasResult });
+          log(`  ${repo.repo}: ${describeGhasResult(ghasResult)}`);
+        }
+      } catch (err) {
+        ghasConvergeOk = false;
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`  ${repo.repo}: GHAS settings convergence failed, not stamping — ${msg}`);
+        markFailed(results, repo.repo, `GHAS settings convergence failed: ${msg}`);
+      }
+
+      if (fileConvergeOk && ghasConvergeOk) {
+        toStamp.push(repo.repo);
       }
     }
   }
@@ -395,6 +486,7 @@ export async function runSweep(
     results,
     converged: toStamp,
     convergeResults,
+    ghasResults,
     stamped: dryRun ? [] : stamped,
     failed,
     skippedUnmanaged: results.filter((r) => r.action === "skip-unmanaged").length,
@@ -456,6 +548,13 @@ export async function runSweepFromEnv(
     ...(apiBase ? { apiBase } : {}),
   };
   const contentsClient = new ContentsClient(contentsClientOptions);
+
+  const settingsClientOptions: RepoSettingsClientOptions = {
+    token,
+    ...(apiBase ? { apiBase } : {}),
+  };
+  const settingsClient = new RepoSettingsClient(settingsClientOptions);
+
   const dryRun = env.GH_REPO_CONFIG_DRY_RUN === "true";
 
   // The real converge step (issue #14): render this slice's payload set
@@ -470,6 +569,13 @@ export async function runSweepFromEnv(
     dryRun,
     converge: (repo: string) =>
       convergeRepoFiles(contentsClient, org, repo, dryRun),
+    // The real GHAS/merge-button settings-convergence step (issue #15):
+    // pure API mutations, no files, no PR. Throws on an unexpected
+    // (non-422) write failure, which `runSweep` records as that repo's
+    // `failed` outcome. Its per-setting result flows back into
+    // `SweepReport.ghasResults`.
+    convergeGhas: (repo: string) =>
+      convergeGhasSettings(settingsClient, org, repo, dryRun),
     mergeClient,
     appSlug,
   });

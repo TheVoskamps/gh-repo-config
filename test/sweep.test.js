@@ -50,9 +50,10 @@ test("sweep converges behind managed repos, skips others, and stamps them", asyn
   assert.deepEqual(client.stamped, [
     { names: ["fixture-process"], version: V },
   ]);
-  // The default no-op converge stub returns nothing, so no
-  // convergeResults entries are contributed.
+  // The default no-op converge/convergeGhas stubs return nothing, so no
+  // convergeResults/ghasResults entries are contributed.
   assert.deepEqual(report.convergeResults, []);
+  assert.deepEqual(report.ghasResults, []);
 });
 
 test("a converge step's returned ConvergeResult is surfaced in the sweep report, per repo", async () => {
@@ -116,6 +117,108 @@ test("a converge step's returned ConvergeResult is surfaced in the sweep report,
   assert.ok(logs.some((l) => l.includes("fixture-opened") && l.includes("PR #12") && l.includes("opened")));
   assert.ok(logs.some((l) => l.includes("fixture-updated") && l.includes("PR #13") && l.includes("updated")));
   assert.ok(logs.some((l) => l.includes("fixture-noop") && l.includes("no diff, no PR")));
+});
+
+test("a convergeGhas step's returned GhasConvergeResult is surfaced in the sweep report, per repo", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [
+      { repo: "fixture-changed", mode: "process", version: "0.1.0" },
+      { repo: "fixture-noop", mode: "process", version: "0.1.0" },
+    ],
+  });
+
+  const logs = [];
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: (m) => logs.push(m),
+    convergeGhas: (repo) => {
+      if (repo === "fixture-changed") {
+        return {
+          results: [
+            { setting: "vulnerability-alerts", outcome: "changed" },
+            { setting: "merge-button-settings", outcome: "already-converged" },
+          ],
+          noop: false,
+        };
+      }
+      return {
+        results: [{ setting: "vulnerability-alerts", outcome: "already-converged" }],
+        noop: true,
+      };
+    },
+  });
+
+  assert.deepEqual(
+    report.ghasResults.map((r) => r.repo).sort(),
+    ["fixture-changed", "fixture-noop"],
+  );
+  const byRepo = Object.fromEntries(report.ghasResults.map((r) => [r.repo, r.result]));
+  assert.equal(byRepo["fixture-changed"].noop, false);
+  assert.equal(byRepo["fixture-noop"].noop, true);
+
+  assert.ok(logs.some((l) => l.includes("fixture-changed") && l.includes("1 changed")));
+  assert.ok(logs.some((l) => l.includes("fixture-noop") && l.includes("already converged")));
+
+  // Both repos still converge and stamp normally.
+  assert.deepEqual(report.converged.sort(), ["fixture-changed", "fixture-noop"]);
+  assert.deepEqual(report.failed, []);
+});
+
+test("a convergeGhas failure marks the repo failed and not-stamped, independent of a successful file converge", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [{ repo: "fixture-process", mode: "process", version: "0.1.0" }],
+  });
+
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: () => {},
+    converge: () => ({ changed: [".github/dependabot.yml"], noop: false }),
+    convergeGhas: () => {
+      throw new Error("boom-ghas");
+    },
+  });
+
+  assert.deepEqual(report.converged, []);
+  assert.deepEqual(report.stamped, []);
+  assert.deepEqual(report.failed, ["fixture-process"]);
+  const result = report.results.find((r) => r.repo === "fixture-process");
+  assert.equal(result.action, "failed");
+  assert.match(result.reason, /GHAS settings convergence failed/);
+  assert.match(result.reason, /boom-ghas/);
+
+  // The file convergence result still surfaced even though GHAS failed —
+  // the two concerns are independent.
+  assert.equal(report.convergeResults.length, 1);
+  assert.equal(report.convergeResults[0].repo, "fixture-process");
+});
+
+test("a file-converge failure marks the repo failed even when convergeGhas succeeds", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [{ repo: "fixture-process", mode: "process", version: "0.1.0" }],
+  });
+
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: () => {},
+    converge: () => {
+      throw new Error("boom-files");
+    },
+    convergeGhas: () => ({
+      results: [{ setting: "vulnerability-alerts", outcome: "changed" }],
+      noop: false,
+    }),
+  });
+
+  assert.deepEqual(report.converged, []);
+  assert.deepEqual(report.stamped, []);
+  assert.deepEqual(report.failed, ["fixture-process"]);
+  const result = report.results.find((r) => r.repo === "fixture-process");
+  assert.match(result.reason, /convergence failed/);
+  assert.match(result.reason, /boom-files/);
+
+  // The GHAS result still surfaced even though file convergence failed.
+  assert.equal(report.ghasResults.length, 1);
+  assert.equal(report.ghasResults[0].repo, "fixture-process");
 });
 
 test("flipping org default to opt-out converges the unset repo", async () => {
@@ -260,13 +363,37 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     if (url.includes("/pulls?state=open")) {
       return { ok: true, status: 200, statusText: "OK", json: async () => [] };
     }
+    // The real GHAS/merge-button settings-convergence step (issue #15)
+    // also runs for the `converge`-decision repo. Serve its read-then-
+    // write path: everything reads as not-yet-converged so every write
+    // endpoint gets exercised (vulnerability-alerts, automated-security-
+    // fixes, secret scanning + push protection + delegated bypass, and
+    // the merge-button settings), and each write succeeds.
+    if (url.includes("/vulnerability-alerts") && method === "GET") {
+      return { ok: false, status: 404, statusText: "Not Found", json: async () => ({}) };
+    }
+    if (url.includes("/vulnerability-alerts") && method === "PUT") {
+      return { ok: true, status: 204, statusText: "No Content", json: async () => ({}) };
+    }
+    if (url.includes("/automated-security-fixes") && method === "GET") {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ enabled: false, paused: false }) };
+    }
+    if (url.includes("/automated-security-fixes") && method === "PUT") {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
+    }
     // The real converge step (issue #14) runs for the `converge`-decision
     // repo (fixture-behind). Serve the git-data read+write path so
     // convergence completes (opening a PR of the rendered files) and the
     // repo is stamped. An empty target tree makes every desired file
     // "changed", so the write path exercises blobs/tree/commit/ref/PR.
-    if (url.endsWith("/repos/TheVoskamps/fixture-behind")) {
+    // This same bare-repo-object route also serves RepoSettingsClient's
+    // read (security_and_analysis + merge-button state) and its PATCH
+    // writes (secret scanning, push-protection bypass, merge-button).
+    if (url.endsWith("/repos/TheVoskamps/fixture-behind") && method === "GET") {
       return { ok: true, status: 200, statusText: "OK", json: async () => ({ default_branch: "main" }) };
+    }
+    if (url.endsWith("/repos/TheVoskamps/fixture-behind") && method === "PATCH") {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
     }
     if (url.includes("/git/ref/heads/main")) {
       return { ok: true, status: 200, statusText: "OK", json: async () => ({ object: { sha: "basecommit" } }) };
@@ -325,6 +452,14 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     assert.equal(convergeResult.pullRequest.number, 1);
     assert.equal(convergeResult.pullRequest.url, "https://example/pr/1");
     assert.equal(convergeResult.pullRequest.updated, false);
+
+    // The real convergeGhasSettings() write path also ran for
+    // fixture-behind and its outcome surfaces in the report.
+    assert.equal(report.ghasResults.length, 1);
+    assert.equal(report.ghasResults[0].repo, "fixture-behind");
+    const ghasResult = report.ghasResults[0].result;
+    assert.equal(ghasResult.noop, false);
+    assert.ok(ghasResult.results.some((r) => r.outcome === "changed"));
   } finally {
     global.fetch = originalFetch;
   }

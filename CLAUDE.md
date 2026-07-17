@@ -54,6 +54,13 @@ npm run build && npm test
     (blobs → tree → commit → ref) so scripts land mode `100755` (the
     contents API cannot set the executable bit), and opens or updates a
     single PR to the default branch.
+  - `src/github/settings.ts` — `RepoSettingsClient`, same dependency-
+    free-`fetch` shape as the other `src/github/` clients. The converger's
+    pure-API-mutation path (issue #15, no files, no PR): read-then-PATCH
+    for Dependabot alerts/security-updates enablement, secret scanning +
+    push protection (+ best-effort delegated-bypass lockdown — no stable
+    per-repo read exists for that one sub-key, so it's always attempted),
+    and the merge-button/PR-hygiene settings.
   - `src/converge/` — the file-render + write pipeline (issue #14) every
     later file-rendering slice (#17, #18, #25) reuses.
     - `assets.ts` — locates the `assets/` templates relative to the
@@ -75,10 +82,19 @@ npm run build && npm test
       files onto the fixed `gh-repo-config/converge` branch, open/update
       one PR per repo. No diff → no branch, no PR. Never pushes to the
       default branch; merging the PR is issue #24's job.
+    - `ghas.ts` — `convergeGhasSettings` (issue #15): read-then-write
+      each GHAS/repo-security toggle and merge-button setting
+      independently — one setting's failure (report-and-skip on a 422
+      entitlement error) never blocks the rest. Only an unexpected
+      (non-422) write failure throws, which the sweep records as that
+      repo's `failed` outcome.
   - `src/sweep.ts` — `runSweep` / `runSweepFromEnv`, the sweep's
-    orchestration. `runSweep`'s `converge` step stays an injectable stub
-    (tests supply their own); `runSweepFromEnv` wires the real converge
-    (`convergeRepoFiles`) in production. The merge pass (issue #24) runs
+    orchestration. `runSweep`'s `converge` (files, #14) and `convergeGhas`
+    (settings, #15) steps both stay injectable stubs (tests supply their
+    own); `runSweepFromEnv` wires the real `convergeRepoFiles` and
+    `convergeGhasSettings` in production. The two run independently per
+    repo (one's failure doesn't skip the other, but either failure marks
+    the repo `failed` and skips stamping). The merge pass (issue #24) runs
     independently of the version-skip decision, over every repo the
     properties API returns, so an unmerged converger PR from a prior
     tick still gets picked up.
@@ -104,8 +120,8 @@ npm run build && npm test
 - `.github/workflows/sweep.yml` — scheduled (daily) + `workflow_dispatch`
   sweep. Runs as a dedicated converger org GitHub App (org secrets
   `CONVERGER_APP_ID` / `CONVERGER_APP_PRIVATE_KEY`), distinct from the
-  pr-automation App, since later slices need Administration / Org
-  administration scope the pr-automation App must never hold. Requires
+  pr-automation App, since it needs Administration / Org administration
+  scope the pr-automation App must never hold. Requires
   three org-level custom properties to be defined
   (`gh-repo-config-mode`, `gh-repo-config-default`,
   `gh-repo-config-version`) — an operator-provisioning step, not
