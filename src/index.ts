@@ -2,12 +2,14 @@
  * Public entry point for the converger package.
  *
  * Slice 1 (issue #12) exposed a readable "current version." Slice 2
- * (issue #13) adds the selection-loop walking skeleton: the sweep that
- * reads the three selection/stamp org custom properties, applies the
- * precedence table + version-skip, and stamps processed repos.
- * Convergence itself is still a stub — the real convergence logic
- * (rendering dependabot.yml, GHAS toggles, ruleset management, etc.) is
- * later slices' scope (issues #14-#18).
+ * (issue #13) added the selection-loop walking skeleton: the sweep
+ * that reads the three selection/stamp org custom properties, applies
+ * the precedence table + version-skip, and stamps processed repos.
+ * Slice 3 (issue #14) adds the real convergence pipeline
+ * (`src/converge/`): rendering `dependabot.yml` plus the gate/guard
+ * workflows and scripts from `assets/`, and writing them via the
+ * git-data API (`src/github/contents.ts`). GHAS toggles and ruleset
+ * management remain later slices' scope (issues #17, #18).
  */
 export { CURRENT_VERSION, PACKAGE_NAME } from "./version.js";
 

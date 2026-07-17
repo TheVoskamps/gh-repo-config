@@ -3,10 +3,14 @@
  * merge pass that makes fan-out runs unattended end to end (issue #24).
  *
  * Reads the three selection/stamp org custom properties, applies the
- * precedence table + version-skip to every repo, "converges" each due
- * repo (a **stub** — log/no-op this slice), and re-stamps the converged
- * repos with the current release version. Convergence itself (rendering
- * files, GHAS toggles, rulesets) is later slices' scope (#14–#18).
+ * precedence table + version-skip to every repo, converges each due
+ * repo, and re-stamps the converged repos with the current release
+ * version. `runSweep`'s `converge` step is an injectable callback — the
+ * function itself stays convergence-agnostic and tests supply their own
+ * stub. `runSweepFromEnv` wires in the real converge step (issue #14,
+ * `convergeRepoFiles` in `./converge/writer.js`), which renders this
+ * slice's payload set and opens/updates one PR per repo. GHAS toggles
+ * and ruleset management remain later slices' scope (#17, #18).
  *
  * Independent of the version-skip decision, every *managed* repo also
  * gets a merge pass: list the converger App's own open PRs on that
@@ -148,12 +152,15 @@ export interface SweepOptions {
    */
   readonly dryRun?: boolean;
   /**
-   * Injectable converge step. This slice's default is a no-op stub;
-   * later slices replace it with the real (throwing-on-failure)
-   * converger. Returning normally means "converged, safe to stamp";
-   * throwing records that repo's outcome as `failed` in the report (not
-   * stamped, not treated as up to date) and causes the sweep as a whole
-   * to be reported as failed — see {@link SweepReport.failed}.
+   * Injectable converge step. `runSweep` has no built-in default and
+   * stays convergence-agnostic; `runSweepFromEnv` supplies the real
+   * (throwing-on-failure) converger (issue #14,
+   * {@link convergeRepoFiles} in `./converge/writer.js`), and tests
+   * supply their own stub. Returning normally means "converged, safe to
+   * stamp"; throwing records that repo's outcome as `failed` in the
+   * report (not stamped, not treated as up to date) and causes the
+   * sweep as a whole to be reported as failed — see
+   * {@link SweepReport.failed}.
    */
   readonly converge?: (repo: string) => Promise<void> | void;
   /** Injectable logger (defaults to `console`). */
