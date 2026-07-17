@@ -401,6 +401,83 @@ test("appSlug is required when mergeClient is supplied", async () => {
   );
 });
 
+test("an unexpected merge-pass error on one repo is isolated: it's recorded as failed, and other repos still get merged", async () => {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [
+      { repo: "fixture-a", mode: "process", version: V },
+      { repo: "fixture-b", mode: "process", version: V },
+      { repo: "fixture-c", mode: "process", version: V },
+    ],
+  });
+
+  const openPr = (n) => ({
+    number: n,
+    headSha: `sha${n}`,
+    headRef: "converger/work",
+    baseRef: "main",
+    authorLogin: "test-converger[bot]",
+    authorType: "Bot",
+  });
+
+  const listCalls = [];
+  const mergeClient = {
+    listOwnOpenPullRequests: async (org, repo) => {
+      listCalls.push(repo);
+      if (repo === "fixture-b") {
+        // Simulate a transient GitHub error (e.g. a 500) while listing
+        // fixture-b's PRs — this must not abort the merge pass for
+        // fixture-c, which comes after it in iteration order.
+        throw new Error("simulated 500 from list-PRs");
+      }
+      return [openPr(repo === "fixture-a" ? 1 : 3)];
+    },
+    evaluateAndMerge: async (org, repo, pr) => ({
+      pr,
+      outcome: "merged",
+      checks: [{ context: "ci", state: "green" }],
+      reason: "all required checks green, merged",
+    }),
+  };
+
+  const logs = [];
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: (m) => logs.push(m),
+    mergeClient,
+    appSlug: "test-converger",
+  });
+
+  // All three repos were attempted — the error on fixture-b did not
+  // short-circuit the loop before fixture-c was reached.
+  assert.deepEqual(listCalls, ["fixture-a", "fixture-b", "fixture-c"]);
+
+  // fixture-a and fixture-c still got their merge pass and are merged.
+  assert.deepEqual(
+    report.merged.map((m) => m.pr.number).sort(),
+    [1, 3],
+  );
+  assert.deepEqual(report.awaitingChecks, []);
+
+  // fixture-b is recorded as failed, not silently dropped.
+  assert.deepEqual(report.failed, ["fixture-b"]);
+  const fixtureBResult = report.results.find((r) => r.repo === "fixture-b");
+  assert.equal(fixtureBResult.action, "failed");
+  assert.match(fixtureBResult.reason, /merge pass failed/);
+  assert.match(fixtureBResult.reason, /simulated 500 from list-PRs/);
+
+  // fixture-a and fixture-c are not marked failed.
+  assert.equal(
+    report.results.find((r) => r.repo === "fixture-a").action,
+    "skip-current",
+  );
+  assert.equal(
+    report.results.find((r) => r.repo === "fixture-c").action,
+    "skip-current",
+  );
+
+  assert.ok(logs.some((l) => l.includes("fixture-b: merge pass failed")));
+});
+
 test("dryRun is passed through to evaluateAndMerge so the merge pass never issues a merge", async () => {
   const client = fakeClient({
     orgDefault: "opt-in",

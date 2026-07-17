@@ -70,12 +70,16 @@ export interface SweepReport {
    */
   readonly stamped: readonly string[];
   /**
-   * Repos that did not end the sweep successfully: either the converge
-   * step threw, or convergence succeeded but the subsequent
-   * `stampVersion` batch write for that repo failed. Not stamped, not
-   * up to date — must be retried on the next sweep. A non-empty `failed`
-   * means the sweep as a whole did not fully succeed; see
-   * `runSweepFromEnv`'s exit-code contract in `bin/gh-repo-config.js`.
+   * Repos that did not end the sweep successfully: the converge step
+   * threw, convergence succeeded but the subsequent `stampVersion` batch
+   * write for that repo failed, or that repo's merge-pass work (listing
+   * or evaluating/merging its open PRs) threw an unexpected error. Not
+   * stamped, not up to date, not confirmed merged — must be retried on
+   * the next sweep. A non-empty `failed` means the sweep as a whole did
+   * not fully succeed; see `runSweepFromEnv`'s exit-code contract in
+   * `bin/gh-repo-config.js`. Does NOT include repos whose PRs are simply
+   * `awaitingChecks` (red/pending/405-409) — that is expected, retried
+   * next tick, and not a failure.
    */
   readonly failed: readonly string[];
   readonly skippedUnmanaged: number;
@@ -234,8 +238,6 @@ export async function runSweep(
     log(`[dry-run] would stamp ${toStamp.length} repo(s) with ${version}`);
   }
 
-  const failed = results.filter((r) => r.action === "failed").map((r) => r.repo);
-
   const merged: MergeAttemptResult[] = [];
   const awaitingChecks: MergeAttemptResult[] = [];
   const mergeClient = options.mergeClient;
@@ -249,30 +251,62 @@ export async function runSweep(
     // have an unmerged converger PR sitting open. Unmanaged repos are
     // excluded from the iteration itself (not just filtered out by
     // author match), so an unmanaged repo is never probed at all.
+    //
+    // Each repo's merge-pass work is isolated in its own try/catch,
+    // mirroring the convergence loop above: an unexpected error (network,
+    // 5xx, auth) merging repo A must not abort the merge pass for repos
+    // B/C/D. This is distinct from the 405/409 "head moved / no longer
+    // mergeable" case, which `evaluateAndMerge` already reports as the
+    // non-throwing `awaiting-retry` outcome — this catch only ever sees
+    // genuinely unexpected failures.
     for (const repo of managedRepos) {
-      const prs = await mergeClient.listOwnOpenPullRequests(
-        org,
-        repo.repo,
-        appSlug,
-      );
-      for (const pr of prs) {
-        const attempt = await mergeClient.evaluateAndMerge(
+      try {
+        const prs = await mergeClient.listOwnOpenPullRequests(
           org,
           repo.repo,
-          pr,
-          dryRun,
+          appSlug,
         );
-        log(
-          `  ${repo.repo}#${pr.number}: ${attempt.outcome} — ${attempt.reason}`,
-        );
-        if (attempt.outcome === "merged") {
-          merged.push(attempt);
-        } else {
-          awaitingChecks.push(attempt);
+        for (const pr of prs) {
+          const attempt = await mergeClient.evaluateAndMerge(
+            org,
+            repo.repo,
+            pr,
+            dryRun,
+          );
+          log(
+            `  ${repo.repo}#${pr.number}: ${attempt.outcome} — ${attempt.reason}`,
+          );
+          if (attempt.outcome === "merged") {
+            merged.push(attempt);
+          } else {
+            awaitingChecks.push(attempt);
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`  ${repo.repo}: merge pass failed — ${msg}`);
+        // Record this repo's outcome as `failed`, the same way the
+        // convergence loop above does — a non-empty `failed` means the
+        // sweep as a whole did not fully succeed and this repo must be
+        // retried next tick. Don't clobber a convergence failure already
+        // recorded for this repo (e.g. `converge` threw earlier this
+        // tick) — that's already `failed` and already the right reason.
+        const idx = results.findIndex((r) => r.repo === repo.repo);
+        if (idx !== -1 && results[idx].action !== "failed") {
+          results[idx] = {
+            repo: repo.repo,
+            action: "failed",
+            reason: `merge pass failed: ${msg}`,
+          };
         }
       }
     }
   }
+
+  // Computed after the merge pass loop (not before) so a merge-pass
+  // failure recorded above is reflected in `failed` too — the same
+  // `results` array the convergence loop's failures already flow through.
+  const failed = results.filter((r) => r.action === "failed").map((r) => r.repo);
 
   return {
     org,
