@@ -20,7 +20,14 @@
 # `cdk synth`, etc.).
 #
 # Inputs:
-#   $1 -- mode: "npm", "pip", "pnpm", or "yarn"
+#   $1 -- mode: "npm", "pip", "pnpm", "yarn", or "--present"
+#
+#   --present emits a JSON array of the package managers whose manifest
+#   is actually present in the tracked tree (e.g. ["npm","pip"]), used by
+#   the workflow's `detect` job to build the runtime matrix. It reuses
+#   the SAME discovery predicate the run loop uses, so the matrix cannot
+#   drift from what the gate checks. Emits `[]` (valid JSON, not an empty
+#   string) when none are present.
 #
 # Behavior:
 #   - Discovers every relevant manifest via `git ls-files` (tracked
@@ -64,10 +71,14 @@ set -uo pipefail
 
 MODE="${1:-}"
 
+# The full armed set of package managers this gate supports, in a stable
+# order. Used by --present to build the workflow's runtime matrix.
+ALL_MODES="npm pnpm yarn pip"
+
 case "$MODE" in
-  npm|pip|pnpm|yarn) ;;
+  npm|pip|pnpm|yarn|--present) ;;
   *)
-    echo "usage: $0 <npm|pip|pnpm|yarn>" >&2
+    echo "usage: $0 <npm|pip|pnpm|yarn|--present>" >&2
     exit 2
     ;;
 esac
@@ -124,6 +135,50 @@ has_deps = (
 sys.exit(0 if has_deps else 1)
 PY
 }
+
+# present_mode <mode> -> exit 0 when the mode has at least one
+# install-relevant manifest in the tracked tree. Reuses the SAME
+# discover() predicate the run loop uses, so the runtime matrix (which
+# jobs to spawn) cannot drift from what the gate actually checks. For
+# pip, a config-only pyproject that declares no dependencies does NOT
+# count as present (matching the run loop's declares_deps filter).
+present_mode() {
+  local m="$1" line
+  MODE="$m"
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    if [ "${line##*/}" = "pyproject.toml" ] && ! declares_deps "$line"; then
+      continue
+    fi
+    return 0
+  done < <(discover)
+  return 1
+}
+
+# --present: emit a JSON array of the package managers actually present
+# in the tracked tree, for the CodeQL-style runtime matrix in
+# dependency-install-gate.yml. Emits `[]` (valid JSON, NOT an empty
+# string) when none are present, so the workflow's fromJSON spawns zero
+# legs cleanly and the aggregator passes (fail-open). A PM whose manifest
+# lands after setup lights its leg up on the next PR with no skill re-run.
+if [ "$MODE" = "--present" ]; then
+  entries=""
+  for m in $ALL_MODES; do
+    if present_mode "$m"; then
+      if [ -z "$entries" ]; then
+        entries="\"$m\""
+      else
+        entries="$entries,\"$m\""
+      fi
+    fi
+  done
+  json="[$entries]"
+  echo "$json"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "pms=$json" >> "$GITHUB_OUTPUT"
+  fi
+  exit 0
+fi
 
 # Strict, lockfile-honoring install for one manifest. No build steps.
 install_one() {

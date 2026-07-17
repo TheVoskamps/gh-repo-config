@@ -1,5 +1,93 @@
 version: 2
 updates:
+  - package-ecosystem: "bundler"
+    directories:
+      - "**/*"
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      bundler-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      bundler-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "cargo"
+    directories:
+      - "**/*"
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      cargo-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      cargo-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "composer"
+    directories:
+      - "**/*"
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      composer-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      composer-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "docker"
+    directories:
+      - "**/*"
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      docker-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      docker-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     target-branch: "main"
@@ -18,6 +106,72 @@ updates:
           - "minor"
           - "patch"
       github-actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "gomod"
+    directories:
+      - "**/*"
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      gomod-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      gomod-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "gradle"
+    directories:
+      - "**/*"
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      gradle-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      gradle-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "maven"
+    directories:
+      - "**/*"
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      maven-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      maven-security:
         applies-to: security-updates
         patterns:
           - "*"
@@ -70,6 +224,28 @@ updates:
           - "minor"
           - "patch"
       pip-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "terraform"
+    directories:
+      - "**/*"
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      terraform-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      terraform-security:
         applies-to: security-updates
         patterns:
           - "*"

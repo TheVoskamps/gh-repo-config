@@ -10,8 +10,39 @@ permissions:
   contents: read
 
 jobs:
-  npm:
+  # Stage 1: decide WHICH package managers to gate, at runtime, per PR.
+  # Emits a JSON array (e.g. ["npm","pip"]) of the PMs whose manifest is
+  # present in the tracked tree, reusing the gate script's own discovery.
+  detect:
+    name: Detect present package managers
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      pms: ${{ steps.detect.outputs.pms }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Detect present package managers
+        id: detect
+        run: bash .github/scripts/dependency-install-gate.sh --present
+
+  # Stage 2: one strict-install leg per present PM. Fed by the detect
+  # job's JSON array via fromJSON; an empty array spawns ZERO legs
+  # cleanly (fail-open — no phantom check, no empty-green noise).
+  gate:
+    name: Install gate (${{ matrix.pm }})
+    needs: detect
+    if: ${{ needs.detect.outputs.pms != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pm: ${{ fromJSON(needs.detect.outputs.pms) }}
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -20,43 +51,50 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node
+        if: ${{ matrix.pm != 'pip' }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-
-      - name: Strict npm install over discovered lockfiles
-        run: bash .github/scripts/dependency-install-gate.sh npm
-
-  pnpm:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-
-      - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-
-      - name: Strict pnpm install over discovered pnpm-lock.yaml files
-        run: bash .github/scripts/dependency-install-gate.sh pnpm
-
-  pip:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
 
       - name: Set up Python
+        if: ${{ matrix.pm == 'pip' }}
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
 
-      - name: Strict pip resolver pre-flight over discovered requirements
-        run: bash .github/scripts/dependency-install-gate.sh pip
+      - name: Strict install over discovered manifests
+        run: bash .github/scripts/dependency-install-gate.sh ${{ matrix.pm }}
+
+  # Stage 3: the SINGLE required status check. Always runs (even when the
+  # matrix was empty), and concludes success on an empty matrix (no PM
+  # present -> mergeable, NOT hung) or when every gate leg succeeded, and
+  # failure when any leg failed or was cancelled. `if: always()` is
+  # MANDATORY: without it the job is SKIPPED on an empty matrix, and a
+  # required check treats "skipped" as not-passed, reintroducing the
+  # #91/#230 phantom-check hang. The `protect-main` ruleset lists THIS
+  # job's name (`install-gate-required`) as the required check, never the
+  # per-leg `Install gate (<pm>)` names.
+  install-gate-required:
+    name: install-gate-required
+    needs: gate
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Conclude on the gate matrix result
+        run: |
+          result="${{ needs.gate.result }}"
+          echo "gate job result: ${result}"
+          # An empty matrix leaves the gate job 'skipped' — the fail-OPEN
+          # case (no PM present), so it is a PASS. 'success' is also a
+          # pass. Anything else (failure, cancelled) blocks the PR.
+          case "${result}" in
+            success|skipped)
+              echo "install-gate aggregator: PASS (${result})."
+              ;;
+            *)
+              echo "install-gate aggregator: FAIL — at least one gate leg did not succeed (${result})." >&2
+              exit 1
+              ;;
+          esac

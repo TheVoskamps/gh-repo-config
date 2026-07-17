@@ -55,7 +55,15 @@
 # transitively). Transitive pinning itself stays the install-gate's job.
 #
 # Inputs:
-#   $1 -- mode: "npm", "pip", "actions", "docker", or "go"
+#   $1 -- mode: "npm", "pip", "actions", "docker", "go", or "--present"
+#
+#   --present emits a JSON array of the ecosystems whose manifest is
+#   actually present in the tracked tree (e.g. ["actions","go"]), used by
+#   the workflow's `detect` job to build the runtime matrix. It reuses
+#   the SAME discovery predicate the run loop uses, so the matrix cannot
+#   drift from what the gate checks. `actions` is effectively an
+#   always-present floor (the skill always installs workflow files).
+#   Emits `[]` (valid JSON, not an empty string) when none are present.
 #
 # Behavior:
 #   - Discovers every relevant manifest via `git ls-files` (tracked
@@ -81,10 +89,14 @@ set -uo pipefail
 
 MODE="${1:-}"
 
+# The full armed set of ecosystems this gate supports, in a stable
+# order. Used by --present to build the workflow's runtime matrix.
+ALL_MODES="npm pip actions docker go"
+
 case "$MODE" in
-  npm|pip|actions|docker|go) ;;
+  npm|pip|actions|docker|go|--present) ;;
   *)
-    echo "usage: $0 <npm|pip|actions|docker|go>" >&2
+    echo "usage: $0 <npm|pip|actions|docker|go|--present>" >&2
     exit 2
     ;;
 esac
@@ -117,6 +129,41 @@ discover() {
       ;;
   esac
 }
+
+# present_mode <mode> -> exit 0 when the mode has at least one manifest
+# in the tracked tree. Reuses the SAME discover() predicate the run loop
+# uses, so the runtime matrix (which jobs to spawn) cannot drift from
+# what the gate actually checks.
+present_mode() {
+  MODE="$1"
+  [ -n "$(discover | head -n 1)" ]
+}
+
+# --present: emit a JSON array of the ecosystems actually present in the
+# tracked tree, for the CodeQL-style runtime matrix in
+# dependency-pinned-gate.yml. Emits `[]` (valid JSON, NOT an empty
+# string) when none are present, so the workflow's fromJSON spawns zero
+# legs cleanly and the aggregator passes (fail-open). An ecosystem whose
+# manifest lands after setup lights its leg up on the next PR with no
+# skill re-run.
+if [ "$MODE" = "--present" ]; then
+  entries=""
+  for m in $ALL_MODES; do
+    if present_mode "$m"; then
+      if [ -z "$entries" ]; then
+        entries="\"$m\""
+      else
+        entries="$entries,\"$m\""
+      fi
+    fi
+  done
+  json="[$entries]"
+  echo "$json"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "ecosystems=$json" >> "$GITHUB_OUTPUT"
+  fi
+  exit 0
+fi
 
 # ---------------------------------------------------------------------
 # Per-mode classifiers. Each prints one `VIOLATION: <detail>` line per
