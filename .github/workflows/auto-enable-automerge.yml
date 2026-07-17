@@ -13,7 +13,7 @@
 #   do-not-merge  label that opts a PR out of automation
 #   gh-repo-config-auto-rebase[bot]         git identity used for in-workflow rebase commits,
 #                        e.g. "<repo>-auto-rebase[bot]"
-#   no-back-merging-guard  name of a repo workflow that produces a
+#   no-back-merging-guard, dependency-install-gate, dependency-pinned-gate, codeql  name of a repo workflow that produces a
 #                        required PR check; its completion triggers the
 #                        Dependabot REST-merge re-evaluation. The
 #                        /gh-repo-setup-pr-automation skill expands this
@@ -26,7 +26,19 @@
 name: auto-enable-automerge
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    # ready_for_review is silently swallowed by GitHub when the PR is
+    # CONFLICTING/DIRTY at the moment it goes ready: `pull_request` runs
+    # against the PR's test-merge commit, and GitHub does not create a
+    # run at all for a conflicting PR
+    # (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
+    # A PR that was marked ready while conflicting therefore never
+    # re-enables auto-merge from ready_for_review alone. synchronize is
+    # the re-arm path: once the author pushes a conflict resolution, the
+    # push fires synchronize (not ready_for_review), and the
+    # `draft == false` job guard plus the enable-automerge job's
+    # autoMergeRequest.enabledAt idempotency pre-check make every other
+    # synchronize (draft or already-enabled) a cheap no-op.
+    types: [opened, reopened, ready_for_review, synchronize]
     branches: [main]
   # The Dependabot REST-merge job below re-evaluates eligibility whenever a
   # required-check-producing workflow completes (a PR's checks finishing is
@@ -45,7 +57,7 @@ on:
   # to fire after the rollup goes green. The enable-automerge job ignores
   # these triggers via its event guard.
   workflow_run:
-    workflows: [no-back-merging-guard]
+    workflows: [no-back-merging-guard, dependency-install-gate, dependency-pinned-gate, codeql]
     types: [completed]
   workflow_dispatch:
   schedule:
@@ -61,7 +73,7 @@ on:
 # This workflow has two jobs with disjoint trigger sets:
 #
 #  1. enable-automerge -- runs on pull_request opened/reopened/
-#     ready_for_review. Enables GitHub's native auto-merge on every PR to
+#     ready_for_review/synchronize. Enables GitHub's native auto-merge on every PR to
 #     main so the PR merges automatically once required
 #     checks + approvals are green. This is the path for HUMAN PRs: native
 #     auto-merge waits for the full ruleset (review + code-owner + status
