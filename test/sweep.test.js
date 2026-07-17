@@ -194,6 +194,40 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     if (url.includes("/pulls?state=open")) {
       return { ok: true, status: 200, statusText: "OK", json: async () => [] };
     }
+    // The real converge step (issue #14) runs for the `converge`-decision
+    // repo (fixture-behind). Serve the git-data read+write path so
+    // convergence completes (opening a PR of the rendered files) and the
+    // repo is stamped. An empty target tree makes every desired file
+    // "changed", so the write path exercises blobs/tree/commit/ref/PR.
+    if (url.endsWith("/repos/TheVoskamps/fixture-behind")) {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ default_branch: "main" }) };
+    }
+    if (url.includes("/git/ref/heads/main")) {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ object: { sha: "basecommit" } }) };
+    }
+    if (url.includes("/git/trees/basecommit")) {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ tree: [], truncated: false }) };
+    }
+    if (url.includes("/git/blobs") && method === "POST") {
+      return { ok: true, status: 201, statusText: "Created", json: async () => ({ sha: "newblob" }) };
+    }
+    if (url.includes("/git/trees") && method === "POST") {
+      return { ok: true, status: 201, statusText: "Created", json: async () => ({ sha: "newtree" }) };
+    }
+    if (url.includes("/git/commits") && method === "POST") {
+      return { ok: true, status: 201, statusText: "Created", json: async () => ({ sha: "newcommit" }) };
+    }
+    if (url.includes("/git/refs") && (method === "POST" || method === "PATCH")) {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
+    }
+    if (url.includes("/pulls") && method === "POST") {
+      return {
+        ok: true,
+        status: 201,
+        statusText: "Created",
+        json: async () => ({ number: 1, html_url: "https://example/pr/1", head: { ref: "gh-repo-config/converge" } }),
+      };
+    }
     throw new Error(`unexpected fetch: ${method} ${url}`);
   };
 

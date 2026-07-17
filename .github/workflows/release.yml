@@ -59,7 +59,7 @@ jobs:
           mkdir -p .release
           asset="gh-repo-config-${GITHUB_REF_NAME}.tgz"
           tar -czf ".release/${asset}" \
-            dist bin package.json
+            dist bin package.json assets
           echo "asset_path=.release/${asset}" >> "$GITHUB_ENV"
 
       - name: Generate build provenance attestation

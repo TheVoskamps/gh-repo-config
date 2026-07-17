@@ -1,0 +1,59 @@
+# no-back-merging-guard workflow rendered by /gh-repo-setup-protection.
+#
+# Installed at <repo-root>/.github/workflows/no-back-merging-guard.yml
+# (alongside its sibling script at
+# <repo-root>/.github/scripts/no-back-merging-guard.sh, self-tested by
+# <repo-root>/.github/scripts/test-no-back-merging-guard.sh). Shipped
+# UNCONDITIONALLY — the guard has no ecosystem dependency; it is pure
+# git-history hygiene and is desirable on every repo (see SKILL.md
+# "Step 5d").
+#
+# Purpose: reject PRs whose head branch contains a back-merge from the
+# default branch (a merge commit whose incoming parent is reachable from
+# `origin/<default>`), forcing feature branches to rebase rather than
+# merge the base in. Its job name `no-back-merging-guard` is registered
+# as a required status check in `protect-main` ONLY when this workflow
+# is installed this run (SKILL.md Step 6c gate — issue #91/#230
+# phantom-check guard).
+#
+# Placeholders:
+#   __DEFAULT_BRANCH__   Default branch of the target repo. The guard
+#                        runs on pull_request events targeting it. The
+#                        per-PR base is read from github.base_ref at run
+#                        time, so the guard still follows a base-branch
+#                        rename for the actual comparison.
+name: no-back-merging-guard
+on:
+  pull_request:
+    branches: [__DEFAULT_BRANCH__]
+
+# This is the only required status check on `__DEFAULT_BRANCH__`. It
+# rejects PRs whose head branch contains a back-merge from
+# `__DEFAULT_BRANCH__` (a merge commit whose incoming parent is
+# reachable from `origin/__DEFAULT_BRANCH__`). Feature branches must
+# rebase onto the default branch, not merge it in.
+#
+# Logic lives in .github/scripts/no-back-merging-guard.sh. Self-tested
+# by .github/scripts/test-no-back-merging-guard.sh. The guard avoids the
+# false-positive of the previous block-back-merges-from-base workflow,
+# which checked all parents of every merge commit and flagged merges
+# that became "tainted" by prior round-trips.
+
+jobs:
+  no-back-merging-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Fetch base branch
+        env:
+          BASE: ${{ github.base_ref }}
+        run: git fetch origin "$BASE"
+
+      - name: Run no-back-merging guard
+        env:
+          BASE: ${{ github.base_ref }}
+        run: bash .github/scripts/no-back-merging-guard.sh "origin/$BASE" HEAD

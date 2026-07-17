@@ -47,12 +47,48 @@ npm run build && npm test
     protection), and REST-merges (merge-commit only) whichever are
     green. A 405/409 from the merge call itself is `awaiting-retry`,
     not a failure.
+  - `src/github/contents.ts` — `ContentsClient`, same dependency-free-
+    `fetch` shape as `properties.ts` / `merge.ts`. The converger's
+    file-write path: reads a target repo's default branch and current
+    file state, then commits changed files via the **git-data API**
+    (blobs → tree → commit → ref) so scripts land mode `100755` (the
+    contents API cannot set the executable bit), and opens or updates a
+    single PR to the default branch.
+  - `src/converge/` — the file-render + write pipeline (issue #14) every
+    later file-rendering slice (#17, #18, #25) reuses.
+    - `assets.ts` — locates the `assets/` templates relative to the
+      built module (`import.meta.url`), not `process.cwd()`, so they
+      resolve in an unpacked release.
+    - `render.ts` — `__PLACEHOLDER__` substitution
+      (`__GH_ORG__`/`__GH_REPO__`/`__DEFAULT_BRANCH__`), the unresolved-
+      token assertion (rendered templates only, never verbatim scripts),
+      and the composite `dependabot.yml` `__DEPENDABOT_ECOSYSTEMS__`
+      expansion (one `ecosystem-block.yml` copy per armed ecosystem,
+      variant parts resolved per ecosystem class — the resolution spec
+      lives in the `github-setup` plugin's `gh-repo-setup-protection`
+      SKILL.md Step 3).
+    - `files.ts` — the payload set: which asset renders/ships to which
+      target path (`.github/dependabot.yml`, `.github/workflows/*.yml`
+      rendered; `.github/scripts/*.sh` verbatim + executable).
+    - `writer.ts` — `convergeRepoFiles`: whole-file compare (a right-
+      content-wrong-mode script counts as differing), commit changed
+      files onto the fixed `gh-repo-config/converge` branch, open/update
+      one PR per repo. No diff → no branch, no PR. Never pushes to the
+      default branch; merging the PR is issue #24's job.
   - `src/sweep.ts` — `runSweep` / `runSweepFromEnv`, the sweep's
-    orchestration. Convergence is currently an injectable no-op stub;
-    later slices (#14-#18) replace it with the real converger. The
-    merge pass (issue #24) runs independently of the version-skip
-    decision, over every repo the properties API returns, so an
-    unmerged converger PR from a prior tick still gets picked up.
+    orchestration. `runSweep`'s `converge` step stays an injectable stub
+    (tests supply their own); `runSweepFromEnv` wires the real converge
+    (`convergeRepoFiles`) in production. The merge pass (issue #24) runs
+    independently of the version-skip decision, over every repo the
+    properties API returns, so an unmerged converger PR from a prior
+    tick still gets picked up.
+- `assets/` — the template payloads the converger renders (extracted
+  verbatim from the `github-setup` plugin's
+  `gh-repo-setup-protection` payload): the `dependabot.yml` +
+  `ecosystem-block.yml` templates, the gate/guard `.yml` workflows,
+  and the `.sh` scripts (shipped verbatim + executable). Packed into
+  the release tarball (`.github/workflows/release.yml`) alongside
+  `dist`/`bin`/`package.json`.
 - `bin/gh-repo-config.js` — CLI entry point (`package.json` `bin`).
   Subcommands: `version` (default) and `sweep` (reads
   `GH_REPO_CONFIG_ORG` / `GH_REPO_CONFIG_TOKEN` /

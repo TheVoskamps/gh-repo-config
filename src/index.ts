@@ -55,3 +55,30 @@ export {
   type SweepRepoResult,
   type SweepOptions,
 } from "./sweep.js";
+
+export {
+  ContentsClient,
+  FILE_MODE,
+  type ContentsClientOptions,
+  type TreeFile,
+  type ExistingBlob,
+  type PullRequestResult,
+} from "./github/contents.js";
+
+export {
+  renderTemplate,
+  renderDependabotYml,
+  assertNoUnresolvedTokens,
+  DEPENDABOT_ECOSYSTEMS,
+  type RepoContext,
+} from "./converge/render.js";
+
+export { buildDesiredFiles, type DesiredFile } from "./converge/files.js";
+
+export { ASSETS_DIR, readAssetText } from "./converge/assets.js";
+
+export {
+  convergeRepoFiles,
+  CONVERGE_BRANCH,
+  type ConvergeResult,
+} from "./converge/writer.js";

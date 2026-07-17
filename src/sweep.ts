@@ -35,6 +35,11 @@ import {
   type MergeAttemptResult,
   type MergeClientOptions,
 } from "./github/merge.js";
+import {
+  ContentsClient,
+  type ContentsClientOptions,
+} from "./github/contents.js";
+import { convergeRepoFiles } from "./converge/writer.js";
 import { CURRENT_VERSION } from "./version.js";
 
 /** One repo's outcome in a sweep run. */
@@ -389,8 +394,24 @@ export async function runSweepFromEnv(
   };
   const mergeClient = new MergeClient(mergeClientOptions);
 
+  const contentsClientOptions: ContentsClientOptions = {
+    token,
+    ...(apiBase ? { apiBase } : {}),
+  };
+  const contentsClient = new ContentsClient(contentsClientOptions);
+  const dryRun = env.GH_REPO_CONFIG_DRY_RUN === "true";
+
+  // The real converge step (issue #14): render this slice's payload set
+  // and open/update one PR per repo. It throws on any convergence
+  // failure (unresolved token, git-data write error), which
+  // `runSweep` records as that repo's `failed` outcome — the repo is
+  // not stamped and is retried next tick. Under `dryRun` it computes the
+  // file diff without writing.
   return runSweep(client, org, CURRENT_VERSION, {
-    dryRun: env.GH_REPO_CONFIG_DRY_RUN === "true",
+    dryRun,
+    converge: async (repo: string) => {
+      await convergeRepoFiles(contentsClient, org, repo, dryRun);
+    },
     mergeClient,
     appSlug,
   });
