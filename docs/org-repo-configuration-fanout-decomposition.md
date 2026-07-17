@@ -121,6 +121,7 @@ fan-out mode since the App identity is already an org secret).
 | rendered `.github/workflows/*` | Workflows: **write** |
 | org custom-property read/write — selection + stamp (batch ≤30) | Organization custom properties: **write** |
 | read the org's `<org>/.github` community files to copy per-repo | Contents: **read** (App installed on `.github`) |
+| list own open PRs, read required checks, REST-merge green ones | Pull requests: **write** (already held via the render row above) |
 
 This set is visibly broader than the PR-automation App (Contents / PR /
 Workflows / Actions only) — it holds Administration and Org

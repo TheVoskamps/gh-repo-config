@@ -6,9 +6,10 @@
 //   sweep    — run the selection-loop sweep over an org, reading the
 //              three selection/stamp custom properties, applying the
 //              precedence table + version-skip, stubbing convergence,
-//              and stamping processed repos (slice 2, #13). Reads config
-//              from the environment (GH_REPO_CONFIG_ORG,
-//              GH_REPO_CONFIG_TOKEN, optional GH_REPO_CONFIG_DRY_RUN);
+//              stamping processed repos (slice 2, #13), and merging the
+//              converger's own green open PRs (#24). Reads config from
+//              the environment (GH_REPO_CONFIG_ORG, GH_REPO_CONFIG_TOKEN,
+//              GH_REPO_CONFIG_APP_SLUG, optional GH_REPO_CONFIG_DRY_RUN);
 //              intended to be invoked by the scheduled + workflow_dispatch
 //              sweep workflow, which mints the App installation token.
 import { CURRENT_VERSION, runSweepFromEnv } from "../dist/index.js";
@@ -27,8 +28,10 @@ switch (command) {
         `Sweep complete: ${report.stamped.length} stamped, ` +
           `${report.skippedCurrent} up-to-date, ` +
           `${report.skippedUnmanaged} unmanaged, ` +
-          `${report.failed.length} failed` +
-          (report.dryRun ? " (dry-run, no stamps written)" : ""),
+          `${report.failed.length} failed, ` +
+          `${report.merged.length} PR(s) merged, ` +
+          `${report.awaitingChecks.length} PR(s) awaiting checks` +
+          (report.dryRun ? " (dry-run, no stamps or merges written)" : ""),
       );
       if (report.failed.length > 0) {
         console.error(

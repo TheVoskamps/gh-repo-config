@@ -39,6 +39,16 @@ export {
 } from "./github/properties.js";
 
 export {
+  MergeClient,
+  type MergeClientOptions,
+  type OpenPullRequest,
+  type CheckState,
+  type RequiredCheckResult,
+  type MergeOutcome,
+  type MergeAttemptResult,
+} from "./github/merge.js";
+
+export {
   runSweep,
   runSweepFromEnv,
   type SweepReport,
