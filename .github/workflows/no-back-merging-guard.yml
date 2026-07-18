@@ -3,6 +3,11 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege: the guard only reads git history to detect back-merge
+# commits. No write scopes are needed.
+permissions:
+  contents: read
+
 # This is the only required status check on `main`. It
 # rejects PRs whose head branch contains a back-merge from
 # `main` (a merge commit whose incoming parent is
@@ -18,16 +23,18 @@ on:
 jobs:
   no-back-merging-guard:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      # fetch-depth: 0 fetches all history for all branches, so
+      # `origin/<base>` is already present after checkout — no separate
+      # authenticated `git fetch` step is needed (and none would work:
+      # persist-credentials: false leaves no token in git config).
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Fetch base branch
-        env:
-          BASE: ${{ github.base_ref }}
-        run: git fetch origin "$BASE"
+          persist-credentials: false
 
       - name: Run no-back-merging guard
         env:
