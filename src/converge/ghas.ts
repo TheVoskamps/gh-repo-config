@@ -8,11 +8,11 @@
  * Independent-concern error posture: each setting is converged and
  * reported on its own. A failed setting (report-and-skip on a 422
  * entitlement error, or report-and-continue on some other non-ok
- * response) does not stop the remaining settings for that repo — see
- * {@link converged this.md}'s "Constraints / decisions" in the issue.
- * Only an *unexpected* error (a thrown network/parse error, or an
- * unexpected non-ok/non-422 status from a write) propagates, so the
- * sweep's per-repo try/catch can record that repo as `failed`.
+ * response) does not stop the remaining settings for that repo — this
+ * mirrors issue #15's "Constraints / decisions" section. Only an
+ * *unexpected* error (a thrown network/parse error, or an unexpected
+ * non-ok/non-422 status from a write) propagates, so the sweep's
+ * per-repo try/catch can record that repo as `failed`.
  */
 import type { RepoSettingsClient } from "../github/settings.js";
 

@@ -1,6 +1,6 @@
 ---
 name: project-fanout-review
-description: Review context for the org-wide repo-config fan-out (#11) slice PRs — what is deliberately out of PR scope; #14 (real convergence) landed via PR #31.
+description: Review context for the org-wide repo-config fan-out (#11) slice PRs — what is deliberately out of PR scope; #15 (GHAS + merge-button settings) landed via PR #32.
 metadata:
   type: project
 ---
@@ -10,13 +10,19 @@ a sequence of vertical slices. Slice 1 (#12, PR #20) = versioned release.
 Slice 2 (#13, PR #21) = selection-loop sweep control plane. Slice 2b
 (#24, PR #27) = sweep merges its own green converger PRs. Slice 3 (#14,
 PR #31) = first real convergence teeth (dependabot.yml + gates/guards,
-`src/converge/` + `src/github/contents.ts`). Slices #15-#18 = remaining
-convergence logic (GHAS, protect-main ruleset, CodeQL, community files).
+`src/converge/` + `src/github/contents.ts`). Slice 4 (#15, PR #32) =
+GHAS/repo-security + merge-button settings convergence (pure API
+mutations, no files/PR — `src/github/settings.ts` +
+`src/converge/ghas.ts`, wired as a second injectable `convergeGhas` step
+alongside `converge` in `runSweep`). Slices #16-#18 = remaining
+convergence logic (protect-main ruleset, CodeQL, community files).
 
 **Why:** each slice is a walking skeleton — proves one end-to-end path
 before the next adds teeth. Convergence was an injectable no-op stub
-through #13; #14 wired in the real one via `runSweepFromEnv` (`runSweep`
-itself still takes an injectable `converge` for tests).
+through #13; #14 wired in the real file-converge step via
+`runSweepFromEnv`; #15 added a second, independent injectable step
+(`convergeGhas`) in the same function (`runSweep` itself still takes
+injectable stubs for both, for tests).
 
 **How to apply when reviewing a slice PR:**
 - Operator provisioning (org GitHub App registration, org custom-property

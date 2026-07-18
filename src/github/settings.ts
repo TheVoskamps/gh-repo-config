@@ -70,11 +70,14 @@ interface RawAutomatedSecurityFixes {
 }
 
 /**
- * Thrown by write methods on an unexpected (non-404, non-2xx) response.
- * A 422 (entitlement) is NOT thrown here — callers that expect a 422 to
- * be a legitimate "skip, not fail" outcome check `status` themselves via
- * {@link RepoSettingsClient.rawPatchRepo}/{@link RepoSettingsClient.rawPut}
- * rather than catching this.
+ * Reserved for a future typed-error write path. Every
+ * {@link RepoSettingsClient} write method today (`enableVulnerabilityAlerts`,
+ * `enableAutomatedSecurityFixes`, `patchSecurityAndAnalysis`,
+ * `enableSecretScanningDelegatedBypass`, `patchMergeButtonSettings`)
+ * returns the raw `Response` instead of throwing, so callers (see
+ * `src/converge/ghas.ts`'s `outcomeFromResponse`) can treat a 422
+ * (entitlement) as report-and-skip without a try/catch. This class is
+ * not currently thrown anywhere in this module.
  */
 export class SettingsWriteError extends Error {
   readonly status: number;
