@@ -92,7 +92,6 @@ export {
 
 export {
   RepoSettingsClient,
-  SettingsWriteError,
   type RepoSettingsClientOptions,
   type RepoSecuritySettings,
   type SecurityAnalysisStatus,

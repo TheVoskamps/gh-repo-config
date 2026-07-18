@@ -70,25 +70,6 @@ interface RawAutomatedSecurityFixes {
 }
 
 /**
- * Reserved for a future typed-error write path. Every
- * {@link RepoSettingsClient} write method today (`enableVulnerabilityAlerts`,
- * `enableAutomatedSecurityFixes`, `patchSecurityAndAnalysis`,
- * `enableSecretScanningDelegatedBypass`, `patchMergeButtonSettings`)
- * returns the raw `Response` instead of throwing, so callers (see
- * `src/converge/ghas.ts`'s `outcomeFromResponse`) can treat a 422
- * (entitlement) as report-and-skip without a try/catch. This class is
- * not currently thrown anywhere in this module.
- */
-export class SettingsWriteError extends Error {
-  readonly status: number;
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "SettingsWriteError";
-    this.status = status;
-  }
-}
-
-/**
  * Reads and converges the GHAS / repo-security toggles and merge-button
  * settings for one repo at a time.
  */
