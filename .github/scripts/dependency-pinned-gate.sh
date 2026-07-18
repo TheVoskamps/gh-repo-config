@@ -53,6 +53,14 @@
 # in package.json must be exact AND a lockfile must exist when deps are
 # declared (an exact-pinned manifest with no lockfile still floats
 # transitively). Transitive pinning itself stays the install-gate's job.
+# The lockfile-present check is workspace-aware: a manifest with no
+# sibling lockfile is still accepted when an ancestor directory (up to
+# the repo root) has BOTH a lockfile AND a workspace declaration
+# (pnpm-workspace.yaml `packages:` globs, or package.json `workspaces`)
+# whose globs cover the manifest's directory -- pnpm/npm/yarn workspaces
+# keep a single lockfile at the workspace root by design. A stray
+# manifest the workspace does not cover still floats and stays a
+# violation.
 #
 # Inputs:
 #   $1 -- mode: "npm", "pip", "actions", "docker", "go", or "--present"
@@ -175,7 +183,7 @@ classify_npm() {
   local manifest="$1" dir
   dir="$(dirname "$manifest")"
   python3 - "$manifest" "$dir" <<'PY'
-import json, os, re, sys
+import fnmatch, json, os, re, sys
 
 manifest, dirpath = sys.argv[1], sys.argv[2]
 with open(manifest) as f:
@@ -284,16 +292,152 @@ if "resolutions" in data:
 # engines (node/npm) are toolchain floors, not deps -- ignored.
 
 # Lockfile-present check: if ANY direct deps are declared, a lockfile
-# must sit beside the manifest. An exact-pinned manifest with no
-# lockfile still floats transitively.
+# must sit beside the manifest OR the manifest must be a member of a
+# workspace whose root carries the lockfile (pnpm/npm/yarn workspaces
+# keep a SINGLE lockfile at the workspace root by design -- per-member
+# lockfiles never exist). An exact-pinned manifest with no lockfile
+# anywhere it can claim still floats transitively.
+LOCKFILES = ("package-lock.json", "pnpm-lock.yaml", "yarn.lock")
+
+def has_lockfile(d):
+    return any(os.path.exists(os.path.join(d, lf)) for lf in LOCKFILES)
+
+# Minimal `packages:` list parser for pnpm-workspace.yaml. Does not
+# assume PyYAML is installed -- the runner may not have it. Handles
+# the two shapes the field is ever written in:
+#   packages:
+#     - 'src'
+#     - 'packages/*'
+# or the flow form `packages: ['src', 'packages/*']`.
+def parse_pnpm_workspace_globs(path):
+    globs = []
+    try:
+        with open(path) as f:
+            text = f.read()
+    except OSError:
+        return globs
+    lines = text.splitlines()
+    in_packages = False
+    for line in lines:
+        stripped = line.strip()
+        if not in_packages:
+            m = re.match(r'^packages:\s*(\[.*\])?\s*$', stripped)
+            if m:
+                inline = m.group(1)
+                if inline:
+                    # Flow form: packages: ['src', 'packages/*']
+                    for item in re.findall(r'[\'"]([^\'"]+)[\'"]', inline):
+                        globs.append(item)
+                else:
+                    in_packages = True
+            continue
+        # Block form: consume `- 'glob'` lines until dedent / non-list line.
+        m = re.match(r'^-\s*[\'"]?([^\'"]+?)[\'"]?\s*$', stripped)
+        if m and stripped.startswith("-"):
+            globs.append(m.group(1))
+        elif stripped == "" or stripped.startswith("#"):
+            continue
+        else:
+            in_packages = False
+    return globs
+
+# `workspaces` field in package.json -- either a flat array or an
+# object with a `packages` key (the Yarn "nohoist"-style shape).
+def parse_npm_workspace_globs(root_manifest_path):
+    try:
+        with open(root_manifest_path) as f:
+            root_data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    ws = root_data.get("workspaces")
+    if ws is None:
+        return []
+    if isinstance(ws, list):
+        return [g for g in ws if isinstance(g, str)]
+    if isinstance(ws, dict):
+        pkgs = ws.get("packages")
+        if isinstance(pkgs, list):
+            return [g for g in pkgs if isinstance(g, str)]
+    return []
+
+# Does `relpath` (the manifest's directory, relative to the workspace
+# root, using forward slashes, "" meaning the root itself) match any of
+# the workspace globs? Negated globs (`!pattern`) exclude a prior match.
+# `packages/*` matches only a DIRECT child -- fnmatch's `*` has no
+# path-segment awareness and would otherwise wrongly cross `/` and match
+# a deeper nested path too, so a single-star pattern is only trusted
+# when the segment counts match. `packages/**` (or any pattern
+# containing a literal `**` component) matches any depth under its
+# prefix; fnmatch has no native `**`, so that case is handled directly
+# via a prefix check instead.
+def glob_matches(relpath, pattern):
+    pattern = pattern.rstrip("/")
+    if pattern == relpath:
+        return True
+    if "**" not in pattern:
+        if len(pattern.split("/")) == len(relpath.split("/")) and fnmatch.fnmatch(relpath, pattern):
+            return True
+    if "**" in pattern:
+        prefix = pattern.split("**", 1)[0].rstrip("/")
+        if prefix == "" or relpath == prefix or relpath.startswith(prefix + "/"):
+            return True
+    return False
+
+def workspace_covers(relpath, globs):
+    covered = False
+    for g in globs:
+        negate = g.startswith("!")
+        pat = g[1:] if negate else g
+        if glob_matches(relpath, pat):
+            covered = not negate
+    return covered
+
+# Walk up from the manifest's directory toward the repo root (the git
+# top-level, discovered via `git rev-parse --show-toplevel` at the
+# gate's call site through cwd -- classify_one() is always invoked with
+# cwd at the repo root per the run loop below), looking for an ancestor
+# that has BOTH a lockfile AND a workspace declaration covering the
+# manifest's directory.
+def find_workspace_root_lockfile(dirpath):
+    repo_root = os.getcwd()
+    abs_dir = os.path.abspath(dirpath)
+    abs_root = os.path.abspath(repo_root)
+    # Manifest must be inside the repo root for a relative path to make
+    # sense; if not, there's nothing to walk.
+    try:
+        rel_to_root = os.path.relpath(abs_dir, abs_root)
+    except ValueError:
+        return False
+    cur = abs_dir
+    while True:
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break  # filesystem root, stop
+        cur = parent
+        if has_lockfile(cur):
+            rel = os.path.relpath(abs_dir, cur)
+            rel = "" if rel == "." else rel.replace(os.sep, "/")
+            globs = []
+            pnpm_ws = os.path.join(cur, "pnpm-workspace.yaml")
+            if os.path.exists(pnpm_ws):
+                globs.extend(parse_pnpm_workspace_globs(pnpm_ws))
+            root_pkg = os.path.join(cur, "package.json")
+            if os.path.exists(root_pkg):
+                globs.extend(parse_npm_workspace_globs(root_pkg))
+            if globs and workspace_covers(rel, globs):
+                return True
+        if cur == abs_root:
+            break  # do not walk above the repo root
+    return False
+
 declares_deps = any(
     data.get(b) for b in ("dependencies", "devDependencies", "optionalDependencies")
 )
 if declares_deps:
-    lockfiles = ("package-lock.json", "pnpm-lock.yaml", "yarn.lock")
-    if not any(os.path.exists(os.path.join(dirpath, lf)) for lf in lockfiles):
+    if not has_lockfile(dirpath) and not find_workspace_root_lockfile(dirpath):
         violations.append(
-            "no lockfile beside a deps-declaring package.json "
+            "no lockfile beside a deps-declaring package.json, and no "
+            "workspace-root lockfile covers it "
             "(package-lock.json / pnpm-lock.yaml / yarn.lock) -- "
             "exact specs still float transitively without a lockfile"
         )
