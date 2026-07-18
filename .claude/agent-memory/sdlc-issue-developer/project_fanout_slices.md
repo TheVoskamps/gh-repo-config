@@ -1,6 +1,6 @@
 ---
 name: project-fanout-slices
-description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31.
+description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31, #15 (GHAS + merge-button settings) via PR #32.
 metadata:
   type: project
 ---
@@ -117,6 +117,43 @@ right-content-wrong-mode script counts as differing); no diff means
 no branch and no PR. Writes to the fixed `gh-repo-config/converge`
 branch, never to the default branch — merging is issue #24's job
 (already landed, see above).
+
+Issue #15 (converge GHAS/repo-security + merge-button settings, pure
+API mutations, no files/PR) landed via PR #32: new
+`src/github/settings.ts` (`RepoSettingsClient`, same dependency-free-
+`fetch` shape) and `src/converge/ghas.ts` (`convergeGhasSettings`).
+Wired into `runSweep` as a second injectable step (`convergeGhas`,
+alongside the existing `converge` for files), both gated on the same
+`converge`-decision branch and run in independent try/catch blocks per
+repo — a failure in one never discards or skips the other's result,
+but either failure marks the repo `failed` and excludes it from
+stamping. `runSweepFromEnv` wires the real `convergeGhasSettings`.
+Per-repo settings outcomes surface in the new
+`SweepReport.ghasResults` and the CLI summary.
+
+**Non-obvious findings from #15:**
+
+- **No stable read for push-protection delegated-bypass.** Every other
+  setting is genuinely read-then-PATCH (skip the write when already at
+  target), but `secret_scanning_delegated_bypass` has no dedicated GET
+  — the issue's own pre-extracted context from the `gh-repo-setup-protection`
+  skill confirms this ("no clean, stable per-repo public REST toggle").
+  The converger therefore always attempts this one PATCH, best-effort,
+  every pass — it is deliberately excluded from the `GhasConvergeResult.noop`
+  calculation (including it would make `noop` false on every single
+  pass, since it always reports `changed` on success).
+- **Independent-concern error posture applies at two levels.** Within
+  `convergeGhasSettings`, each setting's write failure is isolated (a
+  422 is skip-not-fail, only an unexpected status throws). At the
+  `sweep.ts` level, the *whole* `convergeGhas` step and the *whole*
+  `converge` (files) step are also isolated from each other — this
+  wasn't explicit in the issue but follows from "independent concerns"
+  read at the sweep-orchestration layer too.
+- **`allow_update_branch` deliberately omitted** (human-confirmed
+  decision baked into the issue body itself, not something I decided
+  independently) — `gh-repo-setup-protection`'s merge-button table
+  includes it but issue #15's spec doesn't list it, so the converger
+  treats the issue body as authoritative and does not converge that key.
 
 See also [[fanout-design-doc-pointers]] (not yet written) if design
 doc locations change.

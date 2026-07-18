@@ -5,7 +5,8 @@
 //   version  — print the converger's current version (slice 1, #12).
 //   sweep    — run the selection-loop sweep over an org, reading the
 //              three selection/stamp custom properties, applying the
-//              precedence table + version-skip, stubbing convergence,
+//              precedence table + version-skip, converging each due
+//              repo's files (#14) and GHAS/merge-button settings (#15),
 //              stamping processed repos (slice 2, #13), and merging the
 //              converger's own green open PRs (#24). Reads config from
 //              the environment (GH_REPO_CONFIG_ORG, GH_REPO_CONFIG_TOKEN,
@@ -46,6 +47,21 @@ switch (command) {
           console.log(
             `  ${repo}: ${result.changed.length} file(s) would change (dry-run, no PR)`,
           );
+        }
+      }
+      // GHAS / merge-button settings-convergence outcome (issue #15) —
+      // changed vs. already-converged vs. skipped-and-why, per repo.
+      for (const { repo, result } of report.ghasResults) {
+        if (result.noop) {
+          console.log(`  ${repo}: settings already converged`);
+          continue;
+        }
+        for (const setting of result.results) {
+          if (setting.outcome === "changed") {
+            console.log(`  ${repo}: ${setting.setting} changed`);
+          } else if (setting.outcome === "skipped") {
+            console.log(`  ${repo}: ${setting.setting} skipped — ${setting.reason}`);
+          }
         }
       }
       if (report.failed.length > 0) {
