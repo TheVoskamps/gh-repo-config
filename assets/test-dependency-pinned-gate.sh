@@ -214,6 +214,129 @@ JSON
 commit_all "$R"
 run_case "npm: exact deps but no lockfile (red)" 1 "$R" npm
 
+# Green: pnpm workspace member with only a root pnpm-lock.yaml (no
+# sibling lockfile) -- the false-positive case from issue #170.
+R="$TMP/npm-pnpm-workspace"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'src'
+  - 'packages/*'
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/contracts/package.json" <<'JSON'
+{
+  "name": "contracts",
+  "dependencies": { "left-pad": "1.3.0" }
+}
+JSON
+writef "$R/src/package.json" <<'JSON'
+{
+  "name": "src-pkg",
+  "dependencies": { "left-pad": "1.3.0" }
+}
+JSON
+commit_all "$R"
+run_case "npm: pnpm workspace member, root lockfile only (green)" 0 "$R" npm
+
+# Green: npm/yarn `workspaces` field member with only a root lockfile.
+R="$TMP/npm-workspaces-field"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true,
+  "workspaces": ["packages/*"]
+}
+JSON
+writef "$R/package-lock.json" <<'JSON'
+{ "name": "root", "lockfileVersion": 3 }
+JSON
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "left-pad": "1.3.0" }
+}
+JSON
+commit_all "$R"
+run_case "npm: workspaces-field member, root lockfile only (green)" 0 "$R" npm
+
+# Red (regression guard): a nested manifest with deps and NO lockfile
+# anywhere in its ancestry, and NOT covered by any workspace glob --
+# the true positive the check exists for must still fail.
+R="$TMP/npm-stray-nested"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true,
+  "workspaces": ["packages/*"]
+}
+JSON
+writef "$R/package-lock.json" <<'JSON'
+{ "name": "root", "lockfileVersion": 3 }
+JSON
+writef "$R/apps/standalone/package.json" <<'JSON'
+{
+  "name": "standalone",
+  "dependencies": { "left-pad": "1.3.0" }
+}
+JSON
+commit_all "$R"
+run_case "npm: stray nested manifest outside workspace globs (red)" 1 "$R" npm
+
+# Red (regression guard): `packages/*` is a single-star glob and must
+# match only a DIRECT child -- a manifest nested one level deeper than
+# the glob allows is NOT covered and must still fail.
+R="$TMP/npm-single-star-too-deep"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true,
+  "workspaces": ["packages/*"]
+}
+JSON
+writef "$R/package-lock.json" <<'JSON'
+{ "name": "root", "lockfileVersion": 3 }
+JSON
+writef "$R/packages/deep/nested/package.json" <<'JSON'
+{
+  "name": "deep-nested",
+  "dependencies": { "left-pad": "1.3.0" }
+}
+JSON
+commit_all "$R"
+run_case "npm: packages/* single-star doesn't cross depth (red)" 1 "$R" npm
+
+# Green: `packages/**` double-star DOES cover arbitrary depth.
+R="$TMP/npm-double-star-deep"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/**'
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/deep/nested/package.json" <<'JSON'
+{
+  "name": "deep-nested",
+  "dependencies": { "left-pad": "1.3.0" }
+}
+JSON
+commit_all "$R"
+run_case "npm: packages/** double-star covers any depth (green)" 0 "$R" npm
+
 # =====================================================================
 # pip
 # =====================================================================
