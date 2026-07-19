@@ -337,6 +337,36 @@ JSON
 commit_all "$R"
 run_case "npm: packages/** double-star covers any depth (green)" 0 "$R" npm
 
+# Red (regression guard): a negated glob excludes regardless of where it
+# appears in the list (pnpm/fast-glob ignore semantics are
+# order-independent). With the negation listed BEFORE the positive glob,
+# the excluded manifest must NOT count as workspace-covered -- it floats
+# with no lockfile anywhere it can claim, so the gate must fail. A
+# last-match-wins matcher would wrongly pass this green.
+R="$TMP/npm-negation-first"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - '!packages/excluded'
+  - 'packages/*'
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/excluded/package.json" <<'JSON'
+{
+  "name": "excluded",
+  "dependencies": { "left-pad": "1.3.0" }
+}
+JSON
+commit_all "$R"
+run_case "npm: negation before positive glob still excludes (red)" 1 "$R" npm
+
 # =====================================================================
 # pip
 # =====================================================================

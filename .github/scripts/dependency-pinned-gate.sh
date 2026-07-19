@@ -362,7 +362,10 @@ def parse_npm_workspace_globs(root_manifest_path):
 
 # Does `relpath` (the manifest's directory, relative to the workspace
 # root, using forward slashes, "" meaning the root itself) match any of
-# the workspace globs? Negated globs (`!pattern`) exclude a prior match.
+# the workspace globs? Negated globs (`!pattern`) exclude, regardless of
+# where they appear in the list -- matching pnpm's (fast-glob's)
+# order-independent ignore semantics, where a path matched by any
+# negative pattern is excluded even if a positive pattern follows it.
 # `packages/*` matches only a DIRECT child -- fnmatch's `*` has no
 # path-segment awareness and would otherwise wrongly cross `/` and match
 # a deeper nested path too, so a single-star pattern is only trusted
@@ -384,13 +387,14 @@ def glob_matches(relpath, pattern):
     return False
 
 def workspace_covers(relpath, globs):
-    covered = False
+    matched = False
     for g in globs:
-        negate = g.startswith("!")
-        pat = g[1:] if negate else g
-        if glob_matches(relpath, pat):
-            covered = not negate
-    return covered
+        if g.startswith("!"):
+            if glob_matches(relpath, g[1:]):
+                return False
+        elif glob_matches(relpath, g):
+            matched = True
+    return matched
 
 # Walk up from the manifest's directory toward the repo root (the git
 # top-level, discovered via `git rev-parse --show-toplevel` at the
