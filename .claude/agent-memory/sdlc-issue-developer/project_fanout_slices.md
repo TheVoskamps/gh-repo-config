@@ -155,5 +155,18 @@ Per-repo settings outcomes surface in the new
   includes it but issue #15's spec doesn't list it, so the converger
   treats the issue body as authoritative and does not converge that key.
 
+Issue #16 (converge protect-main ruleset + CodeQL, absorbing #17 into
+the same PR rather than a separate one) landed via PR #40: new
+`src/converge/ruleset.ts` (`convergeProtectMainRuleset`) +
+`src/github/rulesets.ts` (`RulesetsClient`), and
+`src/converge/default-setup.ts` (`convergeDefaultSetup`) +
+`src/github/code-scanning.ts` (`CodeScanningClient`) for the
+server-side CodeQL default-setup-off mutation. The CodeQL file payload
+(advanced workflow + config + runtime language-detection script) rides
+the existing #14 render pipeline via `src/converge/files.ts`. See
+[[project-codeql-ruleset-slice]] (this directory) for the design
+deviations from the `gh-repo-setup-protection` skill and the
+merge-before-ruleset ordering gate.
+
 See also [[fanout-design-doc-pointers]] (not yet written) if design
 doc locations change.

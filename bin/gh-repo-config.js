@@ -31,7 +31,8 @@ switch (command) {
           `${report.skippedUnmanaged} unmanaged, ` +
           `${report.failed.length} failed, ` +
           `${report.merged.length} PR(s) merged, ` +
-          `${report.awaitingChecks.length} PR(s) awaiting checks` +
+          `${report.awaitingChecks.length} PR(s) awaiting checks, ` +
+          `${report.rulesetDeferred.length} ruleset(s) deferred` +
           (report.dryRun ? " (dry-run, no stamps or merges written)" : ""),
       );
       for (const { repo, result } of report.convergeResults) {
@@ -63,6 +64,34 @@ switch (command) {
             console.log(`  ${repo}: ${setting.setting} skipped — ${setting.reason}`);
           }
         }
+      }
+      // CodeQL default-setup convergence outcome (issue #16).
+      for (const { repo, result } of report.defaultSetupResults) {
+        if (result.outcome === "already-converged") continue;
+        console.log(`  ${repo}: default-setup ${result.outcome}${result.reason ? ` — ${result.reason}` : ""}`);
+      }
+      // protect-main ruleset convergence outcome (issue #16).
+      for (const { repo, result } of report.rulesetResults) {
+        const extra = [];
+        if (result.changedFields && result.changedFields.length > 0) {
+          extra.push(`changed: ${result.changedFields.join(", ")}`);
+        }
+        if (result.codeQualitySkipped) extra.push("code quality skipped (rule type not available)");
+        if (result.uninstalledApps && result.uninstalledApps.length > 0) {
+          extra.push(`uninstalled bypass App(s): ${result.uninstalledApps.join(", ")}`);
+        }
+        if (result.unknownParams && result.unknownParams.length > 0) {
+          extra.push(
+            `unknown rule param(s) on server, canonical asset needs updating (bump version): ${result.unknownParams.join(", ")}`,
+          );
+        }
+        console.log(
+          `  ${repo}: protect-main ruleset ${result.outcome}` +
+            (extra.length > 0 ? ` (${extra.join("; ")})` : ""),
+        );
+      }
+      for (const repo of report.rulesetDeferred) {
+        console.log(`  ${repo}: protect-main ruleset deferred — file PR not yet merged (retry next tick)`);
       }
       if (report.failed.length > 0) {
         console.error(

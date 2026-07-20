@@ -2,8 +2,9 @@
  * The template render pipeline (issue #14) — `__PLACEHOLDER__` string
  * substitution plus the composite `dependabot.yml` ecosystem expansion.
  *
- * Every later file-rendering slice (#17, #18, #25) reuses this pipeline,
- * so its contract is deliberately small:
+ * Later file-rendering slices reuse this pipeline (issue #16's CodeQL
+ * payload already does; issue #25 next), so its contract is deliberately
+ * small:
  *
  * - {@link renderTemplate} does whole-string `__TOKEN__` replacement of
  *   the three per-repo tokens (`__GH_ORG__`, `__GH_REPO__`,

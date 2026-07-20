@@ -354,10 +354,12 @@ an explicitly-`process`-flagged fixture is ever touched.
   the App exists in the org. Feature. Medium. blocked-by 2. Testable:
   dispatch → ruleset appears with both bypass actors; re-dispatch →
   converged.
-- **6. Converge CodeQL** (filed: #17) — advanced setup on, default off,
-  plus the workflow. Feature. Medium. blocked-by 2. (The CodeQL server-mode
-  read lives here, where it's used — not a standalone module.)
-  Testable: dispatch → workflow in PR, default-setup off server-side.
+- **6. Converge CodeQL** (filed: #17, absorbed into #16's PR — delivered
+  together with slice 5 rather than as a separate PR) — advanced setup
+  on, default off, plus the workflow. Feature. Medium. blocked-by 2.
+  (The CodeQL server-mode read lives here, where it's used — not a
+  standalone module.) Testable: dispatch → workflow in PR, default-setup
+  off server-side.
 - **7. Copy community files from `<org>/.github`** (filed: #18) —
   seed-if-absent, skip-and-report if `.github` missing/empty. Feature.
   Medium. blocked-by 2. Testable: dispatch → the org's
