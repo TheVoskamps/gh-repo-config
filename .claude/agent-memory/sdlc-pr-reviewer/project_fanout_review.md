@@ -1,6 +1,6 @@
 ---
 name: project-fanout-review
-description: Review context for the org-wide repo-config fan-out (#11) slice PRs — what is deliberately out of PR scope; #15 (GHAS + merge-button settings) landed via PR #32.
+description: Review context for the org-wide repo-config fan-out (#11) slice PRs — what is deliberately out of PR scope; #16 (CodeQL + protect-main ruleset) landed via PR #40.
 metadata:
   type: project
 ---
@@ -14,8 +14,16 @@ PR #31) = first real convergence teeth (dependabot.yml + gates/guards,
 GHAS/repo-security + merge-button settings convergence (pure API
 mutations, no files/PR — `src/github/settings.ts` +
 `src/converge/ghas.ts`, wired as a second injectable `convergeGhas` step
-alongside `converge` in `runSweep`). Slices #16-#18 = remaining
-convergence logic (protect-main ruleset, CodeQL, community files).
+alongside `converge` in `runSweep`). Slice 5 (#16, PR #40, absorbing #17
+into the same PR) = protect-main ruleset + CodeQL convergence
+(`src/converge/ruleset.ts` + `src/github/rulesets.ts`,
+`src/converge/default-setup.ts` + `src/github/code-scanning.ts`, the
+CodeQL file payload riding the issue #14 render pipeline). Its ruleset
+step runs in a separate ordering-gated pass after the merge pass (the
+issues #91/#230 phantom-check guard) — see
+[[project-codeql-ruleset-slice]] (issue-developer's memory) for the
+deviations from the `gh-repo-setup-protection` skill and the gate's
+mechanics. Issue #18 (community files) remains outstanding.
 
 **Why:** each slice is a walking skeleton — proves one end-to-end path
 before the next adds teeth. Convergence was an injectable no-op stub
@@ -25,6 +33,7 @@ through #13; #14 wired in the real file-converge step via
 injectable stubs for both, for tests).
 
 **How to apply when reviewing a slice PR:**
+
 - Operator provisioning (org GitHub App registration, org custom-property
   definitions, org secrets, fixture repos) is deliberately **out of PR
   scope** — it is the operator's job via the `/gh-create-app` skill. Do
