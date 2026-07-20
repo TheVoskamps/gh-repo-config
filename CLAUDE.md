@@ -120,6 +120,16 @@ npm run build && npm test
       tool list, `code_quality`'s severity when both sides carry the
       rule) and `ref_name.exclude` — compared directly against the
       canonical asset; any difference is drift corrected by the PUT.
+      The rule-parameter compare is one-directional over the canonical
+      key set (iterates the desired rule's own parameter keys), plus a
+      separate detect-and-surface pass over the *existing* rule's keys:
+      a server-side parameter key the canonical asset doesn't carry at
+      all (e.g. a future GitHub-added default) is reported in
+      `RulesetConvergeResult.unknownParams` — an operator action cue to
+      update the asset and bump the converger's version — but is never
+      itself drift, since the canonical PUT could never set a key it
+      doesn't model; treating it as drift would just churn every tick
+      with no way to converge.
   - `src/sweep.ts` — `runSweep` / `runSweepFromEnv`, the sweep's
     orchestration. `runSweep`'s `converge` (files, #14), `convergeGhas`
     (settings, #15), and `convergeDefaultSetup` (#16) steps all stay

@@ -63,6 +63,35 @@ test("ordering gate: a repo whose file PR merged this tick has its ruleset run a
   assert.equal(report.rulesetResults[0].result.outcome, "created");
 });
 
+test("ordering gate: a ruleset result carrying unknownParams passes through the sweep report untouched (report/CLI surfacing, never blocks stamping)", async () => {
+  const client = fakeClient({ repos: [{ repo: "merged-repo", mode: "process", version: "0.1.0" }] });
+  const report = await runSweep(client, "O", V, {
+    log: () => {},
+    converge: () => ({
+      changed: [".github/workflows/codeql.yml"],
+      pullRequest: { number: 3, url: "u", updated: false },
+      noop: false,
+    }),
+    convergeRuleset: () => ({
+      outcome: "unchanged",
+      unknownParams: ["pull_request.some_new_param"],
+    }),
+    mergeClient: {
+      listOwnOpenPullRequests: async () => [openPr(3, "merged-repo")],
+      evaluateAndMerge: async (o, r, pr) => ({ pr, outcome: "merged", checks: [], reason: "merged" }),
+    },
+    appSlug: "conv",
+  });
+
+  assert.equal(report.rulesetResults.length, 1);
+  assert.equal(report.rulesetResults[0].result.outcome, "unchanged");
+  assert.deepEqual(report.rulesetResults[0].result.unknownParams, ["pull_request.some_new_param"]);
+  // A surfaced unknownParams warning is not a failure and does not
+  // block stamping — the repo still converges and stamps normally.
+  assert.deepEqual(report.stamped, ["merged-repo"]);
+  assert.deepEqual(report.failed, []);
+});
+
 test("ordering gate: a repo whose file PR did NOT merge this tick is deferred and NOT stamped", async () => {
   const client = fakeClient({ repos: [{ repo: "pending-repo", mode: "process", version: "0.1.0" }] });
   const rulesetCalls = [];

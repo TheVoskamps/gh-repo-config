@@ -169,10 +169,13 @@ export interface SweepReport {
   /**
    * Per-repo `protect-main` ruleset convergence outcome (issue #16) —
    * created / updated / unchanged / org-governed, plus any uninstalled
-   * bypass Apps and whether `code_quality` was skipped. Only present for
-   * repos whose ruleset step ran this tick — a repo whose file PR did
-   * not merge yet is deferred (see {@link SweepReport.rulesetDeferred}),
-   * so it contributes no entry here.
+   * bypass Apps, whether `code_quality` was skipped, and any unknown
+   * server-side rule-parameter keys surfaced (an operator action cue —
+   * never drift, never affects the outcome; see
+   * `RulesetConvergeResult.unknownParams`). Only present for repos whose
+   * ruleset step ran this tick — a repo whose file PR did not merge yet
+   * is deferred (see {@link SweepReport.rulesetDeferred}), so it
+   * contributes no entry here.
    */
   readonly rulesetResults: readonly SweepRulesetResult[];
   /**
@@ -327,6 +330,11 @@ function describeRulesetResult(result: RulesetConvergeResult): string {
   }
   if (result.uninstalledApps && result.uninstalledApps.length > 0) {
     extras.push(`uninstalled bypass App(s): ${result.uninstalledApps.join(", ")}`);
+  }
+  if (result.unknownParams && result.unknownParams.length > 0) {
+    extras.push(
+      `unknown rule param(s) on server, canonical asset needs updating: ${result.unknownParams.join(", ")}`,
+    );
   }
   let head: string;
   switch (result.outcome) {

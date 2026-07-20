@@ -150,4 +150,5 @@ export {
   type AppBypass,
   type RulesetOutcome,
   type RulesetConvergeResult,
+  type RulesetSemanticDiffResult,
 } from "./converge/ruleset.js";

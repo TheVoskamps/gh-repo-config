@@ -80,6 +80,11 @@ switch (command) {
         if (result.uninstalledApps && result.uninstalledApps.length > 0) {
           extra.push(`uninstalled bypass App(s): ${result.uninstalledApps.join(", ")}`);
         }
+        if (result.unknownParams && result.unknownParams.length > 0) {
+          extra.push(
+            `unknown rule param(s) on server, canonical asset needs updating (bump version): ${result.unknownParams.join(", ")}`,
+          );
+        }
         console.log(
           `  ${repo}: protect-main ruleset ${result.outcome}` +
             (extra.length > 0 ? ` (${extra.join("; ")})` : ""),
