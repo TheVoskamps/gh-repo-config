@@ -40,3 +40,22 @@ before the slice landed — no table edit needed. Only CLAUDE.md's
 "Structure" section and the decomposition doc's slice-5/6 prose
 (noting issue #17 was absorbed into issue #16's PR rather than
 shipping separately) needed updates.
+
+**Issue #25 (PR #42) confirmed the pattern again, with a twist on the
+permission table check:** the design/decomposition docs' prose already
+covered the PR-automation convergence behavior — no rewrite needed.
+The permission table needed *checking but not editing*: the table's
+own prose already states "pr-automation makes no `orgs/`/`repos/` REST
+calls" — issue #25 is a pure file-render/write addition riding the
+existing #14 pipeline, covered by the table's existing "branch push +
+PR for rendered `.github/` files" and "rendered `.github/workflows/*`"
+rows, so a slice can confirm zero table edits are needed precisely
+*because* the table already scoped pr-automation as file-only. Only
+CLAUDE.md's `src/converge/` and `assets/` Structure entries needed
+updates (new `renderPrAutomationTemplate`/`PR_AUTOMATION_CONSTANTS`,
+new asset payload names) — the `assets/` bullet also needed a factual
+fix, since its prose attributed *all* assets to the
+`gh-repo-setup-protection` payload when #25's assets are sourced from
+the separate `gh-repo-setup-pr-automation` skill; check the sourcing
+attribution stays accurate when a new payload family is added, not
+just the file list.

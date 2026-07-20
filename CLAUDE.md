@@ -62,7 +62,7 @@ npm run build && npm test
     per-repo read exists for that one sub-key, so it's always attempted),
     and the merge-button/PR-hygiene settings.
   - `src/converge/` — the file-render + write pipeline (issue #14) every
-    file-rendering slice reuses (issue #16 already does; #25 next).
+    file-rendering slice reuses (issue #16 and #25 already do).
     - `assets.ts` — locates the `assets/` templates relative to the
       built module (`import.meta.url`), not `process.cwd()`, so they
       resolve in an unpacked release.
@@ -73,14 +73,28 @@ npm run build && npm test
       expansion (one `ecosystem-block.yml` copy per armed ecosystem,
       variant parts resolved per ecosystem class — the resolution spec
       lives in the `github-setup` plugin's `gh-repo-setup-protection`
-      SKILL.md Step 3).
+      SKILL.md Step 3). `renderPrAutomationTemplate` +
+      `PR_AUTOMATION_CONSTANTS` (issue #25) render the PR-automation
+      workflows' extra placeholders: nine fixed org-level constants
+      (App identity, merge method, do-not-merge label, required-check/
+      install-gate workflow names — all pinned by the issue, nothing
+      inferred) plus the per-repo-but-derived `__BOT_SLUG__`
+      (`<repo>-auto-rebase[bot]`), layered on top of the same three
+      per-repo tokens `renderTemplate` already resolves. The full
+      surface always renders unconditionally (no conditional-drop logic
+      like the interactive `gh-repo-setup-pr-automation` skill has for
+      repos lacking certain workflows) — on a managed repo the gates
+      and guards are guaranteed present in the same per-repo converger
+      PR, so every placeholder always resolves.
     - `files.ts` — the payload set: which asset renders/ships to which
-      target path. Rendered workflows land under `.github/workflows/`;
-      a rendered non-workflow config (the CodeQL config) lands at a
-      fixed bespoke path (`.github/codeql/codeql-config.yml`, the path
-      the CodeQL workflow's `config-file:` line references); verbatim
-      scripts ship byte-for-byte and executable under
-      `.github/scripts/`.
+      target path. Rendered workflows land under `.github/workflows/`,
+      including the PR-automation workflows (issue #25), rendered via
+      `renderPrAutomationTemplate` rather than the plain three-token
+      `renderTemplate`; a rendered non-workflow config (the CodeQL
+      config) lands at a fixed bespoke path
+      (`.github/codeql/codeql-config.yml`, the path the CodeQL
+      workflow's `config-file:` line references); verbatim scripts ship
+      byte-for-byte and executable under `.github/scripts/`.
     - `writer.ts` — `convergeRepoFiles`: whole-file compare (a right-
       content-wrong-mode script counts as differing), commit changed
       files onto the fixed `gh-repo-config/converge` branch, open/update
@@ -154,24 +168,29 @@ npm run build && npm test
     don't exercise ruleset behavior) reproduces pre-#16 stamping,
     gated on the file/GHAS/default-setup steps alone.
 - `assets/` — the template payloads the converger renders, sourced from
-  the `github-setup` plugin's `gh-repo-setup-protection` payload
-  (authoritative shape defined in that plugin's SKILL.md — see
-  "Authority" in issue #16): the `dependabot.yml` + `ecosystem-block.yml`
-  templates, the gate/guard `.yml` workflows, the CodeQL payload set
-  (`codeql.yml` workflow, `codeql-config.yml`, `codeql-language-
-  present.sh` runtime language-detection script + its
-  `test-codeql-language-present.sh` self-test), the
-  `protect-main-ruleset.json` ruleset body template, and the `.sh`
-  scripts (shipped verbatim + executable). "Verbatim" here means byte-
-  identical to the upstream payload at the time of extraction — not
-  independently re-verifiable from this repo, since the upstream
-  plugin's payload files (as opposed to its `SKILL.md`) are not present
-  in a local plugin cache to diff against. The shipped
-  `test-codeql-language-present.sh` self-test is the one piece of
-  after-the-fact verification available for the CodeQL detection script;
-  it does not by itself confirm byte-identity with upstream. Packed into
-  the release tarball (`.github/workflows/release.yml`) alongside
-  `dist`/`bin`/`package.json`.
+  the `github-setup` plugin (authoritative shape defined in that
+  plugin's skill `SKILL.md` files — see "Authority" in issue #16): from
+  `gh-repo-setup-protection`, the `dependabot.yml` +
+  `ecosystem-block.yml` templates, the gate/guard `.yml` workflows, the
+  CodeQL payload set (`codeql.yml` workflow, `codeql-config.yml`,
+  `codeql-language-present.sh` runtime language-detection script + its
+  `test-codeql-language-present.sh` self-test), and the
+  `protect-main-ruleset.json` ruleset body template; from
+  `gh-repo-setup-pr-automation` (issue #25), the `auto-enable-
+  automerge.yml` + `auto-rebase-prs.yml` workflows and the
+  `auto-rebase-lockfile-regen.sh` script + its
+  `test-auto-rebase-lockfile-regen.sh` self-test. All `.sh` scripts
+  ship verbatim + executable. "Verbatim" here means byte-identical to
+  the upstream payload at the time of extraction — not independently
+  re-verifiable from this repo, since the upstream plugin's payload
+  files (as opposed to its `SKILL.md`) are not present in a local
+  plugin cache to diff against. The shipped self-tests
+  (`test-codeql-language-present.sh`, `test-auto-rebase-lockfile-
+  regen.sh`) are the one piece of after-the-fact verification available
+  for their respective scripts; neither by itself confirms
+  byte-identity with upstream. Packed into the release tarball
+  (`.github/workflows/release.yml`) alongside `dist`/`bin`/
+  `package.json`.
 - `bin/gh-repo-config.js` — CLI entry point (`package.json` `bin`).
   Subcommands: `version` (default) and `sweep` (reads
   `GH_REPO_CONFIG_ORG` / `GH_REPO_CONFIG_TOKEN` /

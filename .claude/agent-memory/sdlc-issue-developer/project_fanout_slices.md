@@ -1,6 +1,6 @@
 ---
 name: project-fanout-slices
-description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31, #15 (GHAS + merge-button settings) via PR #32.
+description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31, #15 (GHAS + merge-button settings) via PR #32, #16 (CodeQL + protect-main ruleset) via PR #40, #25 (PR-automation workflows/scripts) via PR #42.
 metadata:
   type: project
 ---
@@ -167,6 +167,32 @@ the existing #14 render pipeline via `src/converge/files.ts`. See
 [[project-codeql-ruleset-slice]] (this directory) for the design
 deviations from the `gh-repo-setup-protection` skill and the
 merge-before-ruleset ordering gate.
+
+Issue #25 (converge PR-automation workflows + scripts, the render
+slice missing from the original decomposition tree) landed via PR #42:
+extracted `auto-enable-automerge.yml`, `auto-rebase-prs.yml`,
+`auto-rebase-lockfile-regen.sh` + its self-test verbatim from the
+`github-setup` plugin's `gh-repo-setup-pr-automation` payload into
+`assets/`, riding the existing #14 render/write pipeline via
+`src/converge/files.ts`. The two workflows carry 9 fixed org-level
+placeholders beyond the three `renderTemplate` already resolves
+(`__APP_NAME__`, `__APP_ID_SECRET__`, `__APP_PRIVATE_KEY_SECRET__`,
+`__MERGE_METHOD__`, `__REST_MERGE_METHOD__`, `__DO_NOT_MERGE_LABEL__`,
+`__REQUIRED_CHECK_WORKFLOW__`, `__INSTALL_GATE_WORKFLOW__`,
+`__INSTALL_GATE_NPM_CHECK__` — every value pinned directly by the
+issue, nothing inferred), plus a per-repo-but-derived `__BOT_SLUG__`
+(`<repo>-auto-rebase[bot]`). Added `renderPrAutomationTemplate` +
+`PR_AUTOMATION_CONSTANTS` to `src/converge/render.ts` rather than
+extending `renderTemplate`/`RepoContext` itself, since the 9 extra
+tokens are PR-automation-specific constants, not general per-repo
+context — keeps the existing dependabot/CodeQL render call sites
+unchanged. Rendered the **full surface unconditionally** (no
+conditional-drop logic like the interactive `gh-repo-setup-pr-
+automation` skill has for repos lacking certain workflows) — on a
+managed repo the gates/guards are guaranteed present in the same
+per-repo converger PR (#14), so every placeholder always resolves;
+confirmed by two of the two templates' placeholder counts (33 and 41
+occurrences respectively) matching the issue's pinned table exactly.
 
 See also [[fanout-design-doc-pointers]] (not yet written) if design
 doc locations change.
