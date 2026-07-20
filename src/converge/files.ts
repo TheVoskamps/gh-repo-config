@@ -7,8 +7,12 @@
  * dependency gates and the back-merge guard. Issue #16 (absorbing #17)
  * adds the CodeQL payload set — the advanced-setup workflow, its sibling
  * config, and the runtime language-detection script (+ its self-test).
- * The write path (`writer.ts`) and the render pipeline (`render.ts`) are
- * shared, so a slice only adds entries here, not a new PR-per-concern.
+ * Issue #25 adds the PR-automation payload set — the auto-merge and
+ * auto-rebase workflows plus the lockfile-regen script (+ its
+ * self-test), rendered via {@link renderPrAutomationTemplate} for their
+ * nine extra fixed placeholders. The write path (`writer.ts`) and the
+ * render pipeline (`render.ts`) are shared, so a slice only adds entries
+ * here, not a new PR-per-concern.
  *
  * Production modes:
  *
@@ -28,6 +32,7 @@ import { readAssetText } from "./assets.js";
 import {
   assertNoUnresolvedTokens,
   renderDependabotYml,
+  renderPrAutomationTemplate,
   renderTemplate,
   type RepoContext,
 } from "./render.js";
@@ -59,6 +64,9 @@ const VERBATIM_SCRIPTS: readonly string[] = [
   // CodeQL runtime language-detection script + its self-test (issue #16).
   "codeql-language-present.sh",
   "test-codeql-language-present.sh",
+  // PR-automation lockfile-regen script + its self-test (issue #25).
+  "auto-rebase-lockfile-regen.sh",
+  "test-auto-rebase-lockfile-regen.sh",
 ];
 
 /**
@@ -73,6 +81,18 @@ const RENDERED_WORKFLOWS: readonly string[] = [
   // `__DEFAULT_BRANCH__` placeholder; its runtime detect job handles
   // language-less repos, so it ships unconditionally like the guards.
   "codeql.yml",
+];
+
+/**
+ * The two PR-automation workflows (issue #25). Rendered separately from
+ * {@link RENDERED_WORKFLOWS} because they carry the extra
+ * {@link PR_AUTOMATION_CONSTANTS} placeholders (via
+ * {@link renderPrAutomationTemplate}), not just the three plain
+ * per-repo tokens `renderTemplate` handles.
+ */
+const RENDERED_PR_AUTOMATION_WORKFLOWS: readonly string[] = [
+  "auto-enable-automerge.yml",
+  "auto-rebase-prs.yml",
 ];
 
 /**
@@ -120,6 +140,19 @@ export function buildDesiredFiles(ctx: RepoContext): DesiredFile[] {
   // Rendered workflows under .github/workflows/.
   for (const name of RENDERED_WORKFLOWS) {
     const rendered = renderTemplate(readAssetText(name), ctx);
+    assertNoUnresolvedTokens(rendered, `.github/workflows/${name}`);
+    files.push({
+      path: `.github/workflows/${name}`,
+      content: rendered,
+      executable: false,
+    });
+  }
+
+  // PR-automation workflows under .github/workflows/ (issue #25):
+  // extra fixed-constant + __BOT_SLUG__ substitution via
+  // renderPrAutomationTemplate, not the plain three-token render.
+  for (const name of RENDERED_PR_AUTOMATION_WORKFLOWS) {
+    const rendered = renderPrAutomationTemplate(readAssetText(name), ctx);
     assertNoUnresolvedTokens(rendered, `.github/workflows/${name}`);
     files.push({
       path: `.github/workflows/${name}`,

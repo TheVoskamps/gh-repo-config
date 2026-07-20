@@ -4,7 +4,9 @@ import {
   renderTemplate,
   assertNoUnresolvedTokens,
   renderDependabotYml,
+  renderPrAutomationTemplate,
   DEPENDABOT_ECOSYSTEMS,
+  PR_AUTOMATION_CONSTANTS,
 } from "../dist/index.js";
 import { readAssetText } from "../dist/index.js";
 
@@ -159,6 +161,44 @@ test("target-branch reflects the per-repo default branch", () => {
   );
   assert.match(out, /target-branch: "trunk"/);
   assert.doesNotMatch(out, /target-branch: "main"/);
+});
+
+test("renderPrAutomationTemplate resolves all fixed constants, per-repo tokens, and __BOT_SLUG__ with no unresolved placeholders", () => {
+  for (const name of ["auto-enable-automerge.yml", "auto-rebase-prs.yml"]) {
+    const out = renderPrAutomationTemplate(readAssetText(name), CTX);
+    assert.doesNotThrow(() => assertNoUnresolvedTokens(out, name));
+  }
+});
+
+test("renderPrAutomationTemplate substitutes each fixed constant to its pinned value", () => {
+  // auto-rebase-prs.yml carries every one of the 9 fixed constants (it is
+  // the only template with __INSTALL_GATE_WORKFLOW__ /
+  // __INSTALL_GATE_NPM_CHECK__); auto-enable-automerge.yml carries a
+  // subset. Assert against the template that carries the full set.
+  const template = readAssetText("auto-rebase-prs.yml");
+  const out = renderPrAutomationTemplate(template, CTX);
+  for (const [token, value] of Object.entries(PR_AUTOMATION_CONSTANTS)) {
+    if (!template.includes(token)) continue;
+    assert.equal(out.includes(token), false, `${token} left unresolved`);
+    assert.equal(out.includes(value), true, `${value} not found in output`);
+  }
+});
+
+test("renderPrAutomationTemplate interpolates __BOT_SLUG__ from the per-repo name", () => {
+  const out = renderPrAutomationTemplate(
+    readAssetText("auto-rebase-prs.yml"),
+    { org: "O", repo: "widgets", defaultBranch: "main" },
+  );
+  assert.match(out, /widgets-auto-rebase\[bot\]/);
+  assert.doesNotMatch(out, /__BOT_SLUG__/);
+});
+
+test("renderPrAutomationTemplate renders the per-repo default branch", () => {
+  const out = renderPrAutomationTemplate(
+    readAssetText("auto-rebase-prs.yml"),
+    { org: "O", repo: "r", defaultBranch: "trunk" },
+  );
+  assert.match(out, /branches: \[trunk\]/);
 });
 
 // Extract one ecosystem's rendered block (from its package-ecosystem

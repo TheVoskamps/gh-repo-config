@@ -5,7 +5,7 @@ import { readAssetText } from "../dist/index.js";
 
 const CTX = { org: "TheVoskamps", repo: "example", defaultBranch: "main" };
 
-test("buildDesiredFiles emits dependabot + codeql workflow/config + gate/guard workflows + scripts", () => {
+test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/config + gate/guard workflows + scripts", () => {
   const files = buildDesiredFiles(CTX);
   const paths = files.map((f) => f.path);
   assert.deepEqual(paths, [
@@ -14,6 +14,8 @@ test("buildDesiredFiles emits dependabot + codeql workflow/config + gate/guard w
     ".github/workflows/dependency-pinned-gate.yml",
     ".github/workflows/no-back-merging-guard.yml",
     ".github/workflows/codeql.yml",
+    ".github/workflows/auto-enable-automerge.yml",
+    ".github/workflows/auto-rebase-prs.yml",
     ".github/codeql/codeql-config.yml",
     ".github/scripts/dependency-install-gate.sh",
     ".github/scripts/dependency-pinned-gate.sh",
@@ -22,6 +24,8 @@ test("buildDesiredFiles emits dependabot + codeql workflow/config + gate/guard w
     ".github/scripts/test-no-back-merging-guard.sh",
     ".github/scripts/codeql-language-present.sh",
     ".github/scripts/test-codeql-language-present.sh",
+    ".github/scripts/auto-rebase-lockfile-regen.sh",
+    ".github/scripts/test-auto-rebase-lockfile-regen.sh",
   ]);
 });
 
@@ -69,6 +73,25 @@ test("every rendered .yml file has zero unresolved tokens", () => {
       assert.doesNotThrow(() => assertNoUnresolvedTokens(f.content, f.path));
     }
   }
+});
+
+test("PR-automation workflows reference the AUTOMERGE secrets, no-back-merging-guard, and the REST-merge job", () => {
+  const files = buildDesiredFiles(CTX);
+  const automerge = files.find(
+    (f) => f.path === ".github/workflows/auto-enable-automerge.yml",
+  );
+  const rebase = files.find(
+    (f) => f.path === ".github/workflows/auto-rebase-prs.yml",
+  );
+  assert.ok(automerge, "auto-enable-automerge.yml present");
+  assert.ok(rebase, "auto-rebase-prs.yml present");
+
+  for (const f of [automerge, rebase]) {
+    assert.match(f.content, /secrets\.AUTOMERGE_APP_ID/);
+    assert.match(f.content, /secrets\.AUTOMERGE_APP_PRIVATE_KEY/);
+    assert.match(f.content, /workflows: \[no-back-merging-guard\]/);
+  }
+  assert.match(automerge.content, /dependabot-rest-merge:/);
 });
 
 test("gate/guard workflows carry the per-repo default branch", () => {

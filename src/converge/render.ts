@@ -19,6 +19,11 @@
  *   plugin's `gh-repo-setup-protection` SKILL.md "Step 3": one rendered
  *   copy of `ecosystem-block.yml` per armed ecosystem, with the variant
  *   parts resolved per ecosystem *class*.
+ * - {@link renderPrAutomationTemplate} (issue #25) substitutes the
+ *   PR-automation payload's 11 placeholders: the three per-repo tokens
+ *   {@link renderTemplate} already handles, {@link PR_AUTOMATION_CONSTANTS}
+ *   (9 fixed org-level values pinned by the issue), and `__BOT_SLUG__`
+ *   (per-repo, interpolated from the repo name).
  */
 
 /** Per-target-repo values the `__…__` tokens substitute to. */
@@ -74,6 +79,58 @@ export function assertNoUnresolvedTokens(
       )}`,
     );
   }
+}
+
+/**
+ * The nine fixed org-level constants the PR-automation templates
+ * (`auto-enable-automerge.yml`, `auto-rebase-prs.yml`) substitute,
+ * pinned by issue #25's placeholder table. These are the converged
+ * standard across every managed repo — nothing here is per-repo or
+ * open to interpretation. `__BOT_SLUG__` and `__DEFAULT_BRANCH__` are
+ * NOT in this map: `__DEFAULT_BRANCH__` is per-repo (handled by
+ * {@link renderTemplate}'s `RepoContext`) and `__BOT_SLUG__` is
+ * per-repo but derived (repo-name interpolated), so both are resolved
+ * separately in {@link renderPrAutomationTemplate}.
+ */
+export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
+  __APP_NAME__: "thevoskamps-pr-automations",
+  __APP_ID_SECRET__: "AUTOMERGE_APP_ID",
+  __APP_PRIVATE_KEY_SECRET__: "AUTOMERGE_APP_PRIVATE_KEY",
+  __MERGE_METHOD__: "MERGE",
+  __REST_MERGE_METHOD__: "merge",
+  __DO_NOT_MERGE_LABEL__: "do-not-merge",
+  __REQUIRED_CHECK_WORKFLOW__: "no-back-merging-guard",
+  __INSTALL_GATE_WORKFLOW__: "dependency-install-gate",
+  __INSTALL_GATE_NPM_CHECK__: "npm",
+};
+
+/**
+ * Render a PR-automation template (`auto-enable-automerge.yml` or
+ * `auto-rebase-prs.yml`): substitute the fixed
+ * {@link PR_AUTOMATION_CONSTANTS}, the per-repo `__BOT_SLUG__`
+ * (`<repo>-auto-rebase[bot]`, per the issue's placeholder table), and
+ * the three tokens {@link renderTemplate} already resolves
+ * (`__GH_ORG__`/`__GH_REPO__`/`__DEFAULT_BRANCH__`).
+ *
+ * The full surface always renders — no conditional-drop logic (unlike
+ * the interactive `gh-repo-setup-pr-automation` skill, which drops the
+ * `workflow_run` trigger / REST-merge job / regen scripts when a repo
+ * lacks the workflows they key off). On a managed repo the gates and
+ * guards are guaranteed present in the same per-repo converger PR, so
+ * every placeholder always resolves.
+ */
+export function renderPrAutomationTemplate(
+  template: string,
+  ctx: RepoContext,
+): string {
+  let rendered = template;
+  for (const [token, value] of Object.entries(PR_AUTOMATION_CONSTANTS)) {
+    rendered = rendered.split(token).join(value);
+  }
+  rendered = rendered
+    .split("__BOT_SLUG__")
+    .join(`${ctx.repo}-auto-rebase[bot]`);
+  return renderTemplate(rendered, ctx);
 }
 
 /**
