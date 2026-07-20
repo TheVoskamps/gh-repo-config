@@ -10,7 +10,8 @@
  * stub. `runSweepFromEnv` wires in the real converge step (issue #14,
  * `convergeRepoFiles` in `./converge/writer.js`), which renders this
  * slice's payload set and opens/updates one PR per repo. GHAS toggles
- * and ruleset management remain later slices' scope (#17, #18).
+ * (issue #15), CodeQL default-setup, and the `protect-main` ruleset
+ * (issue #16) all wire in the same way.
  *
  * Independent of the version-skip decision, every *managed* repo also
  * gets a merge pass: list the converger App's own open PRs on that
@@ -27,7 +28,22 @@
  * pure API mutations (no files, no PR) and runs alongside the file
  * converge step, in the same `converge`-decision branch: both are
  * gated on the same version-skip decision, since both are things this
- * release's convergence is responsible for landing.
+ * release's convergence is responsible for landing. The CodeQL
+ * default-setup convergence step (issue #16) is a third such
+ * pure-API concern in that same branch.
+ *
+ * The `protect-main` ruleset convergence step (issue #16) is different:
+ * it runs in a SEPARATE pass AFTER the merge pass, because it must not
+ * require a status-check context whose producing workflow is not yet on
+ * the target's default branch (the #91/#230 phantom-check guard). Per
+ * repo per tick: file render/PR -> merge pass -> the ruleset step runs
+ * only once the repo's file convergence has reached the default branch
+ * (file convergence was a no-op, or its converger PR merged this tick).
+ * A repo whose file PR is still open is DEFERRED (ruleset skipped) and
+ * NOT stamped this tick; the next tick retries. This ordering gate
+ * applies only when a ruleset step is injected — without one, stamping
+ * is gated on the file/GHAS/default-setup converge steps alone, exactly
+ * as before issue #16.
  */
 import {
   normalizeOrgDefault,
@@ -55,6 +71,24 @@ import {
   type RepoSettingsClientOptions,
 } from "./github/settings.js";
 import { convergeGhasSettings, type GhasConvergeResult } from "./converge/ghas.js";
+import {
+  CodeScanningClient,
+  type CodeScanningClientOptions,
+} from "./github/code-scanning.js";
+import {
+  convergeDefaultSetup,
+  type DefaultSetupConvergeResult,
+} from "./converge/default-setup.js";
+import {
+  RulesetsClient,
+  type RulesetsClientOptions,
+} from "./github/rulesets.js";
+import {
+  convergeProtectMainRuleset,
+  AUTOMERGE_APP_SLUG,
+  type AppBypass,
+  type RulesetConvergeResult,
+} from "./converge/ruleset.js";
 import { CURRENT_VERSION } from "./version.js";
 
 /** One repo's outcome in a sweep run. */
@@ -74,6 +108,18 @@ export interface SweepConvergeResult {
 export interface SweepGhasResult {
   readonly repo: string;
   readonly result: GhasConvergeResult;
+}
+
+/** One repo's CodeQL default-setup convergence outcome, keyed by repo name. */
+export interface SweepDefaultSetupResult {
+  readonly repo: string;
+  readonly result: DefaultSetupConvergeResult;
+}
+
+/** One repo's `protect-main` ruleset convergence outcome, keyed by repo name. */
+export interface SweepRulesetResult {
+  readonly repo: string;
+  readonly result: RulesetConvergeResult;
 }
 
 /** The full result of a sweep run, for logging and CI assertions. */
@@ -112,6 +158,34 @@ export interface SweepReport {
    * settings concern rather than the file-write concern.
    */
   readonly ghasResults: readonly SweepGhasResult[];
+  /**
+   * Per-repo CodeQL default-setup convergence outcome (issue #16) — a
+   * pure-API mutation run alongside the file/GHAS converge steps: driven
+   * to `not-configured`, already-converged, or skipped (feature/plan
+   * unavailable). Only present for repos whose `convergeDefaultSetup`
+   * step ran.
+   */
+  readonly defaultSetupResults: readonly SweepDefaultSetupResult[];
+  /**
+   * Per-repo `protect-main` ruleset convergence outcome (issue #16) —
+   * created / updated / unchanged / org-governed, plus any uninstalled
+   * bypass Apps and whether `code_quality` was skipped. Only present for
+   * repos whose ruleset step ran this tick — a repo whose file PR did
+   * not merge yet is deferred (see {@link SweepReport.rulesetDeferred}),
+   * so it contributes no entry here.
+   */
+  readonly rulesetResults: readonly SweepRulesetResult[];
+  /**
+   * Repos whose `protect-main` ruleset step was deferred this tick
+   * because their file convergence PR had not yet reached the default
+   * branch (opened this tick but not merged — checks pending). Per the
+   * #91/#230 ordering gate, the ruleset (which requires the file PR's
+   * status-check contexts) must not be asserted until its producing
+   * workflows are on the default branch. These repos are also NOT
+   * stamped this tick — the next tick retries once the PR merges. Not a
+   * failure.
+   */
+  readonly rulesetDeferred: readonly string[];
   /**
    * Repos actually confirmed stamped by the properties API. Equal to
    * `converged` on a fully successful (non-dry-run) sweep. When a batch
@@ -227,6 +301,51 @@ function describeGhasResult(result: GhasConvergeResult): string {
   return parts.join(", ");
 }
 
+/**
+ * One-line human-readable summary of a repo's
+ * {@link DefaultSetupConvergeResult}.
+ */
+function describeDefaultSetupResult(result: DefaultSetupConvergeResult): string {
+  switch (result.outcome) {
+    case "changed":
+      return `default setup: ${result.reason ?? "changed"}`;
+    case "already-converged":
+      return "default setup: already not-configured";
+    case "skipped":
+      return `default setup: skipped (${result.reason ?? "unavailable"})`;
+  }
+}
+
+/**
+ * One-line human-readable summary of a repo's
+ * {@link RulesetConvergeResult}.
+ */
+function describeRulesetResult(result: RulesetConvergeResult): string {
+  const extras: string[] = [];
+  if (result.codeQualitySkipped) {
+    extras.push("code quality: skipped (rule type not available)");
+  }
+  if (result.uninstalledApps && result.uninstalledApps.length > 0) {
+    extras.push(`uninstalled bypass App(s): ${result.uninstalledApps.join(", ")}`);
+  }
+  let head: string;
+  switch (result.outcome) {
+    case "created":
+      head = "protect-main ruleset: created";
+      break;
+    case "updated":
+      head = `protect-main ruleset: updated (changed: ${(result.changedFields ?? []).join(", ")})`;
+      break;
+    case "unchanged":
+      head = "protect-main ruleset: unchanged";
+      break;
+    case "org-governed":
+      head = `protect-main ruleset: ${result.reason ?? "org-governed"}`;
+      break;
+  }
+  return [head, ...extras].join("; ");
+}
+
 /** How to run the sweep. */
 export interface SweepOptions {
   /**
@@ -271,6 +390,38 @@ export interface SweepOptions {
   readonly convergeGhas?: (
     repo: string,
   ) => Promise<GhasConvergeResult | void> | GhasConvergeResult | void;
+  /**
+   * Injectable CodeQL default-setup convergence step (issue #16). A pure
+   * API mutation run alongside {@link converge} and {@link convergeGhas}
+   * in the same `converge`-decision branch, in its own try/catch: a
+   * thrown error marks the repo `failed` and skips stamping, but does not
+   * discard the other steps' results. `runSweepFromEnv` wires in the real
+   * {@link convergeDefaultSetup}. A stub returning nothing contributes no
+   * {@link SweepReport.defaultSetupResults} entry.
+   */
+  readonly convergeDefaultSetup?: (
+    repo: string,
+  ) => Promise<DefaultSetupConvergeResult | void> | DefaultSetupConvergeResult | void;
+  /**
+   * Injectable `protect-main` ruleset convergence step (issue #16). Runs
+   * in a **separate pass after the merge pass**, gated by the ordering
+   * rule: for each due repo, the ruleset step runs only once the repo's
+   * file convergence has reached the default branch this tick — i.e. its
+   * file convergence was a no-op (nothing to merge) OR its converger PR
+   * merged in the merge pass this tick. When the file PR is still open
+   * (opened this tick, checks pending), the ruleset is **deferred** and
+   * the repo is not stamped (see {@link SweepReport.rulesetDeferred}); the
+   * next tick retries. `runSweepFromEnv` wires in the real
+   * {@link convergeProtectMainRuleset}.
+   *
+   * When this option is **omitted**, there is no ruleset pass and no
+   * ordering gate: stamping is gated on the file/GHAS/default-setup
+   * converge steps alone, exactly as before issue #16. A thrown error
+   * marks the repo `failed` and skips stamping.
+   */
+  readonly convergeRuleset?: (
+    repo: string,
+  ) => Promise<RulesetConvergeResult | void> | RulesetConvergeResult | void;
   /** Injectable logger (defaults to `console`). */
   readonly log?: (message: string) => void;
   /**
@@ -304,6 +455,8 @@ export async function runSweep(
   const log = options.log ?? ((m: string) => console.log(m));
   const converge = options.converge ?? (() => {});
   const convergeGhas = options.convergeGhas ?? (() => {});
+  const convergeDefaultSetupStep = options.convergeDefaultSetup ?? (() => {});
+  const convergeRulesetStep = options.convergeRuleset;
   const dryRun = options.dryRun ?? false;
 
   const orgDefault = normalizeOrgDefault(await client.readOrgDefault());
@@ -316,7 +469,16 @@ export async function runSweep(
   const results: SweepRepoResult[] = [];
   const convergeResults: SweepConvergeResult[] = [];
   const ghasResults: SweepGhasResult[] = [];
-  const toStamp: string[] = [];
+  const defaultSetupResults: SweepDefaultSetupResult[] = [];
+  const rulesetResults: SweepRulesetResult[] = [];
+  const rulesetDeferred: string[] = [];
+  // Repos whose per-repo converge steps (file + GHAS + default-setup) all
+  // succeeded this tick — the stamp candidates, pending the ruleset
+  // ordering gate below. Kept as an ordered list plus a per-repo record
+  // of whether the file convergence was a no-op (no PR to merge), which
+  // the ordering gate reads.
+  const convergedOk: string[] = [];
+  const fileConvergeNoop = new Map<string, boolean>();
   // Repos whose selection decision was NOT skip-unmanaged — i.e. the
   // repo is managed, whether or not it happened to be due for
   // convergence this tick. The merge pass (below) is scoped to this
@@ -346,10 +508,16 @@ export async function runSweep(
       // (via `markFailed`, which never clobbers an already-recorded
       // failure) and excludes it from `toStamp`.
       let fileConvergeOk = true;
+      // Default to no-op-true so a repo whose injected converge step
+      // returns nothing (the common test stub) is treated as "no PR to
+      // wait on" by the ordering gate, matching prior stamp-immediately
+      // behavior for such stubs.
+      let repoFileNoop = true;
       try {
         const convergeResult = await converge(repo.repo);
         if (convergeResult) {
           convergeResults.push({ repo: repo.repo, result: convergeResult });
+          repoFileNoop = convergeResult.noop;
           log(`  ${repo.repo}: ${describeConvergeResult(convergeResult)}`);
         }
       } catch (err) {
@@ -376,47 +544,37 @@ export async function runSweep(
         markFailed(results, repo.repo, `GHAS settings convergence failed: ${msg}`);
       }
 
-      if (fileConvergeOk && ghasConvergeOk) {
-        toStamp.push(repo.repo);
-      }
-    }
-  }
-
-  let stamped: string[] = [];
-  if (toStamp.length > 0 && !dryRun) {
-    log(`Stamping ${toStamp.length} repo(s) with ${version}...`);
-    try {
-      await client.stampVersion(toStamp, version);
-      stamped = [...toStamp];
-    } catch (err) {
-      if (err instanceof PartialStampError) {
-        stamped = [...err.stamped];
-        const notStamped = [...err.failedBatch, ...err.notAttempted];
-        log(
-          `  stampVersion failed partway: ${stamped.length} repo(s) stamped, ` +
-            `${notStamped.length} repo(s) not stamped (${notStamped.join(", ")}) — ${err.message}`,
-        );
-        // Downgrade the not-actually-stamped repos' recorded action to
-        // `failed` so the report reflects reality: they were converged
-        // but the stamp write never landed, so a re-sweep must retry
-        // them rather than the report silently claiming success.
-        for (const repoName of notStamped) {
-          markFailed(
-            results,
-            repoName,
-            `converged but stamp write failed: ${err.message}`,
-          );
+      // CodeQL default-setup convergence (issue #16): a pure API mutation,
+      // independent concern in its own try/catch alongside file + GHAS.
+      let defaultSetupOk = true;
+      try {
+        const dsResult = await convergeDefaultSetupStep(repo.repo);
+        if (dsResult) {
+          defaultSetupResults.push({ repo: repo.repo, result: dsResult });
+          log(`  ${repo.repo}: ${describeDefaultSetupResult(dsResult)}`);
         }
-      } else {
-        throw err;
+      } catch (err) {
+        defaultSetupOk = false;
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`  ${repo.repo}: default-setup convergence failed, not stamping — ${msg}`);
+        markFailed(results, repo.repo, `default-setup convergence failed: ${msg}`);
+      }
+
+      if (fileConvergeOk && ghasConvergeOk && defaultSetupOk) {
+        convergedOk.push(repo.repo);
+        fileConvergeNoop.set(repo.repo, repoFileNoop);
       }
     }
-  } else if (toStamp.length > 0) {
-    log(`[dry-run] would stamp ${toStamp.length} repo(s) with ${version}`);
   }
 
+  // The merge pass (issue #24) runs BEFORE stamping and before the
+  // ruleset pass, so the ordering gate below can observe which repos'
+  // converger PRs merged this tick.
   const merged: MergeAttemptResult[] = [];
   const awaitingChecks: MergeAttemptResult[] = [];
+  // Repos that had at least one converger PR merged this tick — the
+  // ordering gate's "file convergence reached the default branch" signal.
+  const mergedThisTick = new Set<string>();
   const mergeClient = options.mergeClient;
   if (mergeClient) {
     const appSlug = options.appSlug;
@@ -455,6 +613,7 @@ export async function runSweep(
           );
           if (attempt.outcome === "merged") {
             merged.push(attempt);
+            mergedThisTick.add(repo.repo);
           } else {
             awaitingChecks.push(attempt);
           }
@@ -473,9 +632,85 @@ export async function runSweep(
     }
   }
 
-  // Computed after the merge pass loop (not before) so a merge-pass
-  // failure recorded above is reflected in `failed` too — the same
-  // `results` array the convergence loop's failures already flow through.
+  // The `protect-main` ruleset pass (issue #16) runs AFTER the merge pass
+  // so the #91/#230 ordering gate can observe which repos' file
+  // convergence reached the default branch this tick. For each repo whose
+  // per-repo converge steps all succeeded:
+  //   - file convergence was a no-op (nothing to merge) OR its converger
+  //     PR merged this tick  -> assert the ruleset now (stamp-eligible),
+  //   - file PR opened this tick but not yet merged                 -> DEFER
+  //     the ruleset AND skip stamping (retried next tick).
+  // The gate applies only when a ruleset step is injected. Without one,
+  // there is no ruleset pass and stamping is gated on the converge steps
+  // alone (pre-#16 behavior), so `convergedOk` is the stamp set directly.
+  const toStamp: string[] = [];
+  if (convergeRulesetStep) {
+    for (const repo of convergedOk) {
+      const fileLandedOnDefault =
+        (fileConvergeNoop.get(repo) ?? true) || mergedThisTick.has(repo);
+      if (!fileLandedOnDefault) {
+        // Ordering gate: file PR not on the default branch yet. Defer the
+        // ruleset and do not stamp — the next tick retries once it merges.
+        rulesetDeferred.push(repo);
+        log(
+          `  ${repo}: protect-main ruleset deferred — file convergence PR not yet merged (retry next tick, not stamping)`,
+        );
+        continue;
+      }
+      try {
+        const rulesetResult = await convergeRulesetStep(repo);
+        if (rulesetResult) {
+          rulesetResults.push({ repo, result: rulesetResult });
+          log(`  ${repo}: ${describeRulesetResult(rulesetResult)}`);
+        }
+        toStamp.push(repo);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`  ${repo}: ruleset convergence failed, not stamping — ${msg}`);
+        markFailed(results, repo, `ruleset convergence failed: ${msg}`);
+      }
+    }
+  } else {
+    toStamp.push(...convergedOk);
+  }
+
+  let stamped: string[] = [];
+  if (toStamp.length > 0 && !dryRun) {
+    log(`Stamping ${toStamp.length} repo(s) with ${version}...`);
+    try {
+      await client.stampVersion(toStamp, version);
+      stamped = [...toStamp];
+    } catch (err) {
+      if (err instanceof PartialStampError) {
+        stamped = [...err.stamped];
+        const notStamped = [...err.failedBatch, ...err.notAttempted];
+        log(
+          `  stampVersion failed partway: ${stamped.length} repo(s) stamped, ` +
+            `${notStamped.length} repo(s) not stamped (${notStamped.join(", ")}) — ${err.message}`,
+        );
+        // Downgrade the not-actually-stamped repos' recorded action to
+        // `failed` so the report reflects reality: they were converged
+        // but the stamp write never landed, so a re-sweep must retry
+        // them rather than the report silently claiming success.
+        for (const repoName of notStamped) {
+          markFailed(
+            results,
+            repoName,
+            `converged but stamp write failed: ${err.message}`,
+          );
+        }
+      } else {
+        throw err;
+      }
+    }
+  } else if (toStamp.length > 0) {
+    log(`[dry-run] would stamp ${toStamp.length} repo(s) with ${version}`);
+  }
+
+  // Computed after the merge pass loop and ruleset pass (not before) so a
+  // merge-pass or ruleset failure recorded above is reflected in `failed`
+  // too — the same `results` array the convergence loop's failures already
+  // flow through.
   const failed = results.filter((r) => r.action === "failed").map((r) => r.repo);
 
   return {
@@ -487,6 +722,9 @@ export async function runSweep(
     converged: toStamp,
     convergeResults,
     ghasResults,
+    defaultSetupResults,
+    rulesetResults,
+    rulesetDeferred,
     stamped: dryRun ? [] : stamped,
     failed,
     skippedUnmanaged: results.filter((r) => r.action === "skip-unmanaged").length,
@@ -555,7 +793,35 @@ export async function runSweepFromEnv(
   };
   const settingsClient = new RepoSettingsClient(settingsClientOptions);
 
+  const codeScanningClientOptions: CodeScanningClientOptions = {
+    token,
+    ...(apiBase ? { apiBase } : {}),
+  };
+  const codeScanningClient = new CodeScanningClient(codeScanningClientOptions);
+
+  const rulesetsClientOptions: RulesetsClientOptions = {
+    token,
+    ...(apiBase ? { apiBase } : {}),
+  };
+  const rulesetsClient = new RulesetsClient(rulesetsClientOptions);
+
   const dryRun = env.GH_REPO_CONFIG_DRY_RUN === "true";
+
+  // Resolve every installed App's slug -> app_id once for the whole
+  // sweep (the installation set is org-wide, not per-repo). Memoized so
+  // the ruleset step reuses the same lookup across all repos. An App
+  // absent from the map is not installed in the org — its bypass entry is
+  // omitted and reported, never failed (per issue #16 §3.4).
+  let appIdsBySlug: Map<string, number> | undefined;
+  const resolveAppBypass = async (): Promise<AppBypass[]> => {
+    if (!appIdsBySlug) {
+      appIdsBySlug = await rulesetsClient.readAppIdsBySlug(org);
+    }
+    return [appSlug, AUTOMERGE_APP_SLUG].map((slug) => ({
+      slug,
+      appId: appIdsBySlug!.get(slug),
+    }));
+  };
 
   // The real converge step (issue #14): render this slice's payload set
   // and open/update one PR per repo. It throws on any convergence
@@ -576,6 +842,30 @@ export async function runSweepFromEnv(
     // `SweepReport.ghasResults`.
     convergeGhas: (repo: string) =>
       convergeGhasSettings(settingsClient, org, repo, dryRun),
+    // The real CodeQL default-setup convergence step (issue #16): drive
+    // server-side default setup to `not-configured` (mutually exclusive
+    // with the advanced workflow). Read-then-write, report-and-skip on a
+    // 403/404 (feature/plan unavailable). Throws only on an unexpected
+    // (auth/scope) failure.
+    convergeDefaultSetup: (repo: string) =>
+      convergeDefaultSetup(codeScanningClient, org, repo, dryRun),
+    // The real `protect-main` ruleset convergence step (issue #16). Runs
+    // in the ordering-gated pass after the merge pass: create/converge
+    // the ruleset (or delete-and-defer when an org ruleset governs).
+    // Resolves the repo's default branch and the App bypass app_ids at
+    // call time; a `code_quality` 422 is retried without that rule.
+    convergeRuleset: async (repo: string) => {
+      const defaultBranch = await contentsClient.getDefaultBranch(org, repo);
+      const appBypass = await resolveAppBypass();
+      return convergeProtectMainRuleset(
+        rulesetsClient,
+        org,
+        repo,
+        defaultBranch,
+        appBypass,
+        dryRun,
+      );
+    },
     mergeClient,
     appSlug,
   });

@@ -360,8 +360,75 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     if (url.includes("/properties/values") && method === "PATCH") {
       return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
     }
+    // The merge pass lists the converger's own open PRs per managed repo
+    // (its list carries no `head=` filter, unlike the writer's
+    // findOpenPullRequest which does). fixture-behind's converge step
+    // opens PR #1 this tick; return it to the merge pass so it can merge
+    // it, letting fixture-behind clear the #16 ordering gate (file
+    // convergence reaches the default branch this tick) so its ruleset
+    // step runs and it gets stamped. The writer's own head-filtered list
+    // returns [] so a fresh PR is created (not treated as pre-existing).
+    if (url.includes("/fixture-behind/pulls?state=open") && !url.includes("head=")) {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => [
+          {
+            number: 1,
+            user: { login: "test-converger[bot]", type: "Bot" },
+            head: { sha: "prheadsha", ref: "gh-repo-config/converge" },
+            base: { ref: "main" },
+          },
+        ],
+      };
+    }
     if (url.includes("/pulls?state=open")) {
       return { ok: true, status: 200, statusText: "OK", json: async () => [] };
+    }
+    // Merge pass: no required checks on the base branch (empty rules), so
+    // the PR is mergeable outright; the merge PUT succeeds.
+    if (url.includes("/rules/branches/main")) {
+      return { ok: true, status: 200, statusText: "OK", json: async () => [] };
+    }
+    if (url.match(/\/pulls\/1\/merge$/) && method === "PUT") {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ merged: true }) };
+    }
+    // CodeQL default-setup convergence (issue #16): read reports
+    // `configured`, so the converger PATCHes it to not-configured.
+    if (url.includes("/code-scanning/default-setup") && method === "GET") {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ state: "configured", languages: ["actions"] }),
+      };
+    }
+    if (url.includes("/code-scanning/default-setup") && method === "PATCH") {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ state: "not-configured" }) };
+    }
+    // Org installations: resolve both the converger and AUTOMERGE App
+    // slugs to app_ids for the ruleset bypass actors.
+    if (url.includes("/installations")) {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          installations: [
+            { app_id: 4319606, app_slug: "test-converger" },
+            { app_id: 3835765, app_slug: "thevoskamps-pr-automations" },
+          ],
+        }),
+      };
+    }
+    // protect-main ruleset convergence (issue #16): no existing ruleset,
+    // no org ruleset governs, so the converger creates it.
+    if (url.includes("/rulesets") && method === "GET" && !url.match(/\/rulesets\/\d+/)) {
+      return { ok: true, status: 200, statusText: "OK", json: async () => [] };
+    }
+    if (url.includes("/rulesets") && method === "POST") {
+      return { ok: true, status: 201, statusText: "Created", json: async () => ({ id: 42, name: "protect-main" }) };
     }
     // The real GHAS/merge-button settings-convergence step (issue #15)
     // also runs for the `converge`-decision repo. Serve its read-then-
@@ -432,13 +499,31 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     });
 
     assert.equal(report.version, CURRENT_VERSION);
+    // fixture-behind converges (file PR #1 opened), the merge pass merges
+    // PR #1 this tick, so it clears the #16 ordering gate and its ruleset
+    // step runs — leaving it stamp-eligible. Nothing is deferred.
     assert.deepEqual(report.converged, ["fixture-behind"]);
     assert.deepEqual(report.stamped, ["fixture-behind"]);
+    assert.deepEqual(report.rulesetDeferred, []);
     assert.deepEqual(report.failed, []);
     assert.equal(report.skippedCurrent, 1); // fixture-current, already at CURRENT_VERSION
     assert.ok(calls.some((c) => c.method === "PATCH"));
-    assert.deepEqual(report.merged, []);
+    // The merge pass merged fixture-behind's converger PR #1 this tick.
+    assert.equal(report.merged.length, 1);
+    assert.equal(report.merged[0].pr.number, 1);
     assert.deepEqual(report.awaitingChecks, []);
+
+    // CodeQL default-setup was `configured` → driven to not-configured.
+    assert.equal(report.defaultSetupResults.length, 1);
+    assert.equal(report.defaultSetupResults[0].repo, "fixture-behind");
+    assert.equal(report.defaultSetupResults[0].result.outcome, "changed");
+
+    // protect-main ruleset: no existing/org ruleset → created, with both
+    // Apps resolved to bypass actors.
+    assert.equal(report.rulesetResults.length, 1);
+    assert.equal(report.rulesetResults[0].repo, "fixture-behind");
+    assert.equal(report.rulesetResults[0].result.outcome, "created");
+    assert.equal(report.rulesetResults[0].result.uninstalledApps, undefined);
 
     // Finding: runSweepFromEnv's converge callback must not discard the
     // ConvergeResult — the real convergeRepoFiles() write path opened a

@@ -1,0 +1,26 @@
+# CodeQL configuration rendered by /gh-repo-setup-protection.
+#
+# Installed at <repo-root>/.github/codeql/codeql-config.yml ONLY when
+# CodeQL is enabled for the target repo (paired with codeql.yml).
+# Referenced by the workflow's `config-file:` input.
+#
+# This file has no placeholders. It is shipped verbatim and gives the
+# security-extended query suite plus path filters that exclude vendored
+# and generated code from analysis. Tune `paths-ignore` per repo after
+# the first run if the Security tab flags third-party code.
+name: "Default CodeQL config"
+
+# Run the security-extended suite (the default security queries plus
+# additional lower-severity security queries). Switch to
+# "security-and-quality" if the repo wants the broader (noisier)
+# maintainability/quality queries too.
+queries:
+  - uses: security-extended
+
+paths-ignore:
+  - "**/node_modules/**"
+  - "**/vendor/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/*.min.js"
+  - "**/generated/**"

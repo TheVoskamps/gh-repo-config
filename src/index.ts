@@ -11,8 +11,15 @@
  * git-data API (`src/github/contents.ts`). Slice (issue #15) adds the
  * GHAS / repo-security and merge-button settings convergence step
  * (`src/converge/ghas.ts`, `src/github/settings.ts`) — pure API
- * mutations, no files, no PR. Ruleset management remains a later
- * slice's scope (issue #18).
+ * mutations, no files, no PR. Slice (issue #16, absorbing #17)
+ * completes the protection convergence: the CodeQL payload set
+ * (`src/converge/files.ts`, rendered through the #14 pipeline), the
+ * server-side CodeQL default-setup off (`src/converge/default-setup.ts`,
+ * `src/github/code-scanning.ts`), and the `protect-main` ruleset
+ * (`src/converge/ruleset.ts`, `src/github/rulesets.ts`) — the latter two
+ * pure API mutations, with the ruleset asserted only after the repo's
+ * file convergence has reached the default branch (the #91/#230
+ * ordering gate in `src/sweep.ts`).
  */
 export { CURRENT_VERSION, PACKAGE_NAME } from "./version.js";
 
@@ -60,6 +67,8 @@ export {
   type SweepRepoResult,
   type SweepConvergeResult,
   type SweepGhasResult,
+  type SweepDefaultSetupResult,
+  type SweepRulesetResult,
   type SweepOptions,
 } from "./sweep.js";
 
@@ -103,3 +112,42 @@ export {
   type SettingResult,
   type SettingOutcome,
 } from "./converge/ghas.js";
+
+export {
+  CodeScanningClient,
+  type CodeScanningClientOptions,
+  type DefaultSetupState,
+  type DefaultSetupStatus,
+  type DefaultSetupReadResult,
+} from "./github/code-scanning.js";
+
+export {
+  convergeDefaultSetup,
+  type DefaultSetupOutcome,
+  type DefaultSetupConvergeResult,
+} from "./converge/default-setup.js";
+
+export {
+  RulesetsClient,
+  type RulesetsClientOptions,
+  type RulesetSummary,
+  type RulesetBody,
+  type ExistingRuleset,
+  type BypassActor,
+  type RulesetRule,
+  type RefNameCondition,
+  type RulesetWriteResult,
+} from "./github/rulesets.js";
+
+export {
+  convergeProtectMainRuleset,
+  buildDesiredRuleset,
+  unionBypassActors,
+  orgRulesetGoverns,
+  rulesetSemanticDiff,
+  RULESET_NAME,
+  AUTOMERGE_APP_SLUG,
+  type AppBypass,
+  type RulesetOutcome,
+  type RulesetConvergeResult,
+} from "./converge/ruleset.js";

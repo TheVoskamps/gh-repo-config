@@ -5,7 +5,7 @@ import { readAssetText } from "../dist/index.js";
 
 const CTX = { org: "TheVoskamps", repo: "example", defaultBranch: "main" };
 
-test("buildDesiredFiles emits dependabot + 3 workflows + 5 scripts", () => {
+test("buildDesiredFiles emits dependabot + codeql workflow/config + gate/guard workflows + scripts", () => {
   const files = buildDesiredFiles(CTX);
   const paths = files.map((f) => f.path);
   assert.deepEqual(paths, [
@@ -13,12 +13,33 @@ test("buildDesiredFiles emits dependabot + 3 workflows + 5 scripts", () => {
     ".github/workflows/dependency-install-gate.yml",
     ".github/workflows/dependency-pinned-gate.yml",
     ".github/workflows/no-back-merging-guard.yml",
+    ".github/workflows/codeql.yml",
+    ".github/codeql/codeql-config.yml",
     ".github/scripts/dependency-install-gate.sh",
     ".github/scripts/dependency-pinned-gate.sh",
     ".github/scripts/test-dependency-pinned-gate.sh",
     ".github/scripts/no-back-merging-guard.sh",
     ".github/scripts/test-no-back-merging-guard.sh",
+    ".github/scripts/codeql-language-present.sh",
+    ".github/scripts/test-codeql-language-present.sh",
   ]);
+});
+
+test("the CodeQL config lands at the exact path the workflow's config-file: line references", () => {
+  const files = buildDesiredFiles(CTX);
+  const workflow = files.find((f) => f.path === ".github/workflows/codeql.yml");
+  const config = files.find((f) => f.path === ".github/codeql/codeql-config.yml");
+  assert.ok(workflow, "codeql workflow present");
+  assert.ok(config, "codeql config present");
+  // The workflow references the config via a leading-`./` relative path;
+  // the two must stay consistent (issue #16).
+  assert.match(workflow.content, /config-file:\s*\.\/\.github\/codeql\/codeql-config\.yml/);
+});
+
+test("the CodeQL workflow renders the per-repo default branch", () => {
+  const files = buildDesiredFiles({ org: "O", repo: "r", defaultBranch: "trunk" });
+  const workflow = files.find((f) => f.path === ".github/workflows/codeql.yml");
+  assert.match(workflow.content, /branches: \[trunk\]/);
 });
 
 test("scripts are marked executable; yaml/config is not", () => {

@@ -1,0 +1,179 @@
+# CodeQL analysis workflow rendered by /gh-repo-setup-protection.
+#
+# Installed at <repo-root>/.github/workflows/codeql.yml when CodeQL is
+# enabled for the target repo (opt-in / auto-detected — see SKILL.md
+# "CodeQL is opt-in"; a private repo with no GHAS entitlement stays off).
+#
+# ARMED WITH THE FULL SUPPORTED SET — runtime-gated, fails OPEN. This
+# workflow is armed with EVERY CodeQL-supported language at install time,
+# and decides WHICH to analyze at RUNTIME, per PR. A `detect` job runs
+# cheap `git ls-files` presence checks over the tracked tree and emits a
+# JSON array of the languages actually present at that moment; the
+# `analyze` job builds its matrix from that array, so a leg exists for a
+# language IFF that language is present in the tree right now:
+#   - present + clean  -> the leg is green,
+#   - present + broken -> the leg is red (blocking),
+#   - absent           -> NO leg at all (fails OPEN — no phantom check).
+# This inverts the old install-time-narrowed model: a language that
+# lands AFTER setup (e.g. the repo's first `.ts` file) lights its leg up
+# automatically on the next PR, with NO skill re-run. See issues #91/#230
+# for the phantom-check hang the runtime-fail-open model avoids.
+#
+# THE AGGREGATOR IS THE REQUIRED CHECK. GitHub `required_status_checks`
+# is a static list of names and cannot express "require Analyze (python)
+# only if it runs". So the per-language legs (`Analyze (<lang>)`) are
+# VISIBLE but NOT individually required; the always-running
+# `codeql-required` aggregator is the single required check. It concludes
+# success iff every spawned leg succeeded AND success when the matrix was
+# empty (no analyzable language) — so a language-less repo is mergeable,
+# not hung. Listing a per-leg name as required on a repo lacking that
+# language is exactly the #91/#230 hang; do not do it.
+#
+# Advanced-setup workflow. Committing this workflow AUTOMATICALLY
+# DISABLES GitHub's default CodeQL setup — that is the mechanism that
+# makes "start at Advanced from the first commit" work. The skill also
+# disables default setup server-side (SKILL.md Step 5a) so the two cannot
+# coexist. Proven against ExampleProject's example-app-repo workflow.
+#
+# Hardening invariants (do not regress these — see issue #222 item 9):
+#   - Every action is SHA-pinned (a floating @v3/@v4 tag is a supply-
+#     chain risk; the trailing comment records the human-readable tag).
+#   - No `autobuild` step: the analyzed languages are extracted from
+#     source without a compile, so autobuild only adds a failure surface.
+#   - `persist-credentials: false` on checkout (least privilege).
+#   - Job permissions are least-privilege; `packages: read` is present
+#     because CodeQL needs it to fetch query packs.
+#   - Swift analysis requires a macOS runner; the detect job carries a
+#     per-language `runner` in the matrix entry (macos-latest for swift,
+#     ubuntu-latest for the rest) so a Swift-less repo never provisions
+#     macOS (which bills ~10x Linux).
+#
+# Placeholders:
+#   __DEFAULT_BRANCH__   Default branch of the target repo.
+#
+# There is intentionally NO language-list placeholder: the armed set is
+# the full supported set, fixed in this template, and narrowed to the
+# present set at RUNTIME by the detect job — never at install time.
+name: codeql
+
+on:
+  push:
+    branches: [__DEFAULT_BRANCH__]
+  pull_request:
+    branches: [__DEFAULT_BRANCH__]
+  schedule:
+    # Weekly full scan to catch advisories published after the last push.
+    - cron: "27 3 * * 1"
+
+# Only the latest run per ref needs to complete; cancel superseded runs.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default for the GITHUB_TOKEN. Each job sets its own
+# permissions block, which REPLACES (does not merge with) this one, so
+# every permission a job needs is listed at the job level.
+permissions:
+  contents: read
+
+jobs:
+  # Stage 1: decide WHICH languages to analyze, at runtime, per PR.
+  # Emits a JSON array of `{ language, runner }` matrix entries for the
+  # languages actually present in the tracked tree right now. `actions`
+  # is an unconditional floor (the skill always installs workflows).
+  # `swift` is added only when `*.swift` is present, carrying
+  # runner: macos-latest, so a Swift-less repo never provisions macOS.
+  detect:
+    name: Detect CodeQL languages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # clone the repository to run the presence checks
+    outputs:
+      languages: ${{ steps.detect.outputs.languages }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Detect present CodeQL languages
+        id: detect
+        run: bash .github/scripts/codeql-language-present.sh --matrix
+
+  # Stage 2: one analysis leg per present language. Fed by the detect
+  # job's JSON array via fromJSON; an empty array spawns ZERO legs
+  # cleanly (fail-open — no phantom check). `runs-on` is carried per
+  # matrix entry so swift lands on macOS and everything else on ubuntu.
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    needs: detect
+    if: ${{ needs.detect.outputs.languages != '[]' }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      # A job-level permissions block replaces the top-level one
+      # entirely, so every permission the job needs is listed here.
+      security-events: write # upload analysis results to the Security tab
+      packages: read # fetch CodeQL query packs
+      actions: read # required for code scanning on a private repo
+      contents: read # clone the repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.detect.outputs.languages) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          languages: ${{ matrix.language }}
+          # Path filters and query packs live in the sibling config file.
+          config-file: ./.github/codeql/codeql-config.yml
+
+      # No manual build step: the analyzed languages are extracted from
+      # source without a compile, so CodeQL's default extraction covers
+      # them without autobuild (which only adds a failure surface).
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # Stage 3: the SINGLE required status check. Always runs (even when the
+  # matrix was empty), and concludes:
+  #   - success when the matrix was empty (no analyzable language present
+  #     -> mergeable, NOT hung),
+  #   - success when every spawned analyze leg succeeded,
+  #   - failure when any analyze leg failed or was cancelled.
+  # `if: always()` is MANDATORY: without it the job is SKIPPED when the
+  # matrix is empty, and a required check treats "skipped" as not-passed,
+  # reintroducing the #91/#230 phantom-check hang. The `protect-main`
+  # ruleset lists THIS job's name (`codeql-required`) as the required
+  # check, never the per-leg `Analyze (<lang>)` names.
+  codeql-required:
+    name: codeql-required
+    needs: analyze
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Conclude on the analyze matrix result
+        run: |
+          result="${{ needs.analyze.result }}"
+          echo "analyze job result: ${result}"
+          # An empty matrix leaves the analyze job 'skipped' — that is
+          # the fail-OPEN case (no analyzable language present), so it is
+          # a PASS. 'success' is also a pass. Anything else (failure,
+          # cancelled) fails the aggregator and blocks the PR.
+          case "${result}" in
+            success|skipped)
+              echo "CodeQL aggregator: PASS (${result})."
+              ;;
+            *)
+              echo "CodeQL aggregator: FAIL — at least one Analyze leg did not succeed (${result})." >&2
+              exit 1
+              ;;
+          esac

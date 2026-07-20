@@ -1,19 +1,25 @@
 /**
- * The file-convergence payload set (issue #14) — which assets render to
- * which target-repo paths, and how each is produced.
+ * The file-convergence payload set (issue #14, extended by issue #16) —
+ * which assets render to which target-repo paths, and how each is
+ * produced.
  *
- * This slice ships the first payload set: `dependabot.yml` plus the two
- * dependency gates and the back-merge guard. Later slices (#17, #18,
- * #25) add their files to {@link buildDesiredFiles} — the write path
- * (`writer.ts`) and the render pipeline (`render.ts`) are shared, so a
- * later slice only adds entries here, not a new PR-per-concern.
+ * Issue #14 shipped the first payload set: `dependabot.yml` plus the two
+ * dependency gates and the back-merge guard. Issue #16 (absorbing #17)
+ * adds the CodeQL payload set — the advanced-setup workflow, its sibling
+ * config, and the runtime language-detection script (+ its self-test).
+ * The write path (`writer.ts`) and the render pipeline (`render.ts`) are
+ * shared, so a slice only adds entries here, not a new PR-per-concern.
  *
- * Two production modes:
+ * Production modes:
  *
- * - **rendered `.yml` workflows / config** — the asset is a template
- *   with `__…__` placeholders; it is rendered per repo and asserted free
- *   of unresolved tokens. Workflows land under `.github/workflows/`;
- *   `dependabot.yml` under `.github/`.
+ * - **rendered `.yml` workflows** — the asset is a template with `__…__`
+ *   placeholders; it is rendered per repo and asserted free of
+ *   unresolved tokens. Workflows land under `.github/workflows/`.
+ * - **rendered `.yml` config at a fixed non-workflow path** — the same
+ *   render + token assertion, but landing at a bespoke path (the CodeQL
+ *   config lands at `.github/codeql/codeql-config.yml`, the path the
+ *   workflow's `config-file:` line references). `dependabot.yml` under
+ *   `.github/` is the other bespoke-path rendered file.
  * - **verbatim `.sh` scripts** — shipped byte-for-byte and executable
  *   (mode `100755`) under `.github/scripts/`. Scripts are never token-
  *   asserted (a shell script may legitimately contain `__`-words).
@@ -50,6 +56,9 @@ const VERBATIM_SCRIPTS: readonly string[] = [
   "test-dependency-pinned-gate.sh",
   "no-back-merging-guard.sh",
   "test-no-back-merging-guard.sh",
+  // CodeQL runtime language-detection script + its self-test (issue #16).
+  "codeql-language-present.sh",
+  "test-codeql-language-present.sh",
 ];
 
 /**
@@ -60,6 +69,26 @@ const RENDERED_WORKFLOWS: readonly string[] = [
   "dependency-install-gate.yml",
   "dependency-pinned-gate.yml",
   "no-back-merging-guard.yml",
+  // The CodeQL advanced-setup workflow (issue #16). Carries only the
+  // `__DEFAULT_BRANCH__` placeholder; its runtime detect job handles
+  // language-less repos, so it ships unconditionally like the guards.
+  "codeql.yml",
+];
+
+/**
+ * A rendered `.yml` asset that lands at a fixed non-workflow path (not
+ * under `.github/workflows/`): the asset name maps to an explicit target
+ * path. Rendered and token-asserted the same as a workflow — the only
+ * difference is the destination.
+ *
+ * The CodeQL config must land at exactly the path the workflow's
+ * `config-file:` line references (`./.github/codeql/codeql-config.yml`);
+ * the mapping below is the single source keeping the two consistent.
+ * `dependabot.yml` is handled separately (its composite ecosystem
+ * expansion is not a plain render), so it is not listed here.
+ */
+const RENDERED_AT_PATH: readonly { asset: string; path: string }[] = [
+  { asset: "codeql-config.yml", path: ".github/codeql/codeql-config.yml" },
 ];
 
 /**
@@ -97,6 +126,15 @@ export function buildDesiredFiles(ctx: RepoContext): DesiredFile[] {
       content: rendered,
       executable: false,
     });
+  }
+
+  // Rendered config/YAML at fixed non-workflow paths (e.g. the CodeQL
+  // config at .github/codeql/codeql-config.yml — the path the CodeQL
+  // workflow's config-file: line references).
+  for (const { asset, path } of RENDERED_AT_PATH) {
+    const rendered = renderTemplate(readAssetText(asset), ctx);
+    assertNoUnresolvedTokens(rendered, path);
+    files.push({ path, content: rendered, executable: false });
   }
 
   // Verbatim scripts under .github/scripts/, executable.
