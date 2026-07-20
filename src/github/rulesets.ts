@@ -36,6 +36,8 @@ export interface RulesetSummary {
   readonly source_type?: string;
   /** The active/evaluate/disabled enforcement level. */
   readonly enforcement?: string;
+  /** `"branch"`, `"tag"`, or `"push"` — which ref-kind the ruleset targets. */
+  readonly target?: string;
 }
 
 /** A ref-name condition (include / exclude glob-or-symbolic lists). */

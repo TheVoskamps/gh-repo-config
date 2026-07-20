@@ -80,23 +80,61 @@ test("unionBypassActors is idempotent when the desired actor already exists", ()
 // orgRulesetGoverns (pure)
 // ---------------------------------------------------------------------
 
-test("orgRulesetGoverns: an active Organization-sourced ruleset governs", () => {
+test("orgRulesetGoverns: an active Organization-sourced branch ruleset governs", () => {
   assert.equal(
-    orgRulesetGoverns([{ id: 1, name: "org-wide", source_type: "Organization", enforcement: "active" }]),
+    orgRulesetGoverns([
+      { id: 1, name: "org-wide", source_type: "Organization", target: "branch", enforcement: "active" },
+    ]),
     true,
   );
 });
 
 test("orgRulesetGoverns: a repo-sourced ruleset does not count", () => {
   assert.equal(
-    orgRulesetGoverns([{ id: 1, name: "protect-main", source_type: "Repository", enforcement: "active" }]),
+    orgRulesetGoverns([
+      { id: 1, name: "protect-main", source_type: "Repository", target: "branch", enforcement: "active" },
+    ]),
     false,
   );
 });
 
 test("orgRulesetGoverns: a disabled org ruleset does not govern", () => {
   assert.equal(
-    orgRulesetGoverns([{ id: 1, name: "org-wide", source_type: "Organization", enforcement: "disabled" }]),
+    orgRulesetGoverns([
+      { id: 1, name: "org-wide", source_type: "Organization", target: "branch", enforcement: "disabled" },
+    ]),
+    false,
+  );
+});
+
+test("orgRulesetGoverns: an org ruleset with no enforcement field does not govern (no over-match fallback)", () => {
+  assert.equal(
+    orgRulesetGoverns([{ id: 1, name: "org-wide", source_type: "Organization", target: "branch" }]),
+    false,
+  );
+});
+
+test("orgRulesetGoverns: an active org TAG ruleset does not govern the default branch", () => {
+  assert.equal(
+    orgRulesetGoverns([
+      { id: 1, name: "org-tags", source_type: "Organization", target: "tag", enforcement: "active" },
+    ]),
+    false,
+  );
+});
+
+test("orgRulesetGoverns: an active org PUSH ruleset does not govern the default branch", () => {
+  assert.equal(
+    orgRulesetGoverns([
+      { id: 1, name: "org-push", source_type: "Organization", target: "push", enforcement: "active" },
+    ]),
+    false,
+  );
+});
+
+test("orgRulesetGoverns: a ruleset with no target field does not govern (defensive — live summaries always carry target)", () => {
+  assert.equal(
+    orgRulesetGoverns([{ id: 1, name: "org-wide", source_type: "Organization", enforcement: "active" }]),
     false,
   );
 });
@@ -257,11 +295,11 @@ test("converge: existing repo copy that differs -> updated with the changed fiel
   assert.ok(keys.includes("Integration:3835765"));
 });
 
-test("converge: an org ruleset governs -> repo copy deleted and deferred (org-governed)", async () => {
+test("converge: an org branch ruleset governs -> repo copy deleted and deferred (org-governed)", async () => {
   const { client, calls } = fakeClient({
     listRulesets: async () => [
-      { id: 9, name: "org-wide", source_type: "Organization", enforcement: "active" },
-      { id: 7, name: RULESET_NAME, source_type: "Repository" },
+      { id: 9, name: "org-wide", source_type: "Organization", target: "branch", enforcement: "active" },
+      { id: 7, name: RULESET_NAME, source_type: "Repository", target: "branch" },
     ],
   });
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
@@ -276,12 +314,26 @@ test("converge: an org ruleset governs -> repo copy deleted and deferred (org-go
 test("converge: org governs and there is no repo copy -> deferred, nothing deleted", async () => {
   const { client, calls } = fakeClient({
     listRulesets: async () => [
-      { id: 9, name: "org-wide", source_type: "Organization", enforcement: "active" },
+      { id: 9, name: "org-wide", source_type: "Organization", target: "branch", enforcement: "active" },
     ],
   });
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
   assert.equal(result.outcome, "org-governed");
   assert.equal(calls.length, 0);
+});
+
+test("converge: an org TAG ruleset present does NOT defer — repo-level branch ruleset still converges", async () => {
+  const { client, calls } = fakeClient({
+    listRulesets: async () => [
+      { id: 9, name: "org-tags", source_type: "Organization", target: "tag", enforcement: "active" },
+    ],
+  });
+  const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
+  assert.equal(result.outcome, "created");
+  assert.deepEqual(
+    calls.map((c) => c.op),
+    ["create"],
+  );
 });
 
 test("converge: an uninstalled App is omitted from bypass and reported, never a failure", async () => {

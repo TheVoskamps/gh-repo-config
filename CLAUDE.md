@@ -136,16 +136,24 @@ npm run build && npm test
     `convergeRuleset` step is injected; omitting it (as in tests that
     don't exercise ruleset behavior) reproduces pre-#16 stamping,
     gated on the file/GHAS/default-setup steps alone.
-- `assets/` — the template payloads the converger renders (extracted
-  verbatim from the `github-setup` plugin's
-  `gh-repo-setup-protection` payload): the `dependabot.yml` +
-  `ecosystem-block.yml` templates, the gate/guard `.yml` workflows, the
-  CodeQL payload set (`codeql.yml` workflow, `codeql-config.yml`,
-  `codeql-language-present.sh` runtime language-detection script +
-  its `test-codeql-language-present.sh` self-test), the
+- `assets/` — the template payloads the converger renders, sourced from
+  the `github-setup` plugin's `gh-repo-setup-protection` payload
+  (authoritative shape defined in that plugin's SKILL.md — see
+  "Authority" in issue #16): the `dependabot.yml` + `ecosystem-block.yml`
+  templates, the gate/guard `.yml` workflows, the CodeQL payload set
+  (`codeql.yml` workflow, `codeql-config.yml`, `codeql-language-
+  present.sh` runtime language-detection script + its
+  `test-codeql-language-present.sh` self-test), the
   `protect-main-ruleset.json` ruleset body template, and the `.sh`
-  scripts (shipped verbatim + executable). Packed into the release
-  tarball (`.github/workflows/release.yml`) alongside
+  scripts (shipped verbatim + executable). "Verbatim" here means byte-
+  identical to the upstream payload at the time of extraction — not
+  independently re-verifiable from this repo, since the upstream
+  plugin's payload files (as opposed to its `SKILL.md`) are not present
+  in a local plugin cache to diff against. The shipped
+  `test-codeql-language-present.sh` self-test is the one piece of
+  after-the-fact verification available for the CodeQL detection script;
+  it does not by itself confirm byte-identity with upstream. Packed into
+  the release tarball (`.github/workflows/release.yml`) alongside
   `dist`/`bin`/`package.json`.
 - `bin/gh-repo-config.js` — CLI entry point (`package.json` `bin`).
   Subcommands: `version` (default) and `sweep` (reads

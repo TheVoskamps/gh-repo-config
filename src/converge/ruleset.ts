@@ -128,18 +128,23 @@ export function unionBypassActors(
 
 /**
  * Whether an active org-sourced branch ruleset governs the repo's
- * default branch. "Governs" = an `active`, `source_type: "Organization"`
- * ruleset (branch target) is present in the repo's inherited ruleset
+ * default branch. "Governs" = an `active`, `source_type: "Organization"`,
+ * `target: "branch"` ruleset is present in the repo's inherited ruleset
  * list. The list endpoint already resolves ref-name conditions to the
  * repo (an org ruleset only appears here when its include-minus-exclude
- * conditions cover this repo), so an inherited org ruleset's presence is
- * itself the "covers the default branch" signal.
+ * conditions cover this repo), so an inherited org **branch** ruleset's
+ * presence is itself the "covers the default branch" signal — but the
+ * list is NOT filtered by target type, so an org-level `tag` or `push`
+ * ruleset also appears here and must be excluded explicitly, or it would
+ * be misclassified as governing and cause the converger to delete the
+ * repo-level `protect-main` branch ruleset. `enforcement` is required to
+ * be exactly `"active"` (not merely absent) since the live list summary
+ * always carries the field — an `undefined` fallback would over-match a
+ * response shape that doesn't occur in practice.
  */
 export function orgRulesetGoverns(rulesets: readonly RulesetSummary[]): boolean {
   return rulesets.some(
-    (r) =>
-      r.source_type === "Organization" &&
-      (r.enforcement === undefined || r.enforcement === "active"),
+    (r) => r.source_type === "Organization" && r.target === "branch" && r.enforcement === "active",
   );
 }
 
