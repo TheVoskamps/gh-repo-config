@@ -109,10 +109,17 @@ npm run build && npm test
       repo-level copy is deleted and convergence is deferred
       (`org-governed`), not asserted redundantly. A `code_quality` 422
       (limited availability) is retried once with that rule dropped.
-      Semantic (not literal) compare decides whether a write is needed:
-      `ref_name.include` superset-ok on `~DEFAULT_BRANCH` or the
-      concrete ref, required-check contexts compared by name only,
-      bypass actors by set-containment.
+      Semantic (not literal), canonical-authoritative compare decides
+      whether a write is needed: `ref_name.include` superset-ok on
+      `~DEFAULT_BRANCH` or the concrete ref, required-check contexts
+      compared by name only (ignoring `integration_id`), bypass actors
+      by set-containment (the one deliberate preservation surface —
+      an operator's extra bypass actors are never drift), and every
+      other field — including rule parameters (`pull_request`,
+      `required_status_checks`'s non-list parameters, `code_scanning`'s
+      tool list, `code_quality`'s severity when both sides carry the
+      rule) and `ref_name.exclude` — compared directly against the
+      canonical asset; any difference is drift corrected by the PUT.
   - `src/sweep.ts` — `runSweep` / `runSweepFromEnv`, the sweep's
     orchestration. `runSweep`'s `converge` (files, #14), `convergeGhas`
     (settings, #15), and `convergeDefaultSetup` (#16) steps all stay

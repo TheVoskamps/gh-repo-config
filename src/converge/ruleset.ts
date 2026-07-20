@@ -175,6 +175,65 @@ function setEquals(a: Set<string>, b: Set<string>): boolean {
   return true;
 }
 
+/** Find a rule of a given type in a body's `rules` array, or `undefined`. */
+function findRule(body: RulesetBody, type: string): RulesetRule | undefined {
+  return body.rules.find((r) => r.type === type);
+}
+
+/**
+ * Deep-equal on plain JSON-shaped values (objects/arrays/primitives) —
+ * sufficient for comparing rule `parameters` sub-fields, which are all
+ * plain JSON from the REST API. Not a general-purpose deep-equal (no
+ * `Map`/`Set`/cyclic handling), which the ruleset parameter shapes never
+ * need.
+ */
+function jsonEquals(a: unknown, b: unknown): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (typeof a !== typeof b || a === null || b === null) {
+    return a === b;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+      return false;
+    }
+    return a.every((v, i) => jsonEquals(v, b[i]));
+  }
+  if (typeof a === "object" && typeof b === "object") {
+    const aKeys = Object.keys(a as Record<string, unknown>);
+    const bKeys = Object.keys(b as Record<string, unknown>);
+    if (aKeys.length !== bKeys.length) {
+      return false;
+    }
+    return aKeys.every((k) =>
+      jsonEquals((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+    );
+  }
+  return false;
+}
+
+/**
+ * Compare one named field of two rules' `parameters`, appending
+ * `<type>.<field>` to `changed` when it differs. Both `desired` and
+ * `existing` are the full rule (or `undefined` if the side lacks the
+ * rule entirely) — the caller only invokes this when both sides carry
+ * the rule, so a missing rule never reports a spurious parameter diff
+ * (see the `code_quality`-absent-on-server case).
+ */
+function compareRuleParam(
+  changed: string[],
+  desired: RulesetRule,
+  existing: RulesetRule,
+  field: string,
+): void {
+  const desiredValue = desired.parameters?.[field];
+  const existingValue = existing.parameters?.[field];
+  if (!jsonEquals(desiredValue, existingValue)) {
+    changed.push(`${desired.type}.${field}`);
+  }
+}
+
 /**
  * Whether the existing `ref_name.include` is already converged for the
  * given default branch. Converged when it contains the symbolic
@@ -190,16 +249,46 @@ function refNameConverged(existing: readonly string[], defaultBranch: string): b
 /**
  * Semantic diff of the desired ruleset against an existing one — the
  * field names that differ after normalization, empty when converged.
+ *
+ * **Posture: canonical-authoritative.** The converger's purpose is to
+ * guarantee the *identical* canonical ruleset (as carried in
+ * `assets/protect-main-ruleset.json`) on every managed repo. A repo's
+ * existing ruleset state is not operator intent to preserve — it is
+ * exactly the variance this converger exists to eliminate. The single
+ * deliberate exception is bypass actors (see below); every other field,
+ * including rule parameters, is compared against the canonical shape
+ * and any difference is reported as drift, to be corrected by the
+ * existing PUT of the canonical body. There are no preservation
+ * heuristics beyond what issue #16 §3 specifies.
+ *
  * Normalizes per the issue's compare rules:
  *
  * - `ref_name.include`: converged when it contains `~DEFAULT_BRANCH` (or
  *   the concrete `refs/heads/<default>`), superset ok.
- * - required checks: compared on the `context` set only (ignore
- *   `integration_id`).
+ * - `ref_name.exclude`: compared directly against the canonical value
+ *   (`[]`) — any non-empty exclude is drift.
+ * - required checks: the `context` set compared by name only (ignore
+ *   `integration_id`); the non-list `required_status_checks` parameters
+ *   (`strict_required_status_checks_policy`, `do_not_enforce_on_create`)
+ *   are compared directly against the canonical value.
+ * - `pull_request` rule parameters: every field compared directly
+ *   against the canonical value.
+ * - `code_scanning` rule parameters: the `code_scanning_tools` list
+ *   compared directly against the canonical value (exact compare, no
+ *   union/preservation of extra tools).
+ * - `code_quality` rule parameters (`severity`): compared only when
+ *   both the desired and existing bodies carry the rule at all — a
+ *   `code_quality` rule absent on the server (e.g. after a prior
+ *   422-retry drop) is not itself drift, so the existing
+ *   `codeQualitySkipped` retry path is unaffected.
  * - bypass actors: converged when the existing set **contains** every
  *   desired actor (set-containment on the `(actor_id/app_id, actor_type,
- *   bypass_mode)` tuple).
- * - rule types + enforcement compared directly.
+ *   bypass_mode)` tuple) — the one deliberate preservation surface
+ *   (issue #16 §3.4): an operator's own extra bypass actors are never
+ *   reported as drift.
+ * - rule types compared as an exact set — an extra rule type on the
+ *   server is drift, and the canonical PUT strips it.
+ * - enforcement compared directly.
  *
  * @param desired the desired body (bypass actors already unioned in).
  * @param existing the ruleset read from the server.
@@ -220,7 +309,13 @@ export function rulesetSemanticDiff(
     changed.push("conditions.ref_name.include");
   }
 
+  if (!jsonEquals(existing.conditions.ref_name.exclude, desired.conditions.ref_name.exclude)) {
+    changed.push("conditions.ref_name.exclude");
+  }
+
   // Bypass actors: converged when existing contains every desired actor.
+  // Deliberate preservation surface — an operator's extra actors are
+  // never reported as drift (issue #16 §3.4).
   const existingKeys = new Set(existing.bypass_actors.map(bypassKey));
   const missingActor = desired.bypass_actors.some((a) => !existingKeys.has(bypassKey(a)));
   if (missingActor) {
@@ -233,6 +328,41 @@ export function rulesetSemanticDiff(
 
   if (!setEquals(requiredContexts(desired), requiredContexts(existing))) {
     changed.push("required_status_checks");
+  }
+
+  // Rule parameters, checked against the canonical shape. Each compare
+  // is skipped when either side lacks the rule (the rule-types set
+  // compare above already reports that as `rules` drift), except
+  // code_quality, whose absence on the server is a known, tolerated
+  // state (the 422-retry-without path) rather than drift.
+  const desiredPr = findRule(desired, "pull_request");
+  const existingPr = findRule(existing, "pull_request");
+  if (desiredPr && existingPr) {
+    for (const field of Object.keys(desiredPr.parameters ?? {})) {
+      compareRuleParam(changed, desiredPr, existingPr, field);
+    }
+  }
+
+  const desiredRsc = findRule(desired, "required_status_checks");
+  const existingRsc = findRule(existing, "required_status_checks");
+  if (desiredRsc && existingRsc) {
+    compareRuleParam(changed, desiredRsc, existingRsc, "strict_required_status_checks_policy");
+    compareRuleParam(changed, desiredRsc, existingRsc, "do_not_enforce_on_create");
+  }
+
+  const desiredCs = findRule(desired, "code_scanning");
+  const existingCs = findRule(existing, "code_scanning");
+  if (desiredCs && existingCs) {
+    compareRuleParam(changed, desiredCs, existingCs, "code_scanning_tools");
+  }
+
+  // code_quality: compared only when BOTH sides carry the rule. Absent
+  // on the server alone (e.g. after a prior 422-retry drop) is not
+  // drift — it must not trigger a write that would just 422 again.
+  const desiredCq = findRule(desired, "code_quality");
+  const existingCq = findRule(existing, "code_quality");
+  if (desiredCq && existingCq) {
+    compareRuleParam(changed, desiredCq, existingCq, "severity");
   }
 
   return changed;

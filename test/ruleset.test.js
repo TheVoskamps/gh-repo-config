@@ -225,6 +225,136 @@ test("rulesetSemanticDiff: bypass containment — existing superset is converged
 });
 
 // ---------------------------------------------------------------------
+// rulesetSemanticDiff: rule-parameter drift (canonical-authoritative)
+// ---------------------------------------------------------------------
+
+function withRuleParam(body, type, field, value) {
+  return {
+    ...body,
+    rules: body.rules.map((r) =>
+      r.type === type ? { ...r, parameters: { ...r.parameters, [field]: value } } : r,
+    ),
+  };
+}
+
+function withoutRule(body, type) {
+  return { ...body, rules: body.rules.filter((r) => r.type !== type) };
+}
+
+test("rulesetSemanticDiff: all-canonical body still reports unchanged", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(desired);
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), []);
+});
+
+test("rulesetSemanticDiff: pull_request parameter drift (required_approving_review_count) is reported", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(
+    withRuleParam(desired, "pull_request", "required_approving_review_count", 0),
+  );
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), [
+    "pull_request.required_approving_review_count",
+  ]);
+});
+
+test("rulesetSemanticDiff: pull_request parameter drift (dismiss_stale_reviews_on_push off) is reported", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(
+    withRuleParam(desired, "pull_request", "dismiss_stale_reviews_on_push", false),
+  );
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), [
+    "pull_request.dismiss_stale_reviews_on_push",
+  ]);
+});
+
+test("rulesetSemanticDiff: pull_request parameter drift (allowed_merge_methods widened) is reported", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(
+    withRuleParam(desired, "pull_request", "allowed_merge_methods", ["merge", "squash"]),
+  );
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), [
+    "pull_request.allowed_merge_methods",
+  ]);
+});
+
+test("rulesetSemanticDiff: required_status_checks parameter drift (strict_required_status_checks_policy off) is reported", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(
+    withRuleParam(desired, "required_status_checks", "strict_required_status_checks_policy", false),
+  );
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), [
+    "required_status_checks.strict_required_status_checks_policy",
+  ]);
+});
+
+test("rulesetSemanticDiff: required_status_checks parameter drift (do_not_enforce_on_create) is reported", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(
+    withRuleParam(desired, "required_status_checks", "do_not_enforce_on_create", true),
+  );
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), [
+    "required_status_checks.do_not_enforce_on_create",
+  ]);
+});
+
+test("rulesetSemanticDiff: required_status_checks context-set compare is unaffected by the parameter compare", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  // Existing carries the same contexts but with a stored integration_id
+  // — still converged (this is the pre-existing behavior; assert it
+  // still holds alongside the new parameter compares).
+  const existing = existingFrom(
+    withRuleParam(desired, "required_status_checks", "required_status_checks", [
+      { context: "codeql-required", integration_id: 15368 },
+      { context: "install-gate-required" },
+      { context: "pinned-gate-required" },
+      { context: "no-back-merging-guard" },
+    ]),
+  );
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), []);
+});
+
+test("rulesetSemanticDiff: code_scanning parameter drift (code_scanning_tools threshold loosened) is reported", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(
+    withRuleParam(desired, "code_scanning", "code_scanning_tools", [
+      { tool: "CodeQL", security_alerts_threshold: "critical", alerts_threshold: "errors" },
+    ]),
+  );
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), [
+    "code_scanning.code_scanning_tools",
+  ]);
+});
+
+test("rulesetSemanticDiff: code_quality parameter drift (severity changed) is reported", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(withRuleParam(desired, "code_quality", "severity", "warnings"));
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), ["code_quality.severity"]);
+});
+
+test("rulesetSemanticDiff: code_quality absent on the server is not itself drift (422-retry-skipped state tolerated)", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(withoutRule(desired, "code_quality"));
+  // The rule-types set compare reports "rules" (an actual rule-type
+  // difference), but no spurious "code_quality.severity" parameter
+  // diff is reported for a rule that isn't there to compare.
+  const diff = rulesetSemanticDiff(desired, existing, "main");
+  assert.ok(diff.includes("rules"));
+  assert.ok(!diff.some((f) => f.startsWith("code_quality.")));
+});
+
+test("rulesetSemanticDiff: a non-empty ref_name.exclude is drift", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(desired, {
+    conditions: {
+      ref_name: { include: desired.conditions.ref_name.include, exclude: ["refs/heads/release/*"] },
+    },
+  });
+  assert.deepEqual(rulesetSemanticDiff(desired, existing, "main"), [
+    "conditions.ref_name.exclude",
+  ]);
+});
+
+// ---------------------------------------------------------------------
 // convergeProtectMainRuleset (I/O orchestration with injected client)
 // ---------------------------------------------------------------------
 
@@ -368,4 +498,28 @@ test("converge: dryRun decides create without writing", async () => {
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, true);
   assert.equal(result.outcome, "created");
   assert.equal(calls.length, 0);
+});
+
+test("converge: a rule-parameter-only drift (required_approving_review_count) -> updated with the canonical PUT body", async () => {
+  const desired = buildDesiredRuleset(APPS);
+  const existing = {
+    id: 7,
+    source_type: "Repository",
+    ...desired,
+    rules: desired.rules.map((r) =>
+      r.type === "pull_request"
+        ? { ...r, parameters: { ...r.parameters, required_approving_review_count: 0 } }
+        : r,
+    ),
+  };
+  const { client, calls } = fakeClient({
+    listRulesets: async () => [{ id: 7, name: RULESET_NAME, source_type: "Repository" }],
+    getRuleset: async () => existing,
+  });
+  const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
+  assert.equal(result.outcome, "updated");
+  assert.deepEqual(result.changedFields, ["pull_request.required_approving_review_count"]);
+  const update = calls.find((c) => c.op === "update");
+  const prRule = update.body.rules.find((r) => r.type === "pull_request");
+  assert.equal(prRule.parameters.required_approving_review_count, 1);
 });
