@@ -54,7 +54,9 @@
 #                                security PRs bypass it.
 #   __DEFAULT_BRANCH__           Default branch of the target repo.
 #
-# The two `groups:` entries batch PRs per ecosystem:
+# The `groups:` entries batch PRs per ecosystem:
+#   __NAMED_GROUPS_BLOCK__  the org's canonical registry of lockstep/
+#                        stack families (issue #36) — see below.
 #   *-minor-and-patch    groups VERSION updates (applies-to defaults to
 #                        version-updates) so routine minor/patch bumps
 #                        land in one PR.
@@ -69,8 +71,29 @@
 #                        place this generated baseline is ahead and must
 #                        not regress (issue #51).
 #
+# __NAMED_GROUPS_BLOCK__ (issue #36): ONE canonical union of every named
+# lockstep/stack group — codeql-action, aws-cdk, vite-toolchain,
+# fastapi-stack, sqlalchemy-stack, auth-stack, aws-sdk, test-stack —
+# rendered IDENTICALLY into every ecosystem's block, not just the
+# ecosystem the group's patterns target. This is the same
+# arm-everything-unconditionally principle as
+# `__DEPENDABOT_ECOSYSTEMS__` itself: repo-identity requires every
+# managed repo to carry byte-identical config, so there is no
+# per-ecosystem group-selection logic. A group whose patterns match no
+# dependency in a given ecosystem is inert there (no PR, no error —
+# confirmed empirically against Fablegate/fablegate_quasar_fastapi's
+# live production config, the source of the exact group definitions).
+# It must be listed BEFORE the `*-minor-and-patch` catch-all: Dependabot
+# matches a dependency to the FIRST group whose patterns include it, so
+# listing the named groups first guarantees a dependency that matches
+# both a named group and the catch-all lands in the named group.
+#
 # The `ignore:` entry drops semver-MAJOR version updates on every
-# ecosystem (majors are reviewed/applied deliberately, not auto-batched).
+# ecosystem (majors are reviewed/applied deliberately, not auto-batched)
+# — this does not apply to the named lockstep groups above, which cover
+# all update types including majors (a lockstep family must move
+# together on majors too); Dependabot groups bypass an ecosystem-level
+# `ignore:` for any update that is part of a group.
 #
 # Indentation is two spaces because this block nests under `updates:`.
   - package-ecosystem: "__ECOSYSTEM__"
@@ -86,6 +109,7 @@
         update-types:
           - "version-update:semver-major"
     groups:
+      __NAMED_GROUPS_BLOCK__
       __ECOSYSTEM__-minor-and-patch:
         update-types:
           - "minor"

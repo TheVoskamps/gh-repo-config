@@ -6,6 +6,7 @@ import {
   renderDependabotYml,
   renderPrAutomationTemplate,
   DEPENDABOT_ECOSYSTEMS,
+  NAMED_DEPENDABOT_GROUPS,
   PR_AUTOMATION_CONSTANTS,
 } from "../dist/index.js";
 import { readAssetText } from "../dist/index.js";
@@ -151,6 +152,83 @@ test("rendered output ends with exactly one trailing newline, no trailing blank 
   // `package-ecosystem:` blocks, not just at the very end.
   assert.match(out, /[^\n]\n$/);
   assert.doesNotMatch(out, /\n\n$/);
+});
+
+test("every ecosystem block carries the full named-group registry, identically (issue #36)", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  const expectedGroupNames = [
+    "codeql-action",
+    "aws-cdk",
+    "vite-toolchain",
+    "fastapi-stack",
+    "sqlalchemy-stack",
+    "auth-stack",
+    "aws-sdk",
+    "test-stack",
+  ];
+  for (const eco of DEPENDABOT_ECOSYSTEMS) {
+    const block = blockFor(out, eco);
+    for (const name of expectedGroupNames) {
+      assert.match(
+        block,
+        new RegExp(`^\\s+${name}:$`, "m"),
+        `${eco} block missing named group ${name}`,
+      );
+    }
+    // Uniform-everywhere shipping: the union block renders the SAME
+    // content in every ecosystem, not a per-ecosystem subset.
+    assert.match(
+      block,
+      /codeql-action:\s*\n\s*patterns:\s*\n\s*- "github\/codeql-action\/\*"/,
+    );
+  }
+});
+
+test("named groups precede the *-minor-and-patch catch-all (first-match-wins precedence)", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  for (const eco of DEPENDABOT_ECOSYSTEMS) {
+    const block = blockFor(out, eco);
+    const codeqlIdx = block.indexOf("codeql-action:");
+    const catchAllIdx = block.indexOf(`${eco}-minor-and-patch:`);
+    assert.notEqual(codeqlIdx, -1, `${eco} missing codeql-action group`);
+    assert.notEqual(catchAllIdx, -1, `${eco} missing minor-and-patch group`);
+    assert.ok(
+      codeqlIdx < catchAllIdx,
+      `${eco}: named groups must precede the minor-and-patch catch-all`,
+    );
+  }
+});
+
+test("docker block also receives the full named-group union (uniform shipping, not excluded)", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  const docker = blockFor(out, "docker");
+  assert.match(docker, /aws-cdk:/);
+  assert.match(docker, /fastapi-stack:/);
+  assert.match(docker, /docker-minor-and-patch:/);
+});
+
+test("NAMED_DEPENDABOT_GROUPS export matches the rendered content verbatim", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  const npm = blockFor(out, "npm");
+  for (const line of NAMED_DEPENDABOT_GROUPS.split("\n")) {
+    assert.ok(npm.includes(line.trim()), `missing line: ${line}`);
+  }
 });
 
 test("target-branch reflects the per-repo default branch", () => {
