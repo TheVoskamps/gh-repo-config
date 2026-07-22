@@ -107,11 +107,22 @@ on:
 #         nothing else brings a green-but-behind Dependabot PR current.
 #         This job therefore REBASES a green-behind PR onto the base IN-
 #         WORKFLOW (it already has a checkout + App token): a clean rebase
-#         is force-pushed and immediately bypass-merged; a conflicting
-#         rebase is aborted and the PR left for a human. This self-drains
-#         the cascade -- one merge advances the base and makes others
-#         behind, and each other PR's next completion event rebases-and-
-#         merges it.
+#         is force-pushed and the job STOPS there for that PR -- it does
+#         NOT merge the rebased head. A clean textual rebase does not
+#         imply an unchanged check outcome (the outcome depends on the
+#         PR's changes AND main's content, so anything that landed on
+#         main since the pre-rebase checks ran can flip the rebased head
+#         red while the rebase stays conflict-free), so the rebased head's
+#         checks must actually re-run and go green before it is merged.
+#         The force-push (on the App token) re-triggers those checks, and
+#         each required-check-producing workflow's completion fires a new
+#         workflow_run sweep that evaluates the rebased head on its own
+#         merits and merges it via the already-current path once it is
+#         genuinely green. A conflicting rebase is aborted and the PR left
+#         for a human. This self-drains the cascade -- one merge advances
+#         the base and makes others behind, and each other PR's next
+#         completion event rebases it, at the cost of one extra check
+#         cycle per rebased PR.
 #       - Periodic full sweep is a backstop, not the engine. A frequent
 #         cron could not, by construction, merge behind-base PRs, so it is
 #         cut to a once-daily backstop; the per-completion trigger does the
@@ -140,12 +151,19 @@ on:
 #           base head is never merged AS-IS. This job re-implements the
 #           policy with `git merge-base --is-ancestor origin/__DEFAULT_BRANCH__
 #           <HEAD_OID>`: a current head merges directly; a behind-base head
-#           is REBASED onto the base in-workflow and the merge is re-targeted
-#           at the rebased head, which is green-by-construction (we started
-#           from a fully-green required-check set and performed only a clean
-#           rebase). A conflicting rebase is left for a human. So the strict
-#           policy is satisfied either by the head already being current or
-#           by making it current before merging.
+#           is REBASED onto the base in-workflow and force-pushed, and the
+#           job STOPS there for that PR rather than merging it. A clean
+#           textual rebase does NOT imply the rebased head's checks would
+#           still pass -- the check outcome depends on the PR's changes AND
+#           main's content, so something that landed on main after the
+#           pre-rebase checks ran can flip the rebased head red while the
+#           rebase itself stays conflict-free. The force-push re-triggers
+#           the rebased head's checks, and a later sweep merges it via the
+#           already-current path only once those checks are verified green
+#           ON THE REBASED HEAD ITSELF. A conflicting rebase is left for a
+#           human. So the strict policy is satisfied either by the head
+#           already being current, or by making it current and waiting for
+#           its own checks to re-verify before merging.
 #   (b) the author gate uses the AUTHORITATIVE Dependabot identity, not a
 #       spoofable field. We verify `author.login == "dependabot"` AND the
 #       HEAD commit author login is `dependabot[bot]` (the same
@@ -298,12 +316,14 @@ jobs:
       # a now-stale base could otherwise merge. We re-implement the policy
       # with `git merge-base --is-ancestor origin/__DEFAULT_BRANCH__ <HEAD_OID>`
       # (the same primitive auto-rebase-prs.yml uses): a current head merges
-      # directly; a behind-base head is rebased onto the base here and the
-      # rebased (green-by-construction) head is merged. fetch-depth: 0 gives
-      # full history so the ancestry test and the rebase are exact. The App
-      # token (not the default GITHUB_TOKEN) is passed so the rebase
-      # force-push re-triggers downstream checks (GitHub does not re-run
-      # workflows for a GITHUB_TOKEN push).
+      # directly; a behind-base head is rebased onto the base here, force-
+      # pushed, and left for its own checks to re-run and a later sweep to
+      # merge once they verify green on the rebased head itself (a clean
+      # rebase does not guarantee green checks -- see the job-level NOTE
+      # above). fetch-depth: 0 gives full history so the ancestry test and
+      # the rebase are exact. The App token (not the default GITHUB_TOKEN)
+      # is passed so the rebase force-push re-triggers downstream checks
+      # (GitHub does not re-run workflows for a GITHUB_TOKEN push).
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -474,10 +494,6 @@ jobs:
             HEAD_OWNER=$(echo "$line" | cut -f2)
             HEAD_OID=$(echo "$line" | cut -f3)
             HEAD_REF=$(echo "$line" | cut -f4)
-            # MERGE_OID is the head we ultimately merge: HEAD_OID if the PR
-            # is already current with the base, or the rebased head if we
-            # rebase it below. The merge `sha` is pinned to this value.
-            MERGE_OID="$HEAD_OID"
 
             # Same-repo only; we cannot merge fork PRs with this token and
             # Dependabot PRs are same-repo anyway.
@@ -555,30 +571,38 @@ jobs:
             # base; a bypass REST merge waives that too. Instead of SKIPPING
             # a green-but-behind PR (which would stall because auto-rebase-prs
             # excludes Dependabot PRs, so nothing ever brought them current),
-            # bring it current HERE and merge the rebased head:
-            #   - already current  -> merge HEAD_OID as-is.
+            # bring it current HERE -- but do NOT merge it in this same pass:
+            #   - already current -> fall through and merge HEAD_OID as-is;
+            #     its checks were evaluated on exactly this head.
             #   - behind, clean rebase -> force-push the rebased head and
-            #     merge IT. Sound because we started from a fully-green
-            #     required-check set and performed only a clean rebase, so
-            #     the rebased head is green-by-construction; the bypass that
-            #     already waives review waives the rebased head's not-yet-
-            #     re-run checks too. MERGE_OID is updated to the rebased head
-            #     so the SHA pin tracks it.
+            #     STOP (continue to the next candidate). A clean textual
+            #     rebase does not imply the rebased head's checks would still
+            #     pass -- the check outcome depends on the PR's changes AND
+            #     main's content, so something that landed on main after the
+            #     pre-rebase checks ran can flip the rebased head red while
+            #     the rebase itself stays conflict-free (see the job-level
+            #     NOTE above). The force-push (on the App token) re-triggers
+            #     the rebased head's checks; a later workflow_run sweep sees
+            #     this PR current-with-base and merges it via the
+            #     already-current path above once those checks verify green
+            #     ON THE REBASED HEAD ITSELF. Cost: one extra check cycle;
+            #     benefit: no head is ever merged whose checks were not
+            #     evaluated on exactly that head.
             #   - behind, conflicting rebase -> abort and leave the PR
             #     untouched (no comment, no failure); a human resolves it.
             #     This is the only case that orphans a Dependabot PR (a
             #     non-Dependabot push stops Dependabot managing it), and it
             #     would have stalled regardless.
-            # This kills the cascade: one merge advances the base and makes
-            # the others behind, but each other PR's next completion event
-            # rebases-and-merges it, so the queue self-drains with no
-            # external auto-rebase needed (which would not act on Dependabot
-            # PRs anyway). The rebase-push being immediately followed by the
-            # merge means there is no lingering orphaned PR to manage.
+            # This still drains the cascade: one merge advances the base and
+            # makes others behind, but each other PR's next completion event
+            # rebases it, and the completion event after ITS re-run checks go
+            # green merges it, so the queue self-drains with no external
+            # auto-rebase needed (which would not act on Dependabot PRs
+            # anyway) -- just one extra check cycle per rebased PR.
             if git merge-base --is-ancestor "origin/$BASE_BRANCH" "$HEAD_OID"; then
               echo "PR #$PR_NUMBER: head already current with $BASE_BRANCH."
             else
-              echo "PR #$PR_NUMBER: head behind $BASE_BRANCH; rebasing in-workflow before merge."
+              echo "PR #$PR_NUMBER: head behind $BASE_BRANCH; rebasing in-workflow and stopping for this PR (checks must re-run before it can merge)."
               EXPECTED_SHA=$(git rev-parse "$HEAD_OID")
               # Detach onto the PR head so we rebase without claiming the
               # branch ref locally (same pattern as auto-rebase-prs.yml).
@@ -588,39 +612,24 @@ jobs:
                 # --force-with-lease rejects the push if a concurrent author
                 # push moved the branch since we read HEAD_OID, instead of
                 # clobbering it. The push is as the App, so downstream checks
-                # re-run on the rebased head (harmless: we merge immediately
-                # with the SHA pin, but it keeps the PR honest if the merge
-                # 409s and the PR sits to the next sweep).
+                # re-run on the rebased head -- this re-run is now load-
+                # bearing: it is the ONLY thing that will let this PR merge,
+                # via a future sweep once it verifies green.
                 if git push --force-with-lease="$HEAD_REF:$EXPECTED_SHA" origin "HEAD:refs/heads/$HEAD_REF"; then
-                  MERGE_OID="$REBASED_OID"
-                  echo "PR #$PR_NUMBER: rebased onto $BASE_BRANCH and force-pushed ($MERGE_OID); merging the rebased head."
+                  echo "PR #$PR_NUMBER: rebased onto $BASE_BRANCH and force-pushed ($REBASED_OID); not merging -- leaving for a future sweep once its checks re-run and verify green."
                 else
                   echo "PR #$PR_NUMBER: rebase push rejected (lease lost or auth); leaving for the next sweep."
-                  git checkout --detach
-                  git branch -D "auto-merge-rebase-$PR_NUMBER" || true
-                  continue
                 fi
               else
                 echo "PR #$PR_NUMBER: rebase produced conflicts; aborting and leaving for a human."
                 git rebase --abort || true
-                git checkout --detach
-                git branch -D "auto-merge-rebase-$PR_NUMBER" || true
-                continue
               fi
               git checkout --detach
               git branch -D "auto-merge-rebase-$PR_NUMBER" || true
+              continue
             fi
 
-            # The audit line must reflect HOW the head became mergeable. On
-            # the rebased path the checks were green on HEAD_OID but have not
-            # re-run on the rebased head (which is green-by-construction), so
-            # do not claim "head current with base" as if it were merged
-            # as-is. MERGE_OID != HEAD_OID is the existing rebase signal.
-            if [ "$MERGE_OID" = "$HEAD_OID" ]; then
-              echo "PR #$PR_NUMBER: all required checks green from the required integration and head already current with $BASE_BRANCH; merging it as-is via REST (engages bypass to waive review only)."
-            else
-              echo "PR #$PR_NUMBER: required checks were green on the pre-rebase head; rebased in-workflow onto $BASE_BRANCH ($MERGE_OID) and merging the rebased head via REST (engages bypass to waive review only)."
-            fi
+            echo "PR #$PR_NUMBER: all required checks green from the required integration and head already current with $BASE_BRANCH; merging it as-is via REST (engages bypass to waive review only)."
 
             # Direct REST merge ENGAGES the App's pull_request bypass and
             # waives the review/code-owner rule. `--auto` (native
@@ -640,17 +649,15 @@ jobs:
             PR_TITLE=$(echo "$PR_VIEW" | jq -r '.title')
             PR_BODY=$(echo "$PR_VIEW" | jq -r '.body // ""')
 
-            # Pass the EVALUATED head sha (MERGE_OID -- HEAD_OID if the PR was
-            # current, or the rebased head if we rebased it above) so the
-            # merge is rejected (409) if the head moved AT ALL since we
-            # verified/produced it -- e.g. a concurrent author push, or the
-            # downstream re-run we just triggered force-pushed nothing but a
-            # foreign actor did. We then skip rather than merge an unverified
-            # head; the next workflow_run/schedule sweep re-evaluates the new
-            # head. After an in-workflow rebase this is load-bearing: the
-            # rebased head is the only SHA known to be green-by-construction.
+            # Pass the EVALUATED head sha (HEAD_OID -- by this point the PR
+            # is known current with the base, so this is the exact commit
+            # whose checks we just verified all-green) so the merge is
+            # rejected (409) if the head moved AT ALL since we verified it --
+            # e.g. a concurrent author push. We then skip rather than merge
+            # an unverified head; the next workflow_run/schedule sweep
+            # re-evaluates the new head.
             if gh api --method PUT "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/merge" \
-              -f sha="$MERGE_OID" \
+              -f sha="$HEAD_OID" \
               -f merge_method="__REST_MERGE_METHOD__" \
               -f commit_title="Merge PR: ${PR_TITLE} (#${PR_NUMBER})" \
               -f commit_message="${PR_BODY}"; then
