@@ -67,7 +67,9 @@ on:
     # full hourly/3-hourly sweep is the WRONG engine here -- most of its
     # work is wasted because it cannot, by construction, merge a
     # behind-base PR until it is rebased, and the per-completion path
-    # already rebases-and-merges promptly. 12:00 UTC daily.
+    # already rebases and force-pushes promptly, then merges once the
+    # rebased head's checks re-run green on a subsequent sweep. 12:00 UTC
+    # daily.
     - cron: '0 12 * * *'
 
 # This workflow has two jobs with disjoint trigger sets:
