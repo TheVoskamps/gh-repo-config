@@ -224,6 +224,97 @@ test("dryRun → diffs computed, nothing written", async () => {
   assert.equal(fetch.calls.some((c) => c.method !== "GET"), false);
 });
 
+const COMMUNITY_PATHS = ["CONTRIBUTORS", "LICENSE", "PATENTS", "PRIOR_ART.md"];
+
+test("bare target: all four community files are seeded alongside the other payloads", async () => {
+  const fetch = fakeFetch([
+    ...readRoutes({ treeEntries: {}, blobs: {} }),
+    ...writeRoutes({ openPr: [] }),
+  ]);
+  const client = new ContentsClient({ token: "t", fetch });
+  const result = await convergeRepoFiles(client, OWNER, REPO, false);
+
+  for (const path of COMMUNITY_PATHS) {
+    assert.ok(result.changed.includes(path), `${path} should be seeded`);
+  }
+});
+
+test("target with its own LICENSE at root keeps it byte-for-byte (never overwritten)", async () => {
+  const desired = buildDesiredFiles(CTX);
+  const license = desired.find((f) => f.path === "LICENSE");
+  const treeEntries = {
+    LICENSE: { sha: "own-license-sha", mode: FILE_MODE.regular },
+  };
+  const blobs = { "own-license-sha": "totally different content" };
+  const fetch = fakeFetch([
+    ...readRoutes({ treeEntries, blobs }),
+    ...writeRoutes({ openPr: [] }),
+  ]);
+  const client = new ContentsClient({ token: "t", fetch });
+  const result = await convergeRepoFiles(client, OWNER, REPO, false);
+
+  assert.equal(result.changed.includes("LICENSE"), false);
+  // No blob read was issued for the existing LICENSE — the seed-if-absent
+  // check short-circuits before any content compare.
+  assert.equal(
+    fetch.calls.some((c) => c.url.includes("/git/blobs/own-license-sha")),
+    false,
+  );
+  assert.notEqual(license.content, "totally different content");
+});
+
+test("target with its own LICENSE under .github/ keeps it (honored location)", async () => {
+  const treeEntries = {
+    ".github/LICENSE": { sha: "gh-license-sha", mode: FILE_MODE.regular },
+  };
+  const blobs = { "gh-license-sha": "own copy under .github/" };
+  const fetch = fakeFetch([
+    ...readRoutes({ treeEntries, blobs }),
+    ...writeRoutes({ openPr: [] }),
+  ]);
+  const client = new ContentsClient({ token: "t", fetch });
+  const result = await convergeRepoFiles(client, OWNER, REPO, false);
+
+  assert.equal(result.changed.includes("LICENSE"), false);
+});
+
+test("target with its own LICENSE under docs/ keeps it (honored location)", async () => {
+  const treeEntries = {
+    "docs/LICENSE": { sha: "docs-license-sha", mode: FILE_MODE.regular },
+  };
+  const blobs = { "docs-license-sha": "own copy under docs/" };
+  const fetch = fakeFetch([
+    ...readRoutes({ treeEntries, blobs }),
+    ...writeRoutes({ openPr: [] }),
+  ]);
+  const client = new ContentsClient({ token: "t", fetch });
+  const result = await convergeRepoFiles(client, OWNER, REPO, false);
+
+  assert.equal(result.changed.includes("LICENSE"), false);
+});
+
+test("idempotent re-run: a target already seeded with the converger's own community files is a no-op for them", async () => {
+  const desired = buildDesiredFiles(CTX);
+  const treeEntries = {};
+  const blobs = {};
+  for (const f of desired) {
+    const sha = "sha-" + f.path;
+    treeEntries[f.path] = {
+      sha,
+      mode: f.executable ? FILE_MODE.executable : FILE_MODE.regular,
+    };
+    blobs[sha] = f.content;
+  }
+  const fetch = fakeFetch([...readRoutes({ treeEntries, blobs })]);
+  const client = new ContentsClient({ token: "t", fetch });
+  const result = await convergeRepoFiles(client, OWNER, REPO, false);
+
+  assert.equal(result.noop, true);
+  for (const path of COMMUNITY_PATHS) {
+    assert.equal(result.changed.includes(path), false);
+  }
+});
+
 test("readTree throws on a truncated tree rather than converging blind", async () => {
   const fetch = fakeFetch([
     { match: `/repos/${OWNER}/${REPO}`, when: (u) => u.endsWith(`/${REPO}`), body: { default_branch: "main" } },

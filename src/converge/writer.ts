@@ -18,6 +18,12 @@
  *   (for a script) its content matches but its mode is not `100755`.
  * - **No diff → no branch, no PR.** An already-converged repo is a
  *   complete no-op.
+ * - **Seed-if-absent, never overwrite (issue #18).** A community/
+ *   governance {@link DesiredFile} (one carrying `honoredLocations`) is
+ *   written only when the target has no copy at its own path nor at any
+ *   honored basename-location; when the target already has its own
+ *   (byte-identical or not) the file is skipped entirely, not compared
+ *   for drift.
  */
 import { buildDesiredFiles, type DesiredFile } from "./files.js";
 import type { RepoContext } from "./render.js";
@@ -70,6 +76,25 @@ function fileDiffers(
 }
 
 /**
+ * Decide whether a seed-if-absent community file ({@link DesiredFile}
+ * carrying `honoredLocations`) already has its own copy in the target —
+ * at its own {@link DesiredFile.path} or at any of
+ * {@link DesiredFile.honoredLocations} — and so must be skipped
+ * entirely (issue #18: never overwrite, byte-different or not).
+ *
+ * The check is a case-sensitive path match against the target's full
+ * recursive tree (every path the tree read returned, not just blobs
+ * matching `desired.path`), which is why the caller passes the tree's
+ * key set rather than a single `existing` lookup.
+ */
+function hasOwnCopy(desired: DesiredFile, existingPaths: ReadonlySet<string>): boolean {
+  if (existingPaths.has(desired.path)) {
+    return true;
+  }
+  return (desired.honoredLocations ?? []).some((p) => existingPaths.has(p));
+}
+
+/**
  * Converge one repo's files. Reads the target's default branch and
  * current tree, compares against the desired file set, and (when
  * anything differs and not `dryRun`) commits the changed files onto
@@ -97,12 +122,19 @@ export async function convergeRepoFiles(
 
   const baseSha = await client.getBranchHeadSha(owner, repo, defaultBranch);
   const existingTree = await client.readTree(owner, repo, baseSha);
+  const existingPaths = new Set(existingTree.keys());
 
   // Determine which desired files differ. Read the existing blob content
   // only for paths that exist (so a large tree with no matching paths
   // costs no blob reads).
   const changed: DesiredFile[] = [];
   for (const file of desired) {
+    // Seed-if-absent community files (issue #18): skip entirely — never
+    // compared for drift, never overwritten — once the target has its
+    // own copy anywhere GitHub honors that file kind.
+    if (file.honoredLocations && hasOwnCopy(file, existingPaths)) {
+      continue;
+    }
     const existing = existingTree.get(file.path);
     const existingContent = existing
       ? await client.readBlob(owner, repo, existing.sha)
