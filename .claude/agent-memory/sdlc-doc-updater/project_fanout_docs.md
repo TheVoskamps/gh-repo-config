@@ -1,6 +1,6 @@
 ---
 name: project-fanout-docs
-description: Which docs track the org-wide repo-config fan-out (#11) slices, and what doc-updater has kept in sync so far — #24 (merge pass) via PR #27, #16 (ruleset+CodeQL) via PR #40.
+description: Which docs track the org-wide repo-config fan-out (#11) slices, and what doc-updater has kept in sync so far — #24 (merge pass) via PR #27, #16 (ruleset+CodeQL) via PR #40, #18 (community files) via PR #44 broke the ahead-of-implementation pattern.
 metadata:
   type: project
 ---
@@ -59,3 +59,24 @@ fix, since its prose attributed *all* assets to the
 the separate `gh-repo-setup-pr-automation` skill; check the sourcing
 attribution stays accurate when a new payload family is added, not
 just the file list.
+
+**Issue #18 (PR #44) broke the ahead-of-implementation pattern for the
+first time.** The decomposition doc's slice 7 said the converger reads
+community/governance files live from the *consuming org's* `<org>/.github`
+repo at converge time (source set = whatever's in `.github`, App needs
+`Contents: read` on `.github`, permission-table row already present).
+What shipped instead bundles this repo's own root
+`CONTRIBUTORS`/`LICENSE`/`PATENTS`/`PRIOR_ART.md` verbatim into `assets/`
+as a fixed payload of every release — no per-org read, no new App
+permission, no live convergence-time source. Seed-if-absent semantics
+(never stomp, honor root/`.github/`/`docs/`) match the design; only the
+*source* diverged. Added an explicit "shipped differently" note at
+decomposition-doc slice 7 and in CLAUDE.md's `assets/` bullet rather than
+rewriting the "Resolved decisions" prose — that prose is a historical
+design record, not a living spec, so silently editing it to match what
+shipped would erase the fact that a decision was revisited. **How to
+apply:** don't assume "design doc prose already covers it, no edit
+needed" (the general fan-out-docs pattern above) without actually
+diffing the *mechanism* the PR implements against the doc's prose, not
+just the externally-visible behavior (seed-if-absent) — a behavior can
+match while the mechanism (source of truth, permissions) diverges.

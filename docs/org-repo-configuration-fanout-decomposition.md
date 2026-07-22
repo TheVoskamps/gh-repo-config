@@ -366,6 +366,22 @@ an explicitly-`process`-flagged fixture is ever touched.
   CONTRIBUTING/SECURITY land in a bare fixture's PR; the with-own-files
   fixture keeps its own.
 
+  **Shipped differently (PR #18/#44):** the delivered slice does not
+  read `<org>/.github` at converge time. It bundles this repo's own
+  root `CONTRIBUTORS`/`LICENSE`/`PATENTS`/`PRIOR_ART.md` verbatim into
+  `assets/` and ships them as a fixed part of every release, same as
+  every other verbatim asset. Seed-if-absent semantics (never stomp a
+  target's own copy, honoring repo root/`.github/`/`docs/` as
+  equivalent locations) match this section's design; the *source* of
+  the files does not — there is no per-org `Contents: read` on
+  `.github`, no live read at converge time, and no per-org content
+  variation. The App-permission table's "read the org's `<org>/.github`
+  community files to copy per-repo" row above was not implemented as
+  written for this reason. Adding further community files (e.g.
+  `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`) follows the bundled-asset
+  path (`src/converge/files.ts`'s `COMMUNITY_FILES` list), not a
+  `.github`-repo read, unless a future issue revisits this decision.
+
 Slices 2b and 3–7 are parallel-safe after 2 (distinct concerns,
 distinct files); 3b follows 3. They share one test recipe: bump the
 release version, manual-dispatch, confirm the new thing converges *and*

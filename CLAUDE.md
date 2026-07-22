@@ -94,12 +94,24 @@ npm run build && npm test
       config) lands at a fixed bespoke path
       (`.github/codeql/codeql-config.yml`, the path the CodeQL
       workflow's `config-file:` line references); verbatim scripts ship
-      byte-for-byte and executable under `.github/scripts/`.
+      byte-for-byte and executable under `.github/scripts/`. The
+      `COMMUNITY_FILES` list (issue #18) ships verbatim, non-executable
+      community/governance files (`CONTRIBUTORS`, `LICENSE`, `PATENTS`,
+      `PRIOR_ART.md`) at repo root; these are the one payload kind that
+      is **seed-if-absent** rather than converge-and-overwrite, flagged
+      by the optional `honoredLocations` field on `DesiredFile` —
+      present only on `COMMUNITY_FILES` entries, absent (and therefore
+      always converge-and-overwrite) on every other payload.
     - `writer.ts` — `convergeRepoFiles`: whole-file compare (a right-
       content-wrong-mode script counts as differing), commit changed
       files onto the fixed `gh-repo-config/converge` branch, open/update
       one PR per repo. No diff → no branch, no PR. Never pushes to the
-      default branch; merging the PR is issue #24's job.
+      default branch; merging the PR is issue #24's job. A
+      `DesiredFile` carrying `honoredLocations` (issue #18) is skipped
+      entirely — never compared for drift, never overwritten — once the
+      target repo has its own copy at the file's own path or at any of
+      `honoredLocations` (repo root, `.github/`, `docs/` for the
+      current community files).
     - `ghas.ts` — `convergeGhasSettings` (issue #15): read-then-write
       each GHAS/repo-security toggle and merge-button setting
       independently — one setting's failure (report-and-skip on a 422
@@ -188,7 +200,14 @@ npm run build && npm test
   (`test-codeql-language-present.sh`, `test-auto-rebase-lockfile-
   regen.sh`) are the one piece of after-the-fact verification available
   for their respective scripts; neither by itself confirms
-  byte-identity with upstream. Packed into the release tarball
+  byte-identity with upstream. Separately, `CONTRIBUTORS`, `LICENSE`,
+  `PATENTS`, and `PRIOR_ART.md` (issue #18) are **not** sourced from
+  the `github-setup` plugin — they are this repo's own root files,
+  copied verbatim into `assets/` and shipped as the fixed seed-if-
+  absent payload every managed repo receives (see `files.ts`'s
+  `COMMUNITY_FILES`). The design doc's proposal to read these per-org
+  from `<org>/.github` at converge time is not what shipped — see the
+  note on decomposition-doc slice 7. Packed into the release tarball
   (`.github/workflows/release.yml`) alongside `dist`/`bin`/
   `package.json`.
 - `bin/gh-repo-config.js` — CLI entry point (`package.json` `bin`).

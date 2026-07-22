@@ -5,7 +5,7 @@ import { readAssetText } from "../dist/index.js";
 
 const CTX = { org: "TheVoskamps", repo: "example", defaultBranch: "main" };
 
-test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/config + gate/guard workflows + scripts", () => {
+test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/config + gate/guard workflows + scripts + community files", () => {
   const files = buildDesiredFiles(CTX);
   const paths = files.map((f) => f.path);
   assert.deepEqual(paths, [
@@ -26,6 +26,10 @@ test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/confi
     ".github/scripts/test-codeql-language-present.sh",
     ".github/scripts/auto-rebase-lockfile-regen.sh",
     ".github/scripts/test-auto-rebase-lockfile-regen.sh",
+    "CONTRIBUTORS",
+    "LICENSE",
+    "PATENTS",
+    "PRIOR_ART.md",
   ]);
 });
 
@@ -101,5 +105,41 @@ test("gate/guard workflows carry the per-repo default branch", () => {
   );
   for (const wf of workflows) {
     assert.match(wf.content, /branches: \[trunk\]/, `${wf.path}`);
+  }
+});
+
+const COMMUNITY_PATHS = ["CONTRIBUTORS", "LICENSE", "PATENTS", "PRIOR_ART.md"];
+
+test("community files ship byte-for-byte verbatim at repo root, non-executable, seed-if-absent", () => {
+  const files = buildDesiredFiles(CTX);
+  const community = files.filter((f) => COMMUNITY_PATHS.includes(f.path));
+  assert.equal(community.length, COMMUNITY_PATHS.length);
+  for (const f of community) {
+    assert.equal(f.content, readAssetText(f.path), `${f.path} must be verbatim`);
+    assert.equal(f.executable, false, `${f.path} should not be executable`);
+    assert.ok(
+      Array.isArray(f.honoredLocations) && f.honoredLocations.length > 0,
+      `${f.path} must carry honoredLocations`,
+    );
+  }
+});
+
+test("community files honor .github/ and docs/ as alternate locations", () => {
+  const files = buildDesiredFiles(CTX);
+  for (const path of COMMUNITY_PATHS) {
+    const f = files.find((x) => x.path === path);
+    assert.deepEqual(f.honoredLocations, [`.github/${path}`, `docs/${path}`]);
+  }
+});
+
+test("every other (non-community) DesiredFile carries no honoredLocations", () => {
+  const files = buildDesiredFiles(CTX);
+  for (const f of files) {
+    if (COMMUNITY_PATHS.includes(f.path)) continue;
+    assert.equal(
+      f.honoredLocations,
+      undefined,
+      `${f.path} should not be seed-if-absent`,
+    );
   }
 });

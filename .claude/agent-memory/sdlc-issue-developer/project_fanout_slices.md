@@ -1,6 +1,6 @@
 ---
 name: project-fanout-slices
-description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31, #15 (GHAS + merge-button settings) via PR #32, #16 (CodeQL + protect-main ruleset) via PR #40, #25 (PR-automation workflows/scripts) via PR #42.
+description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31, #15 (GHAS + merge-button settings) via PR #32, #16 (CodeQL + protect-main ruleset) via PR #40, #25 (PR-automation workflows/scripts) via PR #42, #18 (seed-if-absent community files) via PR #44.
 metadata:
   type: project
 ---
@@ -193,6 +193,26 @@ managed repo the gates/guards are guaranteed present in the same
 per-repo converger PR (#14), so every placeholder always resolves;
 confirmed by two of the two templates' placeholder counts (33 and 41
 occurrences respectively) matching the issue's pinned table exactly.
+
+Issue #18 (seed community/governance files into managed repos,
+seed-if-absent) landed via PR #44: extracted this repo's own root
+`CONTRIBUTORS`/`LICENSE`/`PATENTS`/`PRIOR_ART.md` verbatim into
+`assets/`, added a `COMMUNITY_FILES` list in `src/converge/files.ts`,
+and extended `DesiredFile` with an optional `honoredLocations: string[]`
+field — its presence is the discriminator between "seed-if-absent"
+(community files) and every other existing payload's default
+"converge-and-overwrite". `writer.ts`'s diff loop short-circuits a
+community file (skip, no blob read, never compared for drift) once the
+target's tree already has a path match at the file's own path **or**
+any `honoredLocations` entry — reusing the single recursive `readTree`
+call the pipeline already makes (its full path-key set, not just blobs
+matching the desired path), so no extra API calls were added. Honored
+locations for this rollout's four root-level files: repo root,
+`.github/`, `docs/` (case-sensitive path match). `FUNDING.yml`'s
+narrower root+`.github`-only scoping (flagged in the issue for a future
+file) isn't exercised yet, but the mechanism (a plain per-entry string
+list) already supports it when that file is added — one asset + one
+`COMMUNITY_FILES` entry, no seeding-logic change.
 
 See also [[fanout-design-doc-pointers]] (not yet written) if design
 doc locations change.

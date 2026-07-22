@@ -12,7 +12,11 @@
  * self-test), rendered via {@link renderPrAutomationTemplate} for their
  * nine extra fixed placeholders. The write path (`writer.ts`) and the
  * render pipeline (`render.ts`) are shared, so a slice only adds entries
- * here, not a new PR-per-concern.
+ * here, not a new PR-per-concern. Issue #18 adds the community/
+ * governance-files payload set — literal, verbatim copies (never
+ * rendered) that seed **only when the target repo has no copy of its
+ * own** anywhere GitHub honors that file kind (see
+ * {@link COMMUNITY_FILES} and `writer.ts`'s seed-if-absent branch).
  *
  * Production modes:
  *
@@ -27,6 +31,10 @@
  * - **verbatim `.sh` scripts** — shipped byte-for-byte and executable
  *   (mode `100755`) under `.github/scripts/`. Scripts are never token-
  *   asserted (a shell script may legitimately contain `__`-words).
+ * - **verbatim community/governance files** — shipped byte-for-byte,
+ *   non-executable, and — unlike every other payload above — never
+ *   overwritten: they seed only when the target repo has no copy of
+ *   its own (see {@link DesiredFile.honoredLocations}).
  */
 import { readAssetText } from "./assets.js";
 import {
@@ -49,6 +57,17 @@ export interface DesiredFile {
    * script counts as *differing* (see `writer.ts`).
    */
   readonly executable: boolean;
+  /**
+   * When set, this file is a **seed-if-absent** community/governance
+   * file (issue #18): the converger writes it only when the target
+   * repo has no copy of its own at {@link DesiredFile.path} **or** at
+   * any of these other basenames-locations GitHub honors for the same
+   * file kind. A target's existing copy is never overwritten, byte-
+   * different or not. Every other `DesiredFile` (this field absent) is
+   * converge-and-overwrite: written whenever its content/mode differs
+   * from the target, per {@link DesiredFile.path} only.
+   */
+  readonly honoredLocations?: readonly string[];
 }
 
 /**
@@ -112,14 +131,58 @@ const RENDERED_AT_PATH: readonly { asset: string; path: string }[] = [
 ];
 
 /**
+ * One community/governance file the converger seeds when the target repo
+ * has none of its own (issue #18): the asset name (also its target
+ * basename, landing at repo root), plus every other basename-location
+ * GitHub honors for that file kind. `writer.ts`'s seed-if-absent branch
+ * skips the file entirely — never overwrites — when the target already
+ * has a copy at `path` **or** at any of `honoredLocations`.
+ *
+ * Adding a further community file (e.g. `CODE_OF_CONDUCT.md`,
+ * `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, `GOVERNANCE.md`,
+ * `FUNDING.yml`) is a matter of dropping the asset and adding one entry
+ * here — no change to the seeding logic in `writer.ts`.
+ *
+ * GitHub's honored locations for these top-level community files are
+ * repo root, `.github/`, and `docs/`, except `FUNDING.yml` (root and
+ * `.github/` only — GitHub does not honor a `docs/FUNDING.yml`).
+ */
+const COMMUNITY_FILES: readonly {
+  asset: string;
+  path: string;
+  honoredLocations: readonly string[];
+}[] = [
+  {
+    asset: "CONTRIBUTORS",
+    path: "CONTRIBUTORS",
+    honoredLocations: [".github/CONTRIBUTORS", "docs/CONTRIBUTORS"],
+  },
+  {
+    asset: "LICENSE",
+    path: "LICENSE",
+    honoredLocations: [".github/LICENSE", "docs/LICENSE"],
+  },
+  {
+    asset: "PATENTS",
+    path: "PATENTS",
+    honoredLocations: [".github/PATENTS", "docs/PATENTS"],
+  },
+  {
+    asset: "PRIOR_ART.md",
+    path: "PRIOR_ART.md",
+    honoredLocations: [".github/PRIOR_ART.md", "docs/PRIOR_ART.md"],
+  },
+];
+
+/**
  * Build the full set of files the converger wants present in a target
  * repo, for the given per-repo context. Rendered templates are asserted
  * free of unresolved tokens (an unresolved token throws, failing the
  * repo's converge); verbatim scripts are shipped as-is.
  *
  * The returned list is stable-ordered (dependabot, then workflows, then
- * scripts, each in declaration order) so a diff / commit is
- * deterministic.
+ * scripts, then community files, each in declaration order) so a diff /
+ * commit is deterministic.
  */
 export function buildDesiredFiles(ctx: RepoContext): DesiredFile[] {
   const files: DesiredFile[] = [];
@@ -176,6 +239,17 @@ export function buildDesiredFiles(ctx: RepoContext): DesiredFile[] {
       path: `.github/scripts/${name}`,
       content: readAssetText(name),
       executable: true,
+    });
+  }
+
+  // Verbatim community/governance files (issue #18): seed-if-absent,
+  // never rendered, never overwritten.
+  for (const { asset, path, honoredLocations } of COMMUNITY_FILES) {
+    files.push({
+      path,
+      content: readAssetText(asset),
+      executable: false,
+      honoredLocations,
     });
   }
 
