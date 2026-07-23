@@ -1,6 +1,6 @@
 ---
 name: project-fanout-slices
-description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31, #15 (GHAS + merge-button settings) via PR #32, #16 (CodeQL + protect-main ruleset) via PR #40, #25 (PR-automation workflows/scripts) via PR #42, #18 (seed-if-absent community files) via PR #44.
+description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31, #15 (GHAS + merge-button settings) via PR #32, #16 (CodeQL + protect-main ruleset) via PR #40, #25 (PR-automation workflows/scripts) via PR #42, #18 (seed-if-absent community files) via PR #44, #36 (standard Dependabot groups) via PR #46.
 metadata:
   type: project
 ---
@@ -213,6 +213,53 @@ narrower root+`.github`-only scoping (flagged in the issue for a future
 file) isn't exercised yet, but the mechanism (a plain per-entry string
 list) already supports it when that file is added — one asset + one
 `COMMUNITY_FILES` entry, no seeding-logic change.
+
+Issue #36 (standard Dependabot groups: lockstep action families +
+minor/patch catch-alls) landed via PR #46: `assets/ecosystem-block.yml`
+gained a `__NAMED_GROUPS_BLOCK__` placeholder and
+`src/converge/render.ts` a `NAMED_DEPENDABOT_GROUPS` constant — the
+union of 8 named groups (`codeql-action`, `aws-cdk`, `vite-toolchain`,
+`fastapi-stack`, `sqlalchemy-stack`, `auth-stack`, `aws-sdk`,
+`test-stack`), rendered **identically into every armed ecosystem**
+(not scoped per ecosystem), positioned before each ecosystem's
+existing `*-minor-and-patch` catch-all in the rendered `groups:` map.
+
+**Non-obvious findings from #36:**
+
+- **Uniform-everywhere shipping was a hard design directive from
+  Edwin, not something I derived.** The issue's own "Resolved group
+  standard" section splits groups per ecosystem (npm groups only in
+  the npm block, pip groups only in pip, etc.), but Edwin's
+  CRITICAL-DESIGN-DIRECTION override said: no — build ONE canonical
+  union of all 8 groups and render that SAME block into every
+  ecosystem, because per-ecosystem group *selection* logic would be
+  the first crack in the repo-identity guarantee every other part of
+  this converger already enforces (same principle as
+  `DEPENDABOT_ECOSYSTEMS` arming the full ecosystem set
+  unconditionally). A group whose patterns match nothing in a given
+  ecosystem is simply inert there — no PR, no error, confirmed
+  empirically in the issue text against production Dependabot
+  behavior. If a future group-related issue proposes per-ecosystem
+  scoping again, that's the tension to flag back to Edwin rather than
+  silently re-deriving it.
+- **Exact group definitions and precedence were sourced from a live
+  repo, not invented.** Read
+  `Fablegate/fablegate_quasar_fastapi`'s `.github/dependabot.yml` via
+  `gh api repos/Fablegate/fablegate_quasar_fastapi/contents/...` and
+  took the `groups:` bodies + ordering byte-for-byte. Precedence
+  mechanism is pure config-order (Dependabot's first-matching-group-
+  wins), not `exclude-patterns` on the catch-all — fablegate's source
+  achieves precedence solely by listing `codeql-action` before
+  `actions-minor-and-patch`, no excludes needed.
+- **docker gets the union block too**, confirmed against fablegate:
+  its `docker` entry has no `groups:` key at all in production (no
+  named groups AND no minor/patch groups there — digest bumps are
+  individually reviewed by design), but this repo's `docker` ecosystem
+  block already had a `*-minor-and-patch`/`*-security` pair before this
+  issue (from #14/#51's hardened baseline) and issue #36 didn't ask to
+  remove those — so docker keeps its existing catch-alls and now also
+  gets the (functionally inert) named-group union, consistent with
+  "every ecosystem gets the whole registry."
 
 See also [[fanout-design-doc-pointers]] (not yet written) if design
 doc locations change.

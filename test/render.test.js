@@ -6,6 +6,7 @@ import {
   renderDependabotYml,
   renderPrAutomationTemplate,
   DEPENDABOT_ECOSYSTEMS,
+  NAMED_DEPENDABOT_GROUPS,
   PR_AUTOMATION_CONSTANTS,
 } from "../dist/index.js";
 import { readAssetText } from "../dist/index.js";
@@ -151,6 +152,139 @@ test("rendered output ends with exactly one trailing newline, no trailing blank 
   // `package-ecosystem:` blocks, not just at the very end.
   assert.match(out, /[^\n]\n$/);
   assert.doesNotMatch(out, /\n\n$/);
+});
+
+// The exact block indentation the rendered `groups:` map must carry:
+// group keys at 6 spaces (siblings of `*-minor-and-patch`/`*-security`),
+// `patterns:` at 8, list items at 10. `groups:` itself sits at 4 spaces.
+// Wrong indentation here is invalid/misnested YAML that Dependabot
+// silently rejects at config-parse time on every managed repo — the
+// exact failure mode these tests exist to catch, so every assertion
+// below is indentation-preserving, not `.trim()`-based.
+const GROUP_KEY_INDENT = "      "; // 6 spaces
+const PATTERNS_INDENT = "        "; // 8 spaces
+const LIST_ITEM_INDENT = "          "; // 10 spaces
+
+/**
+ * Build the expected verbatim block for a given ecosystem: the
+ * `__NAMED_GROUPS_BLOCK__` placeholder line carries `GROUP_KEY_INDENT`
+ * (6 spaces, matching `assets/ecosystem-block.yml`), which becomes the
+ * indent NAMED_DEPENDABOT_GROUPS's first line ("codeql-action:")
+ * receives via `substituteBlockLine`. Continuation lines in the
+ * constant already carry their own absolute indent, so this is just
+ * the constant with the placeholder's indent prepended to line 1.
+ */
+function expectedNamedGroupsBlock() {
+  const lines = NAMED_DEPENDABOT_GROUPS.split("\n");
+  return lines.map((l, i) => (i === 0 ? GROUP_KEY_INDENT + l : l)).join("\n");
+}
+
+test("NAMED_DEPENDABOT_GROUPS export matches the rendered content verbatim, indentation intact, across npm + docker + github-actions (issue #36)", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  const expected = expectedNamedGroupsBlock();
+  for (const eco of ["npm", "docker", "github-actions"]) {
+    const block = blockFor(out, eco);
+    // Contiguous, indentation-preserving substring match — not a
+    // per-line `.trim()`-then-`includes` check, which would pass even
+    // if every line were mis-indented or reordered.
+    assert.ok(
+      block.includes(expected),
+      `${eco} block does not contain the named-groups block verbatim ` +
+        `(indentation intact); expected substring:\n${expected}\n\n` +
+        `actual block:\n${block}`,
+    );
+  }
+});
+
+test("every ecosystem block carries the full named-group registry at the pinned indentation (issue #36)", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  const expectedGroupNames = [
+    "codeql-action",
+    "aws-cdk",
+    "vite-toolchain",
+    "fastapi-stack",
+    "sqlalchemy-stack",
+    "auth-stack",
+    "aws-sdk",
+    "test-stack",
+  ];
+  for (const eco of DEPENDABOT_ECOSYSTEMS) {
+    const block = blockFor(out, eco);
+    for (const name of expectedGroupNames) {
+      // Pinned to exactly GROUP_KEY_INDENT (6 spaces) — a group rendered
+      // one level too shallow or too deep (invalid/misnested YAML) must
+      // fail this assertion, unlike a `\s+` regex which matches any
+      // indentation.
+      assert.match(
+        block,
+        new RegExp(`^${GROUP_KEY_INDENT}${name}:$`, "m"),
+        `${eco} block missing named group ${name} at ${GROUP_KEY_INDENT.length}-space indent`,
+      );
+    }
+    // Structural assertion pinned to the exact indentation at each
+    // level, not `\s*`/`\s+` (which is indentation-blind and would
+    // match the same three lines at any depth).
+    const codeqlBlock =
+      `${GROUP_KEY_INDENT}codeql-action:\n` +
+      `${PATTERNS_INDENT}patterns:\n` +
+      `${LIST_ITEM_INDENT}- "github/codeql-action/*"`;
+    assert.ok(
+      block.includes(codeqlBlock),
+      `${eco}: codeql-action group not found at pinned indentation`,
+    );
+  }
+});
+
+test("named groups precede the *-minor-and-patch catch-all (first-match-wins precedence)", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  for (const eco of DEPENDABOT_ECOSYSTEMS) {
+    const block = blockFor(out, eco);
+    const codeqlIdx = block.indexOf(`${GROUP_KEY_INDENT}codeql-action:`);
+    const catchAllIdx = block.indexOf(
+      `${GROUP_KEY_INDENT}${eco}-minor-and-patch:`,
+    );
+    assert.notEqual(codeqlIdx, -1, `${eco} missing codeql-action group`);
+    assert.notEqual(catchAllIdx, -1, `${eco} missing minor-and-patch group`);
+    assert.ok(
+      codeqlIdx < catchAllIdx,
+      `${eco}: named groups must precede the minor-and-patch catch-all`,
+    );
+  }
+});
+
+test("docker block also receives the full named-group union, indentation intact (uniform shipping, not excluded)", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  const docker = blockFor(out, "docker");
+  assert.match(docker, new RegExp(`^${GROUP_KEY_INDENT}aws-cdk:$`, "m"));
+  assert.match(
+    docker,
+    new RegExp(`^${GROUP_KEY_INDENT}fastapi-stack:$`, "m"),
+  );
+  assert.match(
+    docker,
+    new RegExp(`^${GROUP_KEY_INDENT}docker-minor-and-patch:$`, "m"),
+  );
+  // Full verbatim contiguous block, same as the npm/docker/github-actions
+  // check above — belt-and-suspenders for docker specifically, since
+  // docker is the "other"-class ecosystem the reviewer called out by
+  // name as under-covered by bare unanchored substring matches.
+  assert.ok(docker.includes(expectedNamedGroupsBlock()));
 });
 
 test("target-branch reflects the per-repo default branch", () => {

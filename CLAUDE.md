@@ -73,7 +73,22 @@ npm run build && npm test
       expansion (one `ecosystem-block.yml` copy per armed ecosystem,
       variant parts resolved per ecosystem class — the resolution spec
       lives in the `github-setup` plugin's `gh-repo-setup-protection`
-      SKILL.md Step 3). `renderPrAutomationTemplate` +
+      SKILL.md Step 3). Each ecosystem block also carries
+      `NAMED_DEPENDABOT_GROUPS` (issue #36): ONE canonical union of the
+      org's lockstep/stack Dependabot groups (`codeql-action`, `aws-cdk`,
+      `vite-toolchain`, `fastapi-stack`, `sqlalchemy-stack`, `auth-stack`,
+      `aws-sdk`, `test-stack`), rendered identically into every armed
+      ecosystem — not scoped per ecosystem, per the same
+      arm-everything-unconditionally/repo-identity principle
+      `DEPENDABOT_ECOSYSTEMS` itself follows. A group whose patterns
+      match nothing in a given ecosystem is inert there. Definitions and
+      precedence (named groups listed before each ecosystem's
+      `*-minor-and-patch` catch-all, so a dependency matching both lands
+      in the named group) are taken verbatim from
+      `Fablegate/fablegate_quasar_fastapi`'s live production
+      `dependabot.yml` — the repo that incurred the motivating incident
+      (unsynced `github/codeql-action/init`/`analyze` versions broke the
+      required CodeQL check on `main`). `renderPrAutomationTemplate` +
       `PR_AUTOMATION_CONSTANTS` (issue #25) render the PR-automation
       workflows' extra placeholders: nine fixed org-level constants
       (App identity, merge method, do-not-merge label, required-check/

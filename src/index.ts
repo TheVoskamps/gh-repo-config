@@ -87,6 +87,7 @@ export {
   renderPrAutomationTemplate,
   assertNoUnresolvedTokens,
   DEPENDABOT_ECOSYSTEMS,
+  NAMED_DEPENDABOT_GROUPS,
   PR_AUTOMATION_CONSTANTS,
   type RepoContext,
 } from "./converge/render.js";

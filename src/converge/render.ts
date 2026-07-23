@@ -156,6 +156,84 @@ export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
   "terraform",
 ] as const;
 
+/**
+ * The org's canonical registry of named Dependabot groups (issue #36):
+ * lockstep/stack families whose members must move together because they
+ * share a runtime compatibility contract (same-repo sub-actions/packages
+ * exchanging versioned state, a framework + its plugin family, or an SDK
+ * core + pinned transitives). Exact definitions and precedence taken
+ * verbatim from `Fablegate/fablegate_quasar_fastapi`'s live production
+ * `dependabot.yml`, the repo that incurred the motivating incident
+ * (`github/codeql-action/init`/`analyze` version skew broke the
+ * required CodeQL check on `main`).
+ *
+ * Rendered as ONE union block, identically, into every armed ecosystem's
+ * `groups:` — not scoped per ecosystem. This mirrors the
+ * arm-everything-unconditionally principle {@link DEPENDABOT_ECOSYSTEMS}
+ * itself follows: uniform payload everywhere is what guarantees
+ * repo-identity. A group whose patterns match nothing in a given
+ * ecosystem is inert there (no PR, no error).
+ *
+ * Named groups cover ALL update types (a lockstep family must move
+ * together on majors too, unlike the `*-minor-and-patch` catch-alls).
+ * Listed before the catch-all in the rendered `groups:` map so
+ * Dependabot's first-match-wins group resolution puts a dependency that
+ * matches both a named group and the catch-all into the named group.
+ */
+export const NAMED_DEPENDABOT_GROUPS = `codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"`;
+
 /** The three ecosystem classes that drive the block-variant resolution. */
 type EcosystemClass = "npm-pip" | "github-actions" | "other";
 
@@ -204,12 +282,15 @@ function stripLeadingComments(text: string): string {
  * `ecosystem-block.yml` body, resolving the class-varying placeholders.
  *
  * The block placeholders (`__DIRECTORY_BLOCK__`,
- * `__VERSIONING_STRATEGY_BLOCK__`, `__COOLDOWN_BLOCK__`) each sit alone
- * on a 4-space-indented line. The substituted value's first line carries
- * no leading indent (the template's 4 spaces supply it) and continuation
- * lines carry their own absolute indent. When a block is empty for a
- * class (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip), the whole
- * placeholder line is dropped so no whitespace-only line remains.
+ * `__VERSIONING_STRATEGY_BLOCK__`, `__COOLDOWN_BLOCK__`,
+ * `__NAMED_GROUPS_BLOCK__`) each sit alone on an indented line. The
+ * substituted value's first line carries no leading indent (the
+ * template's own indent supplies it) and continuation lines carry their
+ * own absolute indent. When a block is empty for a class
+ * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip), the whole placeholder
+ * line is dropped so no whitespace-only line remains.
+ * `__NAMED_GROUPS_BLOCK__` is never empty — it renders
+ * {@link NAMED_DEPENDABOT_GROUPS} unconditionally into every ecosystem.
  */
 function renderEcosystemBlock(
   blockTemplate: string,
@@ -256,6 +337,10 @@ function renderEcosystemBlock(
     }
     if (trimmed === "__COOLDOWN_BLOCK__") {
       out.push(substituteBlockLine(line, cooldownBlock));
+      continue;
+    }
+    if (trimmed === "__NAMED_GROUPS_BLOCK__") {
+      out.push(substituteBlockLine(line, NAMED_DEPENDABOT_GROUPS));
       continue;
     }
     // Scalar placeholders on ordinary lines.
