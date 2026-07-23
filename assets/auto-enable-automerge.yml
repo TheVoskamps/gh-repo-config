@@ -246,6 +246,7 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
           REPO_OWNER: ${{ github.event.repository.owner.login }}
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
@@ -273,6 +274,20 @@ jobs:
             exit 0
           fi
           HEADLINE="Merge PR: ${PR_TITLE} (#${PR_NUMBER})"
+          # GitHub caps commit messages at 16383 chars. A large grouped
+          # Dependabot PR body (release notes x N, itself already capped
+          # at Dependabot's 64K body limit) can blow past that, which
+          # would otherwise fail this mutation with "Commit message is
+          # too long" and, worse, poison job 2's candidate gate (this
+          # job's failed check run drags statusCheckRollup.state away
+          # from SUCCESS). Truncate at 16000 chars (headroom under 16383
+          # for the marker line, the URL, and the joining newlines) and
+          # append the PR URL so the untruncated body is always
+          # reachable. Bodies under the cap pass through unchanged.
+          BODY="${PR_BODY:-}"
+          if [ "${#BODY}" -gt 16000 ]; then
+            BODY="${BODY:0:16000}"$'\n\n'"[TRUNCATED — full description: ${PR_URL}]"
+          fi
           # GraphQL enablePullRequestAutoMerge: commitHeadline /
           # commitBody set the merge commit message.
           gh api graphql \
@@ -288,7 +303,7 @@ jobs:
             }' \
             -f prId="$PR_NODE_ID" \
             -f headline="$HEADLINE" \
-            -f body="${PR_BODY:-}"
+            -f body="$BODY"
 
   dependabot-rest-merge:
     # Unattended auto-merge of green Dependabot PRs. Runs on workflow_run
@@ -650,6 +665,22 @@ jobs:
             fi
             PR_TITLE=$(echo "$PR_VIEW" | jq -r '.title')
             PR_BODY=$(echo "$PR_VIEW" | jq -r '.body // ""')
+            PR_URL=$(echo "$PR_VIEW" | jq -r '.html_url')
+
+            # GitHub caps commit messages at 16383 chars. A large grouped
+            # Dependabot PR body (release notes x N, itself already capped
+            # at Dependabot's 64K body limit) can blow past that, which
+            # would otherwise 422 this merge call every sweep -- the PR
+            # goes green but can never unattended-merge. Truncate at 16000
+            # chars (headroom under 16383 for the marker line, the URL,
+            # and the joining newlines) and append the PR URL so the
+            # untruncated body is always reachable. Bodies under the cap
+            # pass through unchanged. Apply identically to job 1 so the
+            # native-auto-merge and REST-merge commit messages stay
+            # consistent.
+            if [ "${#PR_BODY}" -gt 16000 ]; then
+              PR_BODY="${PR_BODY:0:16000}"$'\n\n'"[TRUNCATED — full description: ${PR_URL}]"
+            fi
 
             # Pass the EVALUATED head sha (HEAD_OID -- by this point the PR
             # is known current with the base, so this is the exact commit
