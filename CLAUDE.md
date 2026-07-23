@@ -215,7 +215,16 @@ npm run build && npm test
   (`test-codeql-language-present.sh`, `test-auto-rebase-lockfile-
   regen.sh`) are the one piece of after-the-fact verification available
   for their respective scripts; neither by itself confirms
-  byte-identity with upstream. Separately, `CONTRIBUTORS`, `LICENSE`,
+  byte-identity with upstream. `auto-enable-automerge.yml` is the one
+  exception to "verbatim": issue #38 patched it in this repo (both the
+  native-auto-merge and REST-merge jobs) to truncate an oversized PR
+  body — a release-note-heavy grouped Dependabot body can exceed
+  GitHub's 16383-char commit-message cap — to 16000 chars plus a
+  `[TRUNCATED — full description: <PR URL>]` marker before using it as
+  the merge-commit body. This file has therefore diverged from the
+  upstream plugin source; a future upstream re-sync must reapply this
+  patch (or upstream must adopt the same fix) rather than overwrite it
+  blind. Separately, `CONTRIBUTORS`, `LICENSE`,
   `PATENTS`, and `PRIOR_ART.md` (issue #18) are **not** sourced from
   the `github-setup` plugin — they are this repo's own root files,
   copied verbatim into `assets/` and shipped as the fixed seed-if-
