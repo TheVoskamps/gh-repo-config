@@ -1,36 +1,29 @@
 ---
 name: project-fanout-review
-description: Review context for the org-wide repo-config fan-out (#11) slice PRs — what is deliberately out of PR scope; #16 (CodeQL + protect-main ruleset) landed via PR #40.
+description: Review context for the org-wide repo-config fan-out slice PRs in gh-repo-config — what is deliberately out of PR scope, and where slice architecture lives.
 metadata:
   type: project
 ---
 
-The org-wide repo-configuration fan-out (umbrella issue #11) is built as
-a sequence of vertical slices. Slice 1 (#12, PR #20) = versioned release.
-Slice 2 (#13, PR #21) = selection-loop sweep control plane. Slice 2b
-(#24, PR #27) = sweep merges its own green converger PRs. Slice 3 (#14,
-PR #31) = first real convergence teeth (dependabot.yml + gates/guards,
-`src/converge/` + `src/github/contents.ts`). Slice 4 (#15, PR #32) =
-GHAS/repo-security + merge-button settings convergence (pure API
-mutations, no files/PR — `src/github/settings.ts` +
-`src/converge/ghas.ts`, wired as a second injectable `convergeGhas` step
-alongside `converge` in `runSweep`). Slice 5 (#16, PR #40, absorbing #17
-into the same PR) = protect-main ruleset + CodeQL convergence
-(`src/converge/ruleset.ts` + `src/github/rulesets.ts`,
-`src/converge/default-setup.ts` + `src/github/code-scanning.ts`, the
-CodeQL file payload riding the issue #14 render pipeline). Its ruleset
-step runs in a separate ordering-gated pass after the merge pass (the
-issues #91/#230 phantom-check guard) — see
+The org-wide repo-configuration fan-out is built as a sequence of
+vertical slices, each a walking skeleton that proves one end-to-end
+path before the next adds teeth: a versioned release mechanism; a
+selection-loop sweep control plane with convergence as an injectable
+stub; the sweep merging its own green converger PRs; real file
+convergence (dependabot.yml + gates/guards, `src/converge/` +
+`src/github/contents.ts`); GHAS/repo-security + merge-button settings
+convergence (pure API mutations, no files/PR — `src/github/
+settings.ts` + `src/converge/ghas.ts`, wired as a second injectable
+`convergeGhas` step alongside `converge` in `runSweep`); protect-main
+ruleset + CodeQL convergence (`src/converge/ruleset.ts` +
+`src/github/rulesets.ts`, `src/converge/default-setup.ts` +
+`src/github/code-scanning.ts`, the CodeQL file payload riding the
+same render pipeline as `dependabot.yml`). The ruleset step runs in a
+separate ordering-gated pass after the merge pass (the phantom-check
+guard: never require a status-check context whose producing workflow
+isn't yet on the target's default branch) — see
 [[project-codeql-ruleset-slice]] (issue-developer's memory) for the
-deviations from the `gh-repo-setup-protection` skill and the gate's
-mechanics. Issue #18 (community files) remains outstanding.
-
-**Why:** each slice is a walking skeleton — proves one end-to-end path
-before the next adds teeth. Convergence was an injectable no-op stub
-through #13; #14 wired in the real file-converge step via
-`runSweepFromEnv`; #15 added a second, independent injectable step
-(`convergeGhas`) in the same function (`runSweep` itself still takes
-injectable stubs for both, for tests).
+deviations from the interactive skill model and the gate's mechanics.
 
 **How to apply when reviewing a slice PR:**
 

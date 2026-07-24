@@ -56,13 +56,13 @@ npm run build && npm test
     single PR to the default branch.
   - `src/github/settings.ts` — `RepoSettingsClient`, same dependency-
     free-`fetch` shape as the other `src/github/` clients. The converger's
-    pure-API-mutation path (issue #15, no files, no PR): read-then-PATCH
+    pure-API-mutation path (no files, no PR): read-then-PATCH
     for Dependabot alerts/security-updates enablement, secret scanning +
     push protection (+ best-effort delegated-bypass lockdown — no stable
     per-repo read exists for that one sub-key, so it's always attempted),
     and the merge-button/PR-hygiene settings.
-  - `src/converge/` — the file-render + write pipeline (issue #14) every
-    file-rendering slice reuses (issue #16 and #25 already do).
+  - `src/converge/` — the file-render + write pipeline every
+    file-rendering slice reuses.
     - `assets.ts` — locates the `assets/` templates relative to the
       built module (`import.meta.url`), not `process.cwd()`, so they
       resolve in an unpacked release.
@@ -74,7 +74,7 @@ npm run build && npm test
       variant parts resolved per ecosystem class — the resolution spec
       lives in the `github-setup` plugin's `gh-repo-setup-protection`
       SKILL.md Step 3). Each ecosystem block also carries
-      `NAMED_DEPENDABOT_GROUPS` (issue #36): ONE canonical union of the
+      `NAMED_DEPENDABOT_GROUPS`: ONE canonical union of the
       org's lockstep/stack Dependabot groups (`codeql-action`, `aws-cdk`,
       `vite-toolchain`, `fastapi-stack`, `sqlalchemy-stack`, `auth-stack`,
       `aws-sdk`, `test-stack`), rendered identically into every armed
@@ -84,33 +84,29 @@ npm run build && npm test
       match nothing in a given ecosystem is inert there. Definitions and
       precedence (named groups listed before each ecosystem's
       `*-minor-and-patch` catch-all, so a dependency matching both lands
-      in the named group) are taken verbatim from
-      `Fablegate/fablegate_quasar_fastapi`'s live production
-      `dependabot.yml` — the repo that incurred the motivating incident
-      (unsynced `github/codeql-action/init`/`analyze` versions broke the
-      required CodeQL check on `main`). `renderPrAutomationTemplate` +
-      `PR_AUTOMATION_CONSTANTS` (issue #25) render the PR-automation
+      in the named group) are org-wide constants covering the org's
+      lockstep/stack dependency groupings. `renderPrAutomationTemplate` +
+      `PR_AUTOMATION_CONSTANTS` render the PR-automation
       workflows' extra placeholders: nine fixed org-level constants
       (App identity, merge method, do-not-merge label, required-check/
-      install-gate workflow names — all pinned by the issue, nothing
-      inferred) plus the per-repo-but-derived `__BOT_SLUG__`
-      (`<repo>-auto-rebase[bot]`), layered on top of the same three
-      per-repo tokens `renderTemplate` already resolves. The full
-      surface always renders unconditionally (no conditional-drop logic
-      like the interactive `gh-repo-setup-pr-automation` skill has for
-      repos lacking certain workflows) — on a managed repo the gates
+      install-gate workflow names) plus the per-repo-but-derived
+      `__BOT_SLUG__` (`<repo>-auto-rebase[bot]`), layered on top of the
+      same three per-repo tokens `renderTemplate` already resolves. The
+      full surface always renders unconditionally (no conditional-drop
+      logic like the interactive `gh-repo-setup-pr-automation` skill has
+      for repos lacking certain workflows) — on a managed repo the gates
       and guards are guaranteed present in the same per-repo converger
       PR, so every placeholder always resolves.
     - `files.ts` — the payload set: which asset renders/ships to which
       target path. Rendered workflows land under `.github/workflows/`,
-      including the PR-automation workflows (issue #25), rendered via
+      including the PR-automation workflows, rendered via
       `renderPrAutomationTemplate` rather than the plain three-token
       `renderTemplate`; a rendered non-workflow config (the CodeQL
       config) lands at a fixed bespoke path
       (`.github/codeql/codeql-config.yml`, the path the CodeQL
       workflow's `config-file:` line references); verbatim scripts ship
       byte-for-byte and executable under `.github/scripts/`. The
-      `COMMUNITY_FILES` list (issue #18) ships verbatim, non-executable
+      `COMMUNITY_FILES` list ships verbatim, non-executable
       community/governance files (`CONTRIBUTORS`, `LICENSE`, `PATENTS`,
       `PRIOR_ART.md`) at repo root; these are the one payload kind that
       is **seed-if-absent** rather than converge-and-overwrite, flagged
@@ -121,25 +117,25 @@ npm run build && npm test
       content-wrong-mode script counts as differing), commit changed
       files onto the fixed `gh-repo-config/converge` branch, open/update
       one PR per repo. No diff → no branch, no PR. Never pushes to the
-      default branch; merging the PR is issue #24's job. A
-      `DesiredFile` carrying `honoredLocations` (issue #18) is skipped
-      entirely — never compared for drift, never overwritten — once the
-      target repo has its own copy at the file's own path or at any of
-      `honoredLocations` (repo root, `.github/`, `docs/` for the
-      current community files).
-    - `ghas.ts` — `convergeGhasSettings` (issue #15): read-then-write
+      default branch directly; the merge pass merges the PR once its
+      required checks are green. A `DesiredFile` carrying
+      `honoredLocations` is skipped entirely — never compared for
+      drift, never overwritten — once the target repo has its own copy
+      at the file's own path or at any of `honoredLocations` (repo
+      root, `.github/`, `docs/` for the current community files).
+    - `ghas.ts` — `convergeGhasSettings`: read-then-write
       each GHAS/repo-security toggle and merge-button setting
       independently — one setting's failure (report-and-skip on a 422
       entitlement error) never blocks the rest. Only an unexpected
       (non-422) write failure throws, which the sweep records as that
       repo's `failed` outcome.
-    - `default-setup.ts` — `convergeDefaultSetup` (issue #16): pure API
+    - `default-setup.ts` — `convergeDefaultSetup`: pure API
       mutation, no files, no PR. Drives server-side CodeQL default setup
       to `not-configured` on every managed repo, since a live default
       setup and the converger's advanced CodeQL workflow are mutually
       exclusive. Read-then-PATCH-on-diff; a 403/404 (feature/plan
       unavailable) is report-and-skip, not a failure.
-    - `ruleset.ts` — `convergeProtectMainRuleset` (issue #16): pure API
+    - `ruleset.ts` — `convergeProtectMainRuleset`: pure API
       mutation, no files, no PR. Creates/converges the repo-level
       `protect-main` ruleset from `assets/protect-main-ruleset.json`,
       unioning in App bypass actors (converger + AUTOMERGE, each
@@ -172,99 +168,66 @@ npm run build && npm test
       doesn't model; treating it as drift would just churn every tick
       with no way to converge.
   - `src/sweep.ts` — `runSweep` / `runSweepFromEnv`, the sweep's
-    orchestration. `runSweep`'s `converge` (files, #14), `convergeGhas`
-    (settings, #15), and `convergeDefaultSetup` (#16) steps all stay
+    orchestration. `runSweep`'s `converge` (files), `convergeGhas`
+    (settings), and `convergeDefaultSetup` steps all stay
     injectable stubs (tests supply their own) and run independently per
     repo in the same per-repo pass — one step's failure doesn't skip the
     others, but any failure marks the repo `failed` and skips stamping.
     `runSweepFromEnv` wires the real implementations in production. The
-    merge pass (issue #24) runs independently of the version-skip
+    merge pass runs independently of the version-skip
     decision, over every repo the properties API returns, so an
     unmerged converger PR from a prior tick still gets picked up.
-    The `convergeRuleset` step (issue #16) runs in a separate pass
+    The `convergeRuleset` step runs in a separate pass
     **after** the merge pass, gated by an ordering rule: for a given
     repo, the ruleset is asserted only once that repo's file
     convergence has reached the default branch this tick (file
     convergence was a no-op, or its converger PR merged in the merge
     pass this tick). A repo whose file PR is still open is deferred
     (`SweepReport.rulesetDeferred`) and **not stamped** this tick — the
-    next tick retries. This is the #91/#230 phantom-check guard: never
-    require a status-check context whose producing workflow isn't yet
-    on the target's default branch. The gate applies only when a
+    next tick retries. This guards against ever requiring a
+    status-check context whose producing workflow isn't yet on the
+    target's default branch. The gate applies only when a
     `convergeRuleset` step is injected; omitting it (as in tests that
-    don't exercise ruleset behavior) reproduces pre-#16 stamping,
-    gated on the file/GHAS/default-setup steps alone.
-- `assets/` — the template payloads the converger renders, sourced from
-  the `github-setup` plugin (authoritative shape defined in that
-  plugin's skill `SKILL.md` files — see "Authority" in issue #16): from
-  `gh-repo-setup-protection`, the `dependabot.yml` +
+    don't exercise ruleset behavior) reproduces the file/GHAS/
+    default-setup-only stamping behavior.
+- `assets/` — the template payloads the converger renders. This repo's
+  `assets/` files are the payloads: `render.ts` and `files.ts` operate
+  directly on them, with no external source of truth to reconcile
+  against at runtime. The set: `dependabot.yml` +
   `ecosystem-block.yml` templates, the gate/guard `.yml` workflows, the
   CodeQL payload set (`codeql.yml` workflow, `codeql-config.yml`,
   `codeql-language-present.sh` runtime language-detection script + its
-  `test-codeql-language-present.sh` self-test), and the
-  `protect-main-ruleset.json` ruleset body template; from
-  `gh-repo-setup-pr-automation` (issue #25), the `auto-enable-
-  automerge.yml` + `auto-rebase-prs.yml` workflows and the
+  `test-codeql-language-present.sh` self-test), the
+  `protect-main-ruleset.json` ruleset body template, the `auto-enable-
+  automerge.yml` + `auto-rebase-prs.yml` workflows, and the
   `auto-rebase-lockfile-regen.sh` script + its
   `test-auto-rebase-lockfile-regen.sh` self-test. All `.sh` scripts
-  ship verbatim + executable. "Verbatim" here means byte-identical to
-  the upstream payload at the time of extraction. This IS independently
-  re-verifiable: a scratch clone of `TheVoskamps/claude-plugins-
-  marketplace` (`main`, `plugins/github-setup/payload/<skill>/<file>`)
-  carries the same payload files the `github-setup` plugin cache
-  installs, byte-for-byte diffable against this repo's `assets/` — see
-  issue #43, which did exactly that diff, and PR #48, which re-ran the
-  same diff after adopting upstream's `dependency-pinned-gate.yml`
-  header wording (making that file byte-identical to upstream — it no
-  longer diverges). As of PR #48's pass (against upstream 0.11.3), the
-  files below diverge from upstream and the rest are byte-identical,
-  with one exception outside the comparison entirely:
-  `protect-main-ruleset.json` has no upstream counterpart at all (it is
-  not shaped as a plugin payload file upstream), so it is neither
-  byte-identical nor divergent — it simply isn't part of this
-  byte-identity check.
-  - `dependency-pinned-gate.sh` and `test-dependency-pinned-gate.sh` are
-    a hand-reconciled UNION, not a straight copy either direction:
-    upstream added pnpm `catalog:`/`catalogs:` support (adopted here),
-    while this repo independently carries the `aab497f` order-
-    independent `workspace_covers()` glob fix (upstream's matcher is
-    the last-match-wins form `aab497f` fixed, i.e. upstream is *behind*
-    on that one function) — preserved here, not overwritten. The test
-    file carries both upstream's four catalog cases and this repo's own
-    `aab497f` regression guard (`negation before positive glob still
-    excludes`), which upstream's test file does not have at all.
-  - `ecosystem-block.yml`, `no-back-merging-guard.yml`, and
-    `auto-enable-automerge.yml` are local-AHEAD: each carries a local
-    improvement upstream does not have (`ecosystem-block.yml`'s
-    `__NAMED_GROUPS_BLOCK__` from issue #36; `no-back-merging-guard.yml`'s
-    least-privilege hardening from commit `296163a`; `auto-enable-
-    automerge.yml`'s PR-body-truncation, unverified-rebased-head, and
-    cron-comment fixes below). These are deliberately NOT synced from
-    upstream — doing so would revert the local fix. Follow-up issues
-    against `github-setup` to adopt these local improvements upstream
-    are tracked separately (see issue #43).
-  The shipped self-tests (`test-codeql-language-present.sh`,
-  `test-auto-rebase-lockfile-regen.sh`, `test-dependency-pinned-
-  gate.sh`) are exercised as part of confirming a reconciliation is
-  correct, but for the two files that ARE byte-identical to upstream
-  today (`codeql-language-present.sh`, `auto-rebase-lockfile-regen.sh`)
-  a self-test passing is not by itself proof of byte-identity — only
-  the direct upstream diff is. `auto-enable-automerge.yml` carries three
-  local commits beyond the original verbatim extraction (`5dbce93`):
-  issue #38's truncate-oversized-PR-body-before-merge-commit fix
-  (`02f2480`), the stop-merging-an-unverified-rebased-head fix
-  (`f232660`), and a matching cron comment (`e5d7c1a`). Upstream has
-  made zero changes to this file since extraction, so all three commits
-  are purely local-ahead — a future upstream re-sync must reapply them
-  (or upstream must adopt the same fixes) rather than overwrite them
-  blind. Separately, `CONTRIBUTORS`, `LICENSE`,
-  `PATENTS`, and `PRIOR_ART.md` (issue #18) are **not** sourced from
-  the `github-setup` plugin — they are this repo's own root files,
+  ship verbatim and executable.
+  - `dependency-pinned-gate.sh` matches workspace-covering dependency
+    globs order-independently (a negation before a positive glob still
+    excludes the match) and supports pnpm `catalog:`/`catalogs:`
+    references. `test-dependency-pinned-gate.sh` covers both the
+    catalog cases and the order-independent glob-matching case
+    (`negation before positive glob still excludes`).
+  - `ecosystem-block.yml` carries `__NAMED_GROUPS_BLOCK__` (the named
+    Dependabot groups — see `render.ts`'s `NAMED_DEPENDABOT_GROUPS`
+    description above). `no-back-merging-guard.yml` runs with
+    least-privilege permissions. `auto-enable-automerge.yml` truncates
+    an oversized PR body before merging, refuses to merge an
+    unverified rebased head, and documents its cron schedule inline.
+  This repo's own `.github/scripts/` and `.github/workflows/` — the
+  live copies the sweep renders onto this repo itself — are **not**
+  hand-maintained: they converge on their own when the fanout sweep
+  runs over this repo, the same way it converges every other managed
+  repo. The authoritative payload is always the file under `assets/`;
+  the live copy is an output of the sweep and must never be hand-
+  edited to match it.
+  Separately, `CONTRIBUTORS`, `LICENSE`,
+  `PATENTS`, and `PRIOR_ART.md` are this repo's own root files,
   copied verbatim into `assets/` and shipped as the fixed seed-if-
   absent payload every managed repo receives (see `files.ts`'s
-  `COMMUNITY_FILES`). The design doc's proposal to read these per-org
-  from `<org>/.github` at converge time is not what shipped — see the
-  note on decomposition-doc slice 7. Packed into the release tarball
+  `COMMUNITY_FILES`). These are shipped as static files in `assets/`,
+  not read per-org at converge time. Packed into the release tarball
   (`.github/workflows/release.yml`) alongside `dist`/`bin`/
   `package.json`.
 - `bin/gh-repo-config.js` — CLI entry point (`package.json` `bin`).
@@ -274,8 +237,7 @@ npm run build && npm test
   the environment; exits non-zero when any repo's convergence or stamp
   write failed, so a scheduled sweep run cannot fail silently). The
   sweep summary also prints each repo's CodeQL default-setup and
-  `protect-main` ruleset outcomes, plus any ruleset-deferred repos
-  (issue #16).
+  `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
 - `test/` — `node:test` files, run via `node --test test/**/*.test.js`.
 - `.github/workflows/release.yml` — publishes a tagged (`v*`) immutable
   GitHub Release with a build-provenance attestation. Bumping the
