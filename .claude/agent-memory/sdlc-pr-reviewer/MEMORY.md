@@ -1,3 +1,1 @@
-- [Fan-out slice PRs](project_fanout_review.md) — org-wide config fan-out ships in slices; provisioning (org App, custom properties) is operator-owned and out of PR scope.
 - [Self-review blocks request-changes](feedback_self_review_blocks_request_changes.md) — gh blocks --request-changes on your own PR too, not just --approve; downgrade to --comment with a CHANGES REQUESTED verdict line.
-- [CLAUDE.md carries no provenance](project_claudemd_no_provenance.md) — CLAUDE.md and agent-memory deliberately have no upstream/SHA/issue-# history; flag re-introduced provenance.

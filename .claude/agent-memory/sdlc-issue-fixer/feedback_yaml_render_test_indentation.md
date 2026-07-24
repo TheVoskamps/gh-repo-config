@@ -41,7 +41,3 @@ rendered block:
   that this is a cheap, worthwhile check whenever the fidelity of the
   test is itself the point (as opposed to routine content-presence
   tests, where trim-based matching is fine).
-
-See [[project_ruleset_canonical_authoritative]] for a related but
-distinct concern (semantic vs. literal compare) in this same repo's
-converge pipeline.

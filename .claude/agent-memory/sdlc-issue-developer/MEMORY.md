@@ -1,3 +1,1 @@
-- [Fan-out slices](project_fanout_slices.md) — org-wide config fan-out design facts: custom-property read semantics, release-immutability, GHAS settings decisions, Dependabot group-rendering invariants, and the CLAUDE.md/agent-memory doc-hygiene rule; converger App + custom-property provisioning is operator-owned.
-- [Dependabot render spec](project_dependabot_render_spec.md) — the __DEPENDABOT_ECOSYSTEMS__ per-ecosystem-class expansion rules the render pipeline reproduces.
-- [CodeQL + ruleset slice](project_codeql_ruleset_slice.md) — converger deviations from the upstream skill model (unattended default-setup, 3 bypass actors, all-4 required checks), the merge-before-ruleset ordering gate, code_quality 422 retry, semantic compare.
+# Memory Index

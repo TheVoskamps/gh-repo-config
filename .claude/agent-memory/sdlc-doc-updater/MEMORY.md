@@ -1,1 +1,1 @@
-- [Fan-out docs tracking](project_fanout_docs.md) — design/decomposition docs are written ahead of slices; only the permission table needs per-slice rows, CLAUDE.md always needs the file/env inventory updated; diff mechanism (not just behavior) against design-doc prose before assuming no edit is needed.
+# Memory Index
