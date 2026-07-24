@@ -36,9 +36,14 @@
 #     (local-path / protocol deps have no registry version to pin)
 #   - npm/pnpm `catalog:` / `catalog:<name>` specs (a REFERENCE into
 #     pnpm-workspace.yaml's `catalog:` / `catalogs:` sections, never a
-#     version itself). The referenced catalog ENTRY must still be
-#     exact -- validated once, at the source, against
-#     pnpm-workspace.yaml, not re-flagged at every consumer manifest.
+#     version itself) -- ONLY WHEN THE REFERENCE RESOLVES. Resolution
+#     walks up from the manifest toward the repo root, stopping at the
+#     FIRST covering pnpm-workspace.yaml; if that root does not define
+#     the referenced label (or no covering root exists at all), the
+#     reference is a VIOLATION, not an exemption. A resolved reference's
+#     catalog ENTRY must still be exact -- validated once, at the
+#     source, against pnpm-workspace.yaml, not re-flagged at every
+#     consumer manifest.
 #   - npm `owner/repo#<40-hex-sha>` git-shorthand commit pins (the SHA
 #     is immutable -- exact). A BARE `owner/repo` or a `#branch` / `#tag`
 #     ref floats to the default-branch HEAD and is NOT exempt; same for
@@ -66,6 +71,12 @@
 # keep a single lockfile at the workspace root by design. A stray
 # manifest the workspace does not cover still floats and stays a
 # violation.
+#
+# Nested pnpm workspace roots (npm mode, standalone): if any tracked
+# pnpm-workspace.yaml is an ancestor of another tracked
+# pnpm-workspace.yaml, that is a violation, independent of catalogs or
+# declared dependencies -- pnpm uses the nearest root only, and nesting
+# makes catalog-reference resolution ambiguous.
 #
 # Inputs:
 #   $1 -- mode: "npm", "pip", "actions", "docker", "go", or "--present"
@@ -226,7 +237,11 @@ def is_pinned_git_shorthand(spec):
 # deps. These are exempt by category. A bare `owner/repo` (or
 # `github:owner/repo`) git-shorthand is NOT exempt here: it floats to the
 # default-branch HEAD unless commit-pinned, and is_exact() handles the
-# commit-pinned exemption separately.
+# commit-pinned exemption separately. pnpm `catalog:` specs are NOT
+# handled here -- unlike the other protocol forms, a catalog reference's
+# exemption is conditional on RESOLUTION (see resolve_catalog_ref()
+# below), so it is classified separately in check_block(), not folded
+# into this unconditional-exemption predicate.
 def is_protocol_spec(spec):
     s = spec.strip()
     return (
@@ -237,18 +252,26 @@ def is_protocol_spec(spec):
         or s.startswith("git:")
         or s.startswith("http:")
         or s.startswith("https:")
-        # pnpm `catalog:` / named `catalog:<name>` -- the member
-        # manifest's spec is a REFERENCE into pnpm-workspace.yaml's
-        # catalog(s), not a version itself; it is never exact-pinnable
-        # by design. The determinism question moves to the catalog
-        # DEFINITION, validated separately by check_pnpm_catalogs().
-        or s == "catalog:"
-        or s.startswith("catalog:")
         # A commit-pinned `owner/repo#<40-hex>` (or `github:`-prefixed)
         # is immutable -- exempt. A bare or branch/tag-ref shorthand
         # floats and is intentionally NOT exempt here.
         or is_pinned_git_shorthand(spec)
     )
+
+def is_catalog_ref(spec):
+    s = spec.strip()
+    return s == "catalog:" or s.startswith("catalog:")
+
+# The catalog label a `catalog:` / `catalog:<name>` reference resolves
+# against: "catalog" for the default (unnamed) form, "catalogs.<name>"
+# for the named form -- matching parse_pnpm_workspace_catalogs()'s label
+# scheme.
+def catalog_label_for_ref(spec):
+    s = spec.strip()
+    if s == "catalog:":
+        return "catalog"
+    name = s[len("catalog:"):]
+    return f"catalogs.{name}"
 
 def is_exact(spec):
     s = spec.strip()
@@ -261,9 +284,21 @@ def is_exact(spec):
         s = rest[at + 1:]
     return bool(EXACT.match(s))
 
+# catalog_refs collects (label, name, spec) for every `catalog:` /
+# `catalog:<name>` reference found in a checked block, deferred until
+# after resolve_catalog_ref() (and the parse/glob helpers it depends on)
+# are defined below -- Python resolves free-variable names at CALL time,
+# not def time, but check_block() itself runs here, before those later
+# defs exist, so the catalog-ref resolution pass runs as a second pass
+# further down instead of inline in check_block().
+catalog_refs = []
+
 def check_block(block, label, exempt_protocol=True):
     for name, spec in (block or {}).items():
         if not isinstance(spec, str):
+            continue
+        if is_catalog_ref(spec):
+            catalog_refs.append((label, name, spec))
             continue
         if exempt_protocol and is_protocol_spec(spec):
             continue
@@ -542,6 +577,72 @@ def find_workspace_root_lockfile(dirpath):
             break  # do not walk above the repo root
     return False
 
+# Walk up from the manifest's directory toward the repo root, stopping
+# at the FIRST ancestor pnpm-workspace.yaml whose `packages:` globs
+# cover the manifest's directory (pnpm uses the nearest root only, never
+# merges nested roots -- see the nested-workspace-roots check below,
+# which supplies the premise this walk depends on: nesting cannot
+# occur). Returns (covering_root_dir, resolved, defined_labels):
+#   - covering_root_dir: the ancestor dir of the covering root, or None
+#     if the walk found no covering root at all.
+#   - resolved: True iff that root's parsed catalogs define the
+#     requested label.
+#   - defined_labels: the covering root's catalog labels (for the
+#     violation message's "did you mean" hint); [] if no covering root.
+# UNLIKE find_workspace_root_lockfile(), this walk does NOT require a
+# lockfile at the covering root -- resolution is a separate question
+# from the lockfile-present check above, and requiring a lockfile here
+# would let a missing lockfile silently mask an unresolved reference.
+def resolve_catalog_ref(dirpath, label):
+    repo_root = os.getcwd()
+    abs_dir = os.path.abspath(dirpath)
+    abs_root = os.path.abspath(repo_root)
+    try:
+        os.path.relpath(abs_dir, abs_root)
+    except ValueError:
+        return (None, False, [])
+    cur = abs_dir
+    while True:
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break  # filesystem root, stop
+        cur = parent
+        pnpm_ws = os.path.join(cur, "pnpm-workspace.yaml")
+        if os.path.exists(pnpm_ws):
+            globs = parse_pnpm_workspace_globs(pnpm_ws)
+            rel = os.path.relpath(abs_dir, cur)
+            rel = "" if rel == "." else rel.replace(os.sep, "/")
+            if globs and workspace_covers(rel, globs):
+                catalogs = parse_pnpm_workspace_catalogs(pnpm_ws)
+                return (cur, label in catalogs, sorted(catalogs.keys()))
+        if cur == abs_root:
+            break  # do not walk above the repo root
+    return (None, False, [])
+
+for block_label, pkg_name, spec in catalog_refs:
+    ref_label = catalog_label_for_ref(spec)
+    covering_root, resolved, defined_labels = resolve_catalog_ref(dirpath, ref_label)
+    if covering_root is None:
+        violations.append(
+            f'{block_label}: {pkg_name} = "{spec}" (unresolved catalog '
+            f"reference -- no ancestor pnpm-workspace.yaml covers this "
+            f"manifest; consulted the path from {dirpath or '.'} up to "
+            f"the repo root)"
+        )
+    elif not resolved:
+        rel_root = os.path.relpath(covering_root, os.getcwd())
+        rel_root = "." if rel_root == "" else rel_root
+        available = ", ".join(defined_labels) if defined_labels else "(none)"
+        violations.append(
+            f'{block_label}: {pkg_name} = "{spec}" (unresolved catalog '
+            f"reference -- covering workspace root {rel_root}/"
+            f"pnpm-workspace.yaml does not define \"{ref_label}\"; "
+            f"labels it DOES define: {available})"
+        )
+    # else: resolved -- the definition's own exactness is checked once,
+    # at the covering root, by the catalog-definition-exactness pass
+    # below (when THIS manifest happens to be that root).
+
 declares_deps = any(
     data.get(b) for b in ("dependencies", "devDependencies", "optionalDependencies")
 )
@@ -555,12 +656,13 @@ if declares_deps:
         )
 
 # Catalog-definition exactness: a member manifest's `catalog:` /
-# `catalog:<name>` spec is exempt above (it's a REFERENCE, not a
-# version), but the referenced catalog ENTRY must still be exact. Check
-# this ONCE, at the source -- only when THIS manifest sits beside the
-# pnpm-workspace.yaml that defines the catalogs (i.e. this manifest IS
-# the workspace root) -- so a caret in the catalog is reported once
-# instead of once per consumer manifest.
+# `catalog:<name>` spec is exempt from direct exactness checking above
+# ONLY once it resolves (it's a REFERENCE, not a version) -- but the
+# referenced catalog ENTRY must still be exact. Check this ONCE, at the
+# source -- only when THIS manifest sits beside the pnpm-workspace.yaml
+# that defines the catalogs (i.e. this manifest IS the workspace root)
+# -- so a caret in the catalog is reported once instead of once per
+# consumer manifest.
 pnpm_ws_here = os.path.join(dirpath, "pnpm-workspace.yaml")
 if os.path.exists(pnpm_ws_here):
     catalogs = parse_pnpm_workspace_catalogs(pnpm_ws_here)
@@ -928,6 +1030,44 @@ classify_one() {
   esac
 }
 
+# check_nested_pnpm_roots: a STANDALONE repo-shape check, independent of
+# catalogs and of whether any manifest declares dependencies. Enumerates
+# every tracked pnpm-workspace.yaml and flags any pair where one is an
+# ancestor of another -- pnpm uses the nearest root only and never
+# merges nested roots, so nesting is unsupported/fragile, and it is also
+# the premise the catalog-reference resolution walk above depends on
+# (stopping at the first covering root is only sound when nesting cannot
+# occur). Runs whether or not any `catalog:` reference or any dependency
+# declaration appears anywhere in the repo. Prints one `VIOLATION:` line
+# per nested pair and returns non-zero when any is found.
+check_nested_pnpm_roots() {
+  local roots=()
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    roots+=("$line")
+  done < <(git ls-files '*pnpm-workspace.yaml' | grep -vE "$EXCLUDE_RE" || true)
+
+  local found=0
+  local i j a b
+  for ((i = 0; i < ${#roots[@]}; i++)); do
+    for ((j = 0; j < ${#roots[@]}; j++)); do
+      [ "$i" -eq "$j" ] && continue
+      a="$(dirname "${roots[$i]}")"
+      b="$(dirname "${roots[$j]}")"
+      [ "$a" = "$b" ] && continue
+      # b is an ancestor of a when a starts with "b/" (root at "." never
+      # matches this, since every other root's dirname is non-empty and
+      # can't equal "." -- a root literally at the repo root would make
+      # every other tracked root nested under it, which is correct).
+      if [[ "$a" == "$b"/* ]] || { [ "$b" = "." ] && [ "$a" != "." ]; }; then
+        echo "VIOLATION: nested pnpm workspace roots -- ${roots[$j]} is an ancestor of ${roots[$i]} (pnpm uses the nearest root only; nested roots are unsupported)"
+        found=1
+      fi
+    done
+  done
+  return $found
+}
+
 # Read discovered manifests into an array. Avoid `mapfile` (bash 4+) so
 # the script and its self-test also run under macOS bash 3.2.
 MANIFESTS=()
@@ -936,16 +1076,37 @@ while IFS= read -r line; do
   MANIFESTS+=("$line")
 done < <(discover)
 
+failures=()
+nested_out=""
+if [ "$MODE" = "npm" ]; then
+  echo "::group::npm pin check: nested pnpm workspace roots"
+  nested_out="$(check_nested_pnpm_roots)"
+  nested_rc=$?
+  if [ $nested_rc -eq 0 ]; then
+    echo "OK: no nested pnpm workspace roots"
+  else
+    echo "$nested_out"
+    echo "::error::Nested pnpm workspace roots detected"
+    failures+=("(repo-shape) nested pnpm workspace roots")
+  fi
+  echo "::endgroup::"
+fi
+
 if [ "${#MANIFESTS[@]}" -eq 0 ]; then
-  echo "No $MODE manifests discovered. Nothing to gate -- success."
-  exit 0
+  if [ "${#failures[@]}" -eq 0 ]; then
+    echo "No $MODE manifests discovered. Nothing to gate -- success."
+    exit 0
+  else
+    echo "FAILED: ${#failures[@]} repo-shape violation(s):"
+    printf '  %s\n' "${failures[@]}"
+    exit 1
+  fi
 fi
 
 echo "Discovered ${#MANIFESTS[@]} $MODE manifest(s):"
 printf '  %s\n' "${MANIFESTS[@]}"
 echo
 
-failures=()
 for manifest in "${MANIFESTS[@]}"; do
   echo "::group::$MODE pin check: $manifest"
   out="$(classify_one "$manifest")"

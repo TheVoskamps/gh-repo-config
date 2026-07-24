@@ -43,12 +43,16 @@
 # Categorical exemptions (legitimately not exact-pinnable) live in the
 # sibling script's classifier, NOT a maintained allowlist file:
 # npm peerDependencies carets, file:/workspace:/link:/git+ specs, pnpm
-# catalog:/catalog:<name> references (the referenced catalog entry in
-# pnpm-workspace.yaml is validated for exactness instead), engines /
-# requires-python floors, overrides/resolutions classified on the
-# override VALUE, and Docker `tag@sha256:` digests (the digest is read;
-# the floating tag is allowed alongside it). See the script header for
-# the full list.
+# catalog:/catalog:<name> references ONLY ONCE THEY RESOLVE (an
+# unresolved reference -- an undefined catalog label, or no covering
+# pnpm-workspace.yaml at all -- is a violation, not an exemption; a
+# resolved reference's catalog entry in pnpm-workspace.yaml is then
+# validated for exactness), engines / requires-python floors,
+# overrides/resolutions classified on the override VALUE, and Docker
+# `tag@sha256:` digests (the digest is read; the floating tag is
+# allowed alongside it). Nested pnpm-workspace.yaml roots are a
+# separate, standalone violation. See the script header for the full
+# list.
 #
 # Pin-check ONLY -- there is NO install / build step. The discovery +
 # run-all-then-fail + classifier logic lives in the sibling script
