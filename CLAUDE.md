@@ -208,22 +208,50 @@ npm run build && npm test
   `auto-rebase-lockfile-regen.sh` script + its
   `test-auto-rebase-lockfile-regen.sh` self-test. All `.sh` scripts
   ship verbatim + executable. "Verbatim" here means byte-identical to
-  the upstream payload at the time of extraction — not independently
-  re-verifiable from this repo, since the upstream plugin's payload
-  files (as opposed to its `SKILL.md`) are not present in a local
-  plugin cache to diff against. The shipped self-tests
-  (`test-codeql-language-present.sh`, `test-auto-rebase-lockfile-
-  regen.sh`) are the one piece of after-the-fact verification available
-  for their respective scripts; neither by itself confirms
-  byte-identity with upstream. `auto-enable-automerge.yml` is the one
-  exception to "verbatim": issue #38 patched it in this repo (both the
-  native-auto-merge and REST-merge jobs) to truncate an oversized PR
-  body — a release-note-heavy grouped Dependabot body can exceed
-  GitHub's 16383-char commit-message cap — to 16000 chars plus a
-  `[TRUNCATED — full description: <PR URL>]` marker before using it as
-  the merge-commit body. This file has therefore diverged from the
-  upstream plugin source; a future upstream re-sync must reapply this
-  patch (or upstream must adopt the same fix) rather than overwrite it
+  the upstream payload at the time of extraction. This IS independently
+  re-verifiable: a scratch clone of `TheVoskamps/claude-plugins-
+  marketplace` (`main`, `plugins/github-setup/payload/<skill>/<file>`)
+  carries the same payload files the `github-setup` plugin cache
+  installs, byte-for-byte diffable against this repo's `assets/` — see
+  issue #43, which did exactly that diff. As of that pass (against
+  upstream 0.11.3), six files diverge from upstream and the rest are
+  byte-identical:
+  - `dependency-pinned-gate.sh` and `test-dependency-pinned-gate.sh` are
+    a hand-reconciled UNION, not a straight copy either direction:
+    upstream added pnpm `catalog:`/`catalogs:` support (adopted here),
+    while this repo independently carries the `aab497f` order-
+    independent `workspace_covers()` glob fix (upstream's matcher is
+    the last-match-wins form `aab497f` fixed, i.e. upstream is *behind*
+    on that one function) — preserved here, not overwritten. The test
+    file carries both upstream's four catalog cases and this repo's own
+    `aab497f` regression guard (`negation before positive glob still
+    excludes`), which upstream's test file does not have at all.
+  - `dependency-pinned-gate.yml` differs from upstream by a comment-only
+    header line (mentions the catalog exemption) — kept in sync.
+  - `ecosystem-block.yml`, `no-back-merging-guard.yml`, and
+    `auto-enable-automerge.yml` are local-AHEAD: each carries a local
+    improvement upstream does not have (`ecosystem-block.yml`'s
+    `__NAMED_GROUPS_BLOCK__` from issue #36; `no-back-merging-guard.yml`'s
+    least-privilege hardening from commit `296163a`; `auto-enable-
+    automerge.yml`'s PR-body-truncation, unverified-rebased-head, and
+    cron-comment fixes below). These are deliberately NOT synced from
+    upstream — doing so would revert the local fix. Follow-up issues
+    against `github-setup` to adopt these local improvements upstream
+    are tracked separately (see issue #43).
+  The shipped self-tests (`test-codeql-language-present.sh`,
+  `test-auto-rebase-lockfile-regen.sh`, `test-dependency-pinned-
+  gate.sh`) are exercised as part of confirming a reconciliation is
+  correct, but for the two files that ARE byte-identical to upstream
+  today (`codeql-language-present.sh`, `auto-rebase-lockfile-regen.sh`)
+  a self-test passing is not by itself proof of byte-identity — only
+  the direct upstream diff is. `auto-enable-automerge.yml` carries three
+  local commits beyond the original verbatim extraction (`5dbce93`):
+  issue #38's truncate-oversized-PR-body-before-merge-commit fix
+  (`02f2480`), the stop-merging-an-unverified-rebased-head fix
+  (`f232660`), and a matching cron comment (`e5d7c1a`). Upstream has
+  made zero changes to this file since extraction, so all three commits
+  are purely local-ahead — a future upstream re-sync must reapply them
+  (or upstream must adopt the same fixes) rather than overwrite them
   blind. Separately, `CONTRIBUTORS`, `LICENSE`,
   `PATENTS`, and `PRIOR_ART.md` (issue #18) are **not** sourced from
   the `github-setup` plugin — they are this repo's own root files,
