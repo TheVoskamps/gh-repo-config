@@ -239,11 +239,15 @@ npm run build && npm test
   sweep summary also prints each repo's CodeQL default-setup and
   `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
 - `test/` — `node:test` files, run via `node --test test/**/*.test.js`.
-- `.github/workflows/release.yml` — publishes a tagged (`v*`) immutable
-  GitHub Release with a build-provenance attestation. Bumping the
-  release version means editing `package.json`'s `version` and pushing
-  a matching `vX.Y.Z` tag; the workflow verifies the two match before
-  building.
+- `.github/workflows/release.yml` — publishes a tagged (`v*`) GitHub
+  Release with a build-provenance attestation. Bumping the release
+  version means editing `package.json`'s `version` and pushing a
+  matching `vX.Y.Z` tag; the workflow verifies the two match before
+  building. Release immutability itself has no REST/`gh` API surface —
+  it is a one-time manual web-UI toggle (repo/org Settings > General >
+  Releases), not something this workflow or any converger slice can
+  enable programmatically; verify current state with
+  `gh release view <tag>`.
 - `.github/workflows/sweep.yml` — scheduled (daily) + `workflow_dispatch`
   sweep. Runs as a dedicated converger org GitHub App (org secrets
   `CONVERGER_APP_ID` / `CONVERGER_APP_PRIVATE_KEY`), distinct from the
