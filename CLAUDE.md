@@ -213,9 +213,12 @@ npm run build && npm test
   marketplace` (`main`, `plugins/github-setup/payload/<skill>/<file>`)
   carries the same payload files the `github-setup` plugin cache
   installs, byte-for-byte diffable against this repo's `assets/` — see
-  issue #43, which did exactly that diff. As of that pass (against
-  upstream 0.11.3), six files diverge from upstream and the rest are
-  byte-identical, with one exception outside the comparison entirely:
+  issue #43, which did exactly that diff, and PR #48, which re-ran the
+  same diff after adopting upstream's `dependency-pinned-gate.yml`
+  header wording (making that file byte-identical to upstream — it no
+  longer diverges). As of PR #48's pass (against upstream 0.11.3), the
+  files below diverge from upstream and the rest are byte-identical,
+  with one exception outside the comparison entirely:
   `protect-main-ruleset.json` has no upstream counterpart at all (it is
   not shaped as a plugin payload file upstream), so it is neither
   byte-identical nor divergent — it simply isn't part of this
@@ -230,8 +233,6 @@ npm run build && npm test
     file carries both upstream's four catalog cases and this repo's own
     `aab497f` regression guard (`negation before positive glob still
     excludes`), which upstream's test file does not have at all.
-  - `dependency-pinned-gate.yml` differs from upstream by a comment-only
-    header line (mentions the catalog exemption) — kept in sync.
   - `ecosystem-block.yml`, `no-back-merging-guard.yml`, and
     `auto-enable-automerge.yml` are local-AHEAD: each carries a local
     improvement upstream does not have (`ecosystem-block.yml`'s
