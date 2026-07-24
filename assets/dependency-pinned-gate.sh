@@ -37,21 +37,29 @@
 #   - npm/pnpm `catalog:` / `catalog:<name>` specs (a REFERENCE into
 #     pnpm-workspace.yaml's `catalog:` / `catalogs:` sections, never a
 #     version itself) -- ONLY WHEN THE REFERENCE RESOLVES. Resolution
-#     walks up from the manifest toward the repo root, stopping at the
-#     FIRST covering pnpm-workspace.yaml; if that root does not define
-#     the referenced label (or no covering root exists at all), the
-#     reference is a VIOLATION, not an exemption. A resolved reference's
-#     catalog ENTRY must still be exact -- validated once, at the
-#     source, against pnpm-workspace.yaml, not re-flagged at every
-#     consumer manifest.
+#     checks the manifest's OWN directory first (a workspace-root
+#     package.json is an implicit member of its own workspace,
+#     independent of `packages:` coverage), then walks up from the
+#     manifest toward the repo root, stopping at the FIRST ANCESTOR
+#     pnpm-workspace.yaml whose `packages:` globs cover it -- coverage
+#     is required only at this ancestor tier. If neither tier's root
+#     defines the referenced label (or no resolving root exists at
+#     all), the reference is a VIOLATION, not an exemption. A resolved
+#     reference's catalog ENTRY must still be exact -- validated once,
+#     at the source, against pnpm-workspace.yaml, not re-flagged at
+#     every consumer manifest. A `catalog:` spec inside `overrides` /
+#     `resolutions` is a reference too, and gets the identical
+#     resolve-then-check-exactness treatment, not flagged as a non-exact
+#     literal.
 #   - npm `owner/repo#<40-hex-sha>` git-shorthand commit pins (the SHA
 #     is immutable -- exact). A BARE `owner/repo` or a `#branch` / `#tag`
 #     ref floats to the default-branch HEAD and is NOT exempt; same for
 #     the `github:`-prefixed forms.
 #   - npm `engines` (node/npm toolchain floors, not deps)
 #   - npm `overrides` / `resolutions` -- classified on the override
-#     VALUE (exact), never the selector KEY (whose caret is a match
-#     pattern, not a declared version)
+#     VALUE (exact, or a resolved `catalog:` reference), never the
+#     selector KEY (whose caret is a match pattern, not a declared
+#     version)
 #   - pip `requires-python` / `python_requires` (a runtime floor)
 #   - Docker `tag@sha256:` digests (the tag floats but the digest is
 #     immutable, so the resolved image is exact -- the digest is read)
@@ -240,8 +248,10 @@ def is_pinned_git_shorthand(spec):
 # commit-pinned exemption separately. pnpm `catalog:` specs are NOT
 # handled here -- unlike the other protocol forms, a catalog reference's
 # exemption is conditional on RESOLUTION (see resolve_catalog_ref()
-# below), so it is classified separately in check_block(), not folded
-# into this unconditional-exemption predicate.
+# below), so it is classified separately (in check_block() for
+# dependencies/devDependencies/optionalDependencies, and in
+# check_override_value() / the resolutions loop for overrides /
+# resolutions), not folded into this unconditional-exemption predicate.
 def is_protocol_spec(spec):
     s = spec.strip()
     return (
@@ -313,27 +323,37 @@ check_block(data.get("optionalDependencies"), "optionalDependencies")
 # peerDependencies are ranges BY DESIGN -- exempt entirely.
 
 # overrides / resolutions: classify on the override VALUE, never the
-# selector key (a caret in the key is a match pattern, not a version).
-def check_override_value(node):
+# selector key (a caret in the key is a match pattern, not a version). A
+# `catalog:` / `catalog:<name>` VALUE here is a catalog REFERENCE too
+# (issue #49 finding 2) -- routed into catalog_refs for the same
+# resolve-then-check-exactness treatment as a dependencies-block
+# reference, not flagged directly as a non-exact literal.
+def check_override_value(node, path):
     # An overrides node maps a selector to either a version string or a
     # nested object. Classify only the leaf string VALUES.
     if isinstance(node, str):
-        if not is_protocol_spec(node) and not is_exact(node):
+        if is_catalog_ref(node):
+            catalog_refs.append((path, "(override)", node))
+        elif not is_protocol_spec(node) and not is_exact(node):
             violations.append(f"overrides value \"{node}\" (not an exact x.y.z)")
     elif isinstance(node, dict):
         for k, v in node.items():
             # "." carries the version for the keyed package in npm
             # overrides; nested keys are further selectors.
-            check_override_value(v)
+            check_override_value(v, path)
 
 if "overrides" in data:
-    check_override_value(data["overrides"])
+    check_override_value(data["overrides"], "overrides")
 if "resolutions" in data:
     # yarn resolutions: flat map selector -> version. Classify values.
     res = data["resolutions"]
     if isinstance(res, dict):
         for k, v in res.items():
-            if isinstance(v, str) and not is_protocol_spec(v) and not is_exact(v):
+            if not isinstance(v, str):
+                continue
+            if is_catalog_ref(v):
+                catalog_refs.append((f'resolutions "{k}"', "(resolution)", v))
+            elif not is_protocol_spec(v) and not is_exact(v):
                 violations.append(f"resolutions \"{k}\" -> \"{v}\" (not an exact x.y.z)")
 
 # engines (node/npm) are toolchain floors, not deps -- ignored.
@@ -577,14 +597,25 @@ def find_workspace_root_lockfile(dirpath):
             break  # do not walk above the repo root
     return False
 
-# Walk up from the manifest's directory toward the repo root, stopping
-# at the FIRST ancestor pnpm-workspace.yaml whose `packages:` globs
-# cover the manifest's directory (pnpm uses the nearest root only, never
-# merges nested roots -- see the nested-workspace-roots check below,
-# which supplies the premise this walk depends on: nesting cannot
-# occur). Returns (covering_root_dir, resolved, defined_labels):
-#   - covering_root_dir: the ancestor dir of the covering root, or None
-#     if the walk found no covering root at all.
+# Resolve a catalog: / catalog:<name> reference for the manifest at
+# dirpath. Two tiers (issue #49 decision 3):
+#   1. OWN DIRECTORY -- a pnpm-workspace.yaml sitting BESIDE the
+#      manifest resolves the reference unconditionally: the workspace
+#      root is always an implicit member of its own workspace,
+#      independent of `packages:` coverage (no glob ever covers "."
+#      itself). This is what makes a workspace-ROOT package.json
+#      referencing its own catalog: resolve instead of false-
+#      positiving as "no covering root".
+#   2. ANCESTORS -- failing that, walk up toward the repo root and stop
+#      at the FIRST ancestor pnpm-workspace.yaml whose `packages:` globs
+#      cover the manifest's directory (pnpm uses the nearest root only,
+#      never merges nested roots -- see the nested-workspace-roots check
+#      below, which supplies the premise this walk depends on: nesting
+#      cannot occur). Coverage is REQUIRED at this tier -- only the
+#      manifest's own directory gets the unconditional pass in tier 1.
+# Returns (covering_root_dir, resolved, defined_labels):
+#   - covering_root_dir: the dir of the resolving root (own directory or
+#     an ancestor), or None if neither tier found one.
 #   - resolved: True iff that root's parsed catalogs define the
 #     requested label.
 #   - defined_labels: the covering root's catalog labels (for the
@@ -601,6 +632,14 @@ def resolve_catalog_ref(dirpath, label):
         os.path.relpath(abs_dir, abs_root)
     except ValueError:
         return (None, False, [])
+
+    # Tier 1: own directory, implicit membership, no coverage required.
+    own_pnpm_ws = os.path.join(abs_dir, "pnpm-workspace.yaml")
+    if os.path.exists(own_pnpm_ws):
+        catalogs = parse_pnpm_workspace_catalogs(own_pnpm_ws)
+        return (abs_dir, label in catalogs, sorted(catalogs.keys()))
+
+    # Tier 2: ancestors, coverage required, stop at first covering root.
     cur = abs_dir
     while True:
         parent = os.path.dirname(cur)
