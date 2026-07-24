@@ -1,6 +1,6 @@
 ---
 name: project-fanout-slices
-description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31, #15 (GHAS + merge-button settings) via PR #32, #16 (CodeQL + protect-main ruleset) via PR #40, #25 (PR-automation workflows/scripts) via PR #42, #18 (seed-if-absent community files) via PR #44, #36 (standard Dependabot groups) via PR #46.
+description: Org-wide repo-configuration fan-out (issue #11) is being built as vertical slices in gh-repo-config; #12 via PR #20, #13 via PR #21, #24 via PR #27, #14 (real convergence) via PR #31, #15 (GHAS + merge-button settings) via PR #32, #16 (CodeQL + protect-main ruleset) via PR #40, #25 (PR-automation workflows/scripts) via PR #42, #18 (seed-if-absent community files) via PR #44, #36 (standard Dependabot groups) via PR #46, #50 (CLAUDE.md doc-hygiene rewrite) via PR #53.
 metadata:
   type: project
 ---
@@ -263,3 +263,24 @@ existing `*-minor-and-patch` catch-all in the rendered `groups:` map.
 
 See also [[fanout-design-doc-pointers]] (not yet written) if design
 doc locations change.
+
+## CLAUDE.md doc-hygiene convention (issue #50, PR #53)
+
+CLAUDE.md was rewritten to describe **only current behavior**, not
+history/provenance — the mixed history/current-state prose was
+actively misdirecting readers (e.g. an issue-developer chasing the
+`github-setup` plugin repo to "fix" a payload that this repo's
+`assets/` already owns outright, or hand-syncing `.github/` live
+copies the sweep already converges on its own).
+
+**Why:** issue #50's finding — provenance bookkeeping (upstream
+byte-identity comparisons, commit SHAs, issue/PR-number citations,
+origin stories for config values) rots independently of the code and
+sends readers down the wrong path.
+
+**How to apply:** when adding to CLAUDE.md for a future fan-out
+slice, keep the history out — no issue/PR numbers, no commit SHAs, no
+"sourced from upstream" framing. Describe what the new module/asset
+does and which invariants constrain it, in the same present-tense
+style. This agent-memory file (not CLAUDE.md) is the right place for
+per-slice history like the entries above.
