@@ -27,6 +27,4 @@ prescribes for `approve` — a single `gh pr review <PR> --comment`
 whose body is prefixed with an explicit verdict line
 (`CHANGES REQUESTED`), so the review still carries the verdict. Still
 exactly one call, one notification. Don't retry `--request-changes`
-and don't split into two calls. See
-[[project-verify-assets-against-upstream]] for the other
-reviewer-context gotcha in this repo.
+and don't split into two calls.
