@@ -215,7 +215,11 @@ npm run build && npm test
   installs, byte-for-byte diffable against this repo's `assets/` — see
   issue #43, which did exactly that diff. As of that pass (against
   upstream 0.11.3), six files diverge from upstream and the rest are
-  byte-identical:
+  byte-identical, with one exception outside the comparison entirely:
+  `protect-main-ruleset.json` has no upstream counterpart at all (it is
+  not shaped as a plugin payload file upstream), so it is neither
+  byte-identical nor divergent — it simply isn't part of this
+  byte-identity check.
   - `dependency-pinned-gate.sh` and `test-dependency-pinned-gate.sh` are
     a hand-reconciled UNION, not a straight copy either direction:
     upstream added pnpm `catalog:`/`catalogs:` support (adopted here),
