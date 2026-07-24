@@ -5,12 +5,12 @@ metadata:
   type: project
 ---
 
-Issue #16 / PR #40 follow-up (2026-07-19): the human (Edwin) made an
-explicit design decision when a PR reviewer flagged that
-`rulesetSemanticDiff` compared rule *types* and required-check
-*contexts* but never rule *parameters* — so a parameter-only drift
-(e.g. `required_approving_review_count` changed, `allowed_merge_methods`
-widened) reported `unchanged` and never got corrected.
+The human (Edwin) made an explicit design decision after a PR reviewer
+flagged that `rulesetSemanticDiff` compared rule *types* and
+required-check *contexts* but never rule *parameters* — so a
+parameter-only drift (e.g. `required_approving_review_count` changed,
+`allowed_merge_methods` widened) reported `unchanged` and never got
+corrected.
 
 **Decision: canonical-authoritative semantics.** The converger's
 purpose is to guarantee the *identical* canonical ruleset (from
@@ -18,14 +18,14 @@ purpose is to guarantee the *identical* canonical ruleset (from
 per-repo state is not operator intent to preserve — it is exactly the
 variance the converger exists to eliminate. Baseline sameness first;
 per-repo variance mechanisms are a deliberately deferred, separate
-concern. No preservation heuristics beyond what issue #16 §3
-explicitly specifies.
+concern. No preservation heuristics beyond the ruleset spec's own
+explicit rules.
 
 **The one deliberate preservation surface remains bypass actors**
-(set-containment compare, union on write, per issue §3.4) — everything
-else, including `pull_request`/`required_status_checks`'s non-list
-params/`code_scanning`'s tool list/`code_quality`'s severity and
-`ref_name.exclude`, is now compared directly against canonical and any
+(set-containment compare, union on write) — everything else, including
+`pull_request`/`required_status_checks`'s non-list params/
+`code_scanning`'s tool list/`code_quality`'s severity and
+`ref_name.exclude`, is compared directly against canonical and any
 difference is drift.
 
 **How to apply:** if a future PR review on this repo suggests

@@ -1,24 +1,23 @@
 ---
 name: dependabot-render-spec
-description: The dependabot.yml __DEPENDABOT_ECOSYSTEMS__ expansion rules the converger's render pipeline must reproduce (source: github-setup SKILL.md Step 3)
+description: The dependabot.yml __DEPENDABOT_ECOSYSTEMS__ expansion rules the converger's render pipeline must reproduce (resolution spec lives in the github-setup plugin's gh-repo-setup-protection SKILL.md Step 3).
 metadata:
   type: project
 ---
 
-The converger's `dependabot.yml` render (issue #14, `src/converge/`) is
-NOT a plain `__…__` substitution. Its `__DEPENDABOT_ECOSYSTEMS__` token
+The converger's `dependabot.yml` render (`src/converge/`) is NOT a
+plain `__…__` substitution. Its `__DEPENDABOT_ECOSYSTEMS__` token
 expands to one rendered `ecosystem-block.yml` copy per armed ecosystem.
 The authoritative resolution spec lives in the **github-setup plugin**
-at `skills/gh-repo-setup-protection/SKILL.md` "Step 3" (the plugin repo
-`TheVoskamps/claude-plugins-marketplace`).
+at `skills/gh-repo-setup-protection/SKILL.md` "Step 3".
 
 **Why:** the source-of-truth for the per-ecosystem-class variant
 resolution is that external plugin doc, not this repo. If the render
-ever looks wrong, re-read that Step 3 (lines ~403-558) rather than
-guessing — a wrong variant (e.g. `versioning-strategy` on docker) makes
-Dependabot reject the whole config.
+ever looks wrong, re-read that Step 3 rather than guessing — a wrong
+variant (e.g. `versioning-strategy` on docker) makes Dependabot reject
+the whole config.
 
-**How to apply** — the frozen spec as of 2026-07-16:
+**How to apply** — the spec:
 
 - Armed set (sorted): `bundler, cargo, composer, docker, github-actions,
   gomod, gradle, maven, npm, pip, terraform`. Blocks rendered sorted by
