@@ -31,7 +31,7 @@ session scratchpad under `/private/tmp/...` is **outside** the repo
 root and the sandbox refuses to read it. Delete the clone before
 finishing so `git status` stays clean.
 
-Two gotchas worth knowing:
+Gotchas worth knowing:
 
 - Several `assets/` entries have **no upstream counterpart at all**
   (`protect-main-ruleset.json`, and the `CONTRIBUTORS`/`LICENSE`/
@@ -41,3 +41,18 @@ Two gotchas worth knowing:
 - Divergence is often **local-ahead on purpose** (upstream is behind).
   A file differing from upstream is not automatically drift — see
   [[project-fanout-review]] for the slice context.
+- `assets/` is the **union of two** upstream payload dirs
+  (`gh-repo-setup-protection` + `gh-repo-setup-pr-automation`), so
+  neither `diff -rq` alone gives the divergence set. Each run reports
+  the *other* skill's files as `Only in assets:` — noise, not a
+  finding. The true divergent set is the union of the `Files ...
+  differ` lines across both runs; everything reported `Only in assets:`
+  by **both** runs is genuinely upstream-less.
+
+**Verifying a hand-reconciled "union" file** (a file that must carry an
+upstream capability AND a local fix at once): a plain `diff` of the
+whole file against upstream is the strongest check — the remaining
+hunks should be *exactly* the intended local-preservation surface and
+nothing else. If a hunk shows up that isn't the documented local fix,
+that's real drift. This is much stronger than grepping for the presence
+of each side's markers, which cannot detect an accidental third change.
