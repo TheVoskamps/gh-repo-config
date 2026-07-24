@@ -1,2 +1,3 @@
 - [Fan-out slice PRs](project_fanout_review.md) — org-wide config fan-out (#11) ships in slices; provisioning (org App, custom properties) is operator-owned and out of PR scope; #16 (ruleset+CodeQL) via PR #40.
 - [Verify assets/ against upstream](project_verify_assets_against_upstream.md) — assets/ provenance IS checkable: clone claude-plugins-marketplace into .claude/tmp and diff; don't trust a PR body's "verified upstream".
+- [Self-review blocks request-changes](feedback_self_review_blocks_request_changes.md) — gh blocks --request-changes on your own PR too, not just --approve; downgrade to --comment with a CHANGES REQUESTED verdict line.
