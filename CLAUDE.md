@@ -205,10 +205,22 @@ npm run build && npm test
   ship verbatim and executable.
   - `dependency-pinned-gate.sh` matches workspace-covering dependency
     globs order-independently (a negation before a positive glob still
-    excludes the match) and supports pnpm `catalog:`/`catalogs:`
-    references. `test-dependency-pinned-gate.sh` covers both the
-    catalog cases and the order-independent glob-matching case
-    (`negation before positive glob still excludes`).
+    excludes the match). A pnpm `catalog:`/`catalog:<name>` reference is
+    exempt from direct exactness checking only when it RESOLVES: the
+    gate walks up from the manifest toward the repo root, stops at the
+    first covering `pnpm-workspace.yaml`, and checks that root defines
+    the referenced label; an undefined label or no covering root at all
+    is a violation, reported per manifest, not an exemption. A resolved
+    reference's catalog entry is still checked for exactness once, at
+    the workspace root that defines it. In npm mode the gate separately
+    runs a standalone nested-pnpm-workspace-roots check — any tracked
+    `pnpm-workspace.yaml` that is an ancestor of another tracked
+    `pnpm-workspace.yaml` is a violation — independent of catalogs and
+    of whether any manifest declares dependencies.
+    `test-dependency-pinned-gate.sh` covers the catalog resolution
+    cases, the nested-roots cases, and the order-independent
+    glob-matching case (`negation before positive glob still
+    excludes`).
   - `ecosystem-block.yml` carries `__NAMED_GROUPS_BLOCK__` (the named
     Dependabot groups — see `render.ts`'s `NAMED_DEPENDABOT_GROUPS`
     description above). `no-back-merging-guard.yml` runs with
