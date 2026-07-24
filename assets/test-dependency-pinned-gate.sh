@@ -367,6 +367,125 @@ JSON
 commit_all "$R"
 run_case "npm: negation before positive glob still excludes (red)" 1 "$R" npm
 
+# Green: pnpm `catalog:` reference in a member manifest is exempt, and
+# an exact catalog definition in pnpm-workspace.yaml stays green.
+R="$TMP/npm-catalog-clean"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalog:
+  '@bufbuild/protobuf': 2.2.3
+  aws-cdk-lib: 2.172.0
+catalogs:
+  react18:
+    react: 18.3.1
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "@bufbuild/protobuf": "catalog:", "react": "catalog:react18" },
+  "devDependencies": { "aws-cdk-lib": "catalog:" }
+}
+JSON
+commit_all "$R"
+run_case "npm: catalog: refs exempt + exact catalog defs (green)" 0 "$R" npm
+
+# Red: a non-exact entry in pnpm-workspace.yaml's default `catalog:`
+# section must be flagged ONCE, at the source (the workspace-root
+# manifest), not at every consumer.
+R="$TMP/npm-catalog-caret"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalog:
+  aws-cdk-lib: ^2.172.0
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "aws-cdk-lib": "catalog:" }
+}
+JSON
+commit_all "$R"
+run_case "npm: non-exact default catalog entry (red)" 1 "$R" npm
+
+# Red: a non-exact entry in a NAMED catalog (`catalogs:`) is flagged.
+R="$TMP/npm-catalogs-named-caret"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalogs:
+  react18:
+    react: ^18.3.1
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "react": "catalog:react18" }
+}
+JSON
+commit_all "$R"
+run_case "npm: non-exact named catalog entry (red)" 1 "$R" npm
+
+# Green: an exact catalog entry followed by a trailing YAML inline
+# comment (default `catalog:` and a named `catalogs:` entry) must not
+# be misread as part of the version -- the comment is stripped before
+# classification.
+R="$TMP/npm-catalog-trailing-comment"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalog:
+  aws-cdk-lib: 2.172.0    # exact with trailing comment
+catalogs:
+  react18:
+    react: 18.3.1  # pinned
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "aws-cdk-lib": "catalog:", "react": "catalog:react18" }
+}
+JSON
+commit_all "$R"
+run_case "npm: catalog entry with trailing inline comment (green)" 0 "$R" npm
+
 # =====================================================================
 # pip
 # =====================================================================

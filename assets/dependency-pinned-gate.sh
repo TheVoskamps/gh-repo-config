@@ -34,6 +34,11 @@
 #   - npm `peerDependencies` carets (peer deps are ranges by design)
 #   - npm `file:` / `workspace:` / `link:` / `git+` / `http(s):` specs
 #     (local-path / protocol deps have no registry version to pin)
+#   - npm/pnpm `catalog:` / `catalog:<name>` specs (a REFERENCE into
+#     pnpm-workspace.yaml's `catalog:` / `catalogs:` sections, never a
+#     version itself). The referenced catalog ENTRY must still be
+#     exact -- validated once, at the source, against
+#     pnpm-workspace.yaml, not re-flagged at every consumer manifest.
 #   - npm `owner/repo#<40-hex-sha>` git-shorthand commit pins (the SHA
 #     is immutable -- exact). A BARE `owner/repo` or a `#branch` / `#tag`
 #     ref floats to the default-branch HEAD and is NOT exempt; same for
@@ -232,6 +237,13 @@ def is_protocol_spec(spec):
         or s.startswith("git:")
         or s.startswith("http:")
         or s.startswith("https:")
+        # pnpm `catalog:` / named `catalog:<name>` -- the member
+        # manifest's spec is a REFERENCE into pnpm-workspace.yaml's
+        # catalog(s), not a version itself; it is never exact-pinnable
+        # by design. The determinism question moves to the catalog
+        # DEFINITION, validated separately by check_pnpm_catalogs().
+        or s == "catalog:"
+        or s.startswith("catalog:")
         # A commit-pinned `owner/repo#<40-hex>` (or `github:`-prefixed)
         # is immutable -- exempt. A bare or branch/tag-ref shorthand
         # floats and is intentionally NOT exempt here.
@@ -341,6 +353,102 @@ def parse_pnpm_workspace_globs(path):
             in_packages = False
     return globs
 
+# Minimal parser for the `catalog:` / `catalogs:` sections of
+# pnpm-workspace.yaml. Returns a dict of {catalog-label: {pkg: spec}},
+# where the default (unnamed) catalog's label is "catalog" and each
+# named catalog's label is "catalogs.<name>" (used only for violation
+# messages). Does not assume PyYAML -- same minimal-indent-tracking
+# approach as parse_pnpm_workspace_globs. Handles:
+#   catalog:
+#     pkg-a: 1.2.3
+#     pkg-b: 4.5.6
+#   catalogs:
+#     react18:
+#       react: 18.3.1
+#     react19:
+#       react: 19.0.0
+def parse_pnpm_workspace_catalogs(path):
+    catalogs = {}
+    try:
+        with open(path) as f:
+            text = f.read()
+    except OSError:
+        return catalogs
+    lines = text.splitlines()
+
+    def indent_of(line):
+        return len(line) - len(line.lstrip(" "))
+
+    def strip_quotes(s):
+        s = s.strip()
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+            return s[1:-1]
+        return s
+
+    i = 0
+    n = len(lines)
+    while i < n:
+        raw = lines[i]
+        stripped = raw.strip()
+        if stripped == "" or stripped.startswith("#"):
+            i += 1
+            continue
+        top_indent = indent_of(raw)
+        if top_indent == 0 and re.match(r'^catalog:\s*$', stripped):
+            # Default catalog: a flat map of pkg: spec at the next
+            # indent level.
+            entries = {}
+            i += 1
+            while i < n:
+                line = lines[i]
+                if line.strip() == "" or line.strip().startswith("#"):
+                    i += 1
+                    continue
+                if indent_of(line) <= top_indent:
+                    break
+                entry_stripped = re.split(r'\s+#', line.strip(), maxsplit=1)[0].strip()
+                m = re.match(r'^([^:]+):\s*(.+?)\s*$', entry_stripped)
+                if m:
+                    entries[strip_quotes(m.group(1))] = strip_quotes(m.group(2))
+                i += 1
+            catalogs["catalog"] = entries
+            continue
+        if top_indent == 0 and re.match(r'^catalogs:\s*$', stripped):
+            catalogs_indent = top_indent
+            i += 1
+            while i < n:
+                line = lines[i]
+                if line.strip() == "" or line.strip().startswith("#"):
+                    i += 1
+                    continue
+                cur_indent = indent_of(line)
+                if cur_indent <= catalogs_indent:
+                    break
+                name_m = re.match(r'^([^:]+):\s*$', line.strip())
+                if not name_m:
+                    i += 1
+                    continue
+                name = strip_quotes(name_m.group(1))
+                name_indent = cur_indent
+                entries = {}
+                i += 1
+                while i < n:
+                    entry_line = lines[i]
+                    if entry_line.strip() == "" or entry_line.strip().startswith("#"):
+                        i += 1
+                        continue
+                    if indent_of(entry_line) <= name_indent:
+                        break
+                    entry_stripped = re.split(r'\s+#', entry_line.strip(), maxsplit=1)[0].strip()
+                    m = re.match(r'^([^:]+):\s*(.+?)\s*$', entry_stripped)
+                    if m:
+                        entries[strip_quotes(m.group(1))] = strip_quotes(m.group(2))
+                    i += 1
+                catalogs[f"catalogs.{name}"] = entries
+            continue
+        i += 1
+    return catalogs
+
 # `workspaces` field in package.json -- either a flat array or an
 # object with a `packages` key (the Yarn "nohoist"-style shape).
 def parse_npm_workspace_globs(root_manifest_path):
@@ -445,6 +553,23 @@ if declares_deps:
             "(package-lock.json / pnpm-lock.yaml / yarn.lock) -- "
             "exact specs still float transitively without a lockfile"
         )
+
+# Catalog-definition exactness: a member manifest's `catalog:` /
+# `catalog:<name>` spec is exempt above (it's a REFERENCE, not a
+# version), but the referenced catalog ENTRY must still be exact. Check
+# this ONCE, at the source -- only when THIS manifest sits beside the
+# pnpm-workspace.yaml that defines the catalogs (i.e. this manifest IS
+# the workspace root) -- so a caret in the catalog is reported once
+# instead of once per consumer manifest.
+pnpm_ws_here = os.path.join(dirpath, "pnpm-workspace.yaml")
+if os.path.exists(pnpm_ws_here):
+    catalogs = parse_pnpm_workspace_catalogs(pnpm_ws_here)
+    for label, entries in catalogs.items():
+        for pkg, spec in entries.items():
+            if not is_exact(spec):
+                violations.append(
+                    f"pnpm-workspace.yaml {label}: {pkg} = \"{spec}\" (not an exact x.y.z)"
+                )
 
 for v in violations:
     print(f"VIOLATION: {v}")
