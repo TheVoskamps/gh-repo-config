@@ -232,7 +232,24 @@ npm run build && npm test
     on that one function) — preserved here, not overwritten. The test
     file carries both upstream's four catalog cases and this repo's own
     `aab497f` regression guard (`negation before positive glob still
-    excludes`), which upstream's test file does not have at all.
+    excludes`), which upstream's test file does not have at all. Issue
+    #49 (PR #52) further diverges this pair from upstream: a bare
+    `catalog:` / `catalog:<name>` spec is exempt from direct-exactness
+    checking only once it RESOLVES — resolution walks up from the
+    manifest's directory toward the repo root, stopping at the first
+    ancestor `pnpm-workspace.yaml` whose `packages:` globs cover the
+    manifest (no lockfile required at that root; that's a separate
+    check). An unresolved reference — the covering root's catalogs
+    don't define the requested label, or no covering root exists at
+    all — is a violation, not a silent exemption; only a resolved
+    reference defers to the catalog-definition-exactness pass at the
+    covering root. `npm` mode also runs a standalone repo-shape check,
+    `check_nested_pnpm_roots()`, independent of catalogs and of
+    whether any manifest declares dependencies: any tracked
+    `pnpm-workspace.yaml` that is an ancestor of another tracked
+    `pnpm-workspace.yaml` is a violation, since pnpm uses the nearest
+    root only and nesting makes the resolution walk's first-covering-
+    root premise unsound.
   - `ecosystem-block.yml`, `no-back-merging-guard.yml`, and
     `auto-enable-automerge.yml` are local-AHEAD: each carries a local
     improvement upstream does not have (`ecosystem-block.yml`'s
