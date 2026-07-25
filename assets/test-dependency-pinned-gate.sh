@@ -19,6 +19,17 @@
 #     `owner/repo#<branch>` ref (neither is an immutable commit pin).
 #   - The lockfile-present check goes RED: a deps-declaring package.json
 #     with no lockfile beside it.
+#   - An unresolved pnpm `catalog:` reference goes RED: an undefined
+#     default `catalog:`, an undefined named `catalog:<name>`, and a
+#     reference with no covering pnpm-workspace.yaml at all.
+#   - A workspace-ROOT package.json referencing its own catalog: (a
+#     sibling pnpm-workspace.yaml, not an ancestor) resolves and stays
+#     GREEN when exact, RED when the definition is non-exact.
+#   - A `catalog:` reference inside `overrides` / `resolutions` is
+#     treated as a reference (resolve-then-check-exactness), not a
+#     non-exact literal -- GREEN when resolved, RED when unresolved.
+#   - Nested tracked pnpm-workspace.yaml roots go RED, independently of
+#     catalogs and of declared dependencies.
 #
 # The gate discovers manifests via `git ls-files`, so each fixture lives
 # in its own throwaway git repo with the relevant files committed.
@@ -485,6 +496,366 @@ writef "$R/packages/foo/package.json" <<'JSON'
 JSON
 commit_all "$R"
 run_case "npm: catalog entry with trailing inline comment (green)" 0 "$R" npm
+
+# Red (issue #49): a `catalog:` reference to the DEFAULT catalog that
+# the covering pnpm-workspace.yaml never defines at all must be a
+# violation, not a silent exemption -- the old code exempted every
+# `catalog:` spec unconditionally, whether or not it resolved.
+R="$TMP/npm-catalog-undefined-default"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "react": "catalog:nonexistent" }
+}
+JSON
+commit_all "$R"
+run_case "npm: catalog: ref to undefined default catalog (red)" 1 "$R" npm
+
+# Red (issue #49): a `catalog:<name>` reference to a named catalog the
+# covering pnpm-workspace.yaml's `catalogs:` section never defines.
+R="$TMP/npm-catalog-undefined-named"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalogs:
+  react18:
+    react: 18.3.1
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "react": "catalog:react19" }
+}
+JSON
+commit_all "$R"
+run_case "npm: catalog:<name> ref to undefined named catalog (red)" 1 "$R" npm
+
+# Red (issue #49): a `catalog:` reference with NO ancestor
+# pnpm-workspace.yaml at all -- absent workspace root is a violation,
+# not an implicit exemption (removing the file must never be an easier
+# gate bypass than a typo).
+R="$TMP/npm-catalog-no-root"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "react": "catalog:" }
+}
+JSON
+writef "$R/package-lock.json" <<'JSON'
+{ "name": "foo", "lockfileVersion": 3 }
+JSON
+commit_all "$R"
+run_case "npm: catalog: ref with no covering workspace root (red)" 1 "$R" npm
+
+# Green (issue #49 finding 1): a WORKSPACE-ROOT package.json referencing
+# its own catalog: (defined in the SIBLING pnpm-workspace.yaml beside
+# it) must resolve -- the root is an implicit member of its own
+# workspace, independent of `packages:` coverage (no glob ever covers
+# "." itself). The original resolution walk started at the manifest's
+# PARENT and required packages: coverage, so it never inspected the
+# manifest's own directory and false-positived "no covering root" here.
+R="$TMP/npm-catalog-root-self-resolve-green"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true,
+  "dependencies": { "react": "catalog:" }
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalog:
+  react: 18.3.1
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "left-pad": "1.3.0" }
+}
+JSON
+commit_all "$R"
+run_case "npm: workspace-root manifest resolves against sibling pnpm-workspace.yaml (green)" 0 "$R" npm
+
+# Red (issue #49 finding 1, non-exact companion): the same
+# self-resolving root shape, but the catalog DEFINITION itself is
+# non-exact -- resolution succeeding must not mask a non-exact entry.
+R="$TMP/npm-catalog-root-self-resolve-red"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true,
+  "dependencies": { "react": "catalog:" }
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalog:
+  react: ^18.3.1
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "left-pad": "1.3.0" }
+}
+JSON
+commit_all "$R"
+run_case "npm: workspace-root manifest, resolved but non-exact catalog def (red)" 1 "$R" npm
+
+# Green (issue #49 finding 2): a `catalog:` reference inside `overrides`
+# / `resolutions` is a REFERENCE, not a version literal -- it must
+# resolve-and-check-exactness on the identical rule as a
+# dependencies-block reference, not get flagged as a non-exact literal.
+R="$TMP/npm-catalog-overrides-resolutions-green"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalog:
+  aws-cdk-lib: 2.172.0
+catalogs:
+  react18:
+    react: 18.3.1
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "left-pad": "1.3.0" },
+  "overrides": { "aws-cdk-lib": "catalog:" },
+  "resolutions": { "react": "catalog:react18" }
+}
+JSON
+commit_all "$R"
+run_case "npm: catalog: ref inside overrides/resolutions resolves (green)" 0 "$R" npm
+
+# Red (issue #49 finding 2): the same overrides/resolutions shape, but
+# the reference is UNRESOLVED -- must still be flagged as an unresolved
+# catalog reference, not silently exempted the way the old code
+# exempted every catalog: spec unconditionally.
+R="$TMP/npm-catalog-overrides-resolutions-red"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "left-pad": "1.3.0" },
+  "overrides": { "aws-cdk-lib": "catalog:nonexistent" }
+}
+JSON
+commit_all "$R"
+run_case "npm: unresolved catalog: ref inside overrides (red)" 1 "$R" npm
+
+# Red (issue #49 finding 2): a named catalog: reference inside
+# resolutions that does not resolve.
+R="$TMP/npm-catalog-resolutions-red"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "left-pad": "1.3.0" },
+  "resolutions": { "react": "catalog:react19" }
+}
+JSON
+commit_all "$R"
+run_case "npm: unresolved catalog: ref inside resolutions (red)" 1 "$R" npm
+
+# Red (issue #49): nested pnpm-workspace.yaml roots are a standalone
+# repo-shape violation, independent of catalogs -- this fixture has no
+# `catalog:` reference anywhere.
+R="$TMP/npm-nested-roots-no-catalogs"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/nested/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'apps/*'
+YAML
+writef "$R/packages/nested/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/nested/package.json" <<'JSON'
+{
+  "name": "nested-root",
+  "private": true
+}
+JSON
+commit_all "$R"
+run_case "npm: nested pnpm workspace roots, no catalogs (red)" 1 "$R" npm
+
+# Red (issue #49): nested pnpm-workspace.yaml roots alongside a
+# reference that DOES resolve against the inner (nearer) root -- the
+# nested-roots violation fires regardless of the catalog reference
+# resolving cleanly.
+R="$TMP/npm-nested-roots-with-resolving-ref"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/nested/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'apps/*'
+catalog:
+  react: 18.3.1
+YAML
+writef "$R/packages/nested/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/nested/package.json" <<'JSON'
+{
+  "name": "nested-root",
+  "private": true
+}
+JSON
+writef "$R/packages/nested/apps/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "react": "catalog:" }
+}
+JSON
+commit_all "$R"
+run_case "npm: nested roots alongside a resolving catalog ref (red)" 1 "$R" npm
+
+# Green (issue #49): a single pnpm-workspace.yaml root (no nesting)
+# stays green -- confirms the nested-roots check does not false-positive
+# on the ordinary single-root shape.
+R="$TMP/npm-single-root-not-nested"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalog:
+  react: 18.3.1
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "react": "catalog:" }
+}
+JSON
+commit_all "$R"
+run_case "npm: single pnpm workspace root, not nested (green)" 0 "$R" npm
+
+# Red (issue #49): a member manifest whose workspace root is absent
+# from the tracked tree entirely (no pnpm-workspace.yaml anywhere) but
+# still declares deps normally -- manifests declaring NO dependencies
+# still exercise the standalone nested-roots check even without any
+# catalog reference in the repo.
+R="$TMP/npm-nested-roots-no-deps"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/nested/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'apps/*'
+YAML
+writef "$R/packages/nested/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/nested/package.json" <<'JSON'
+{
+  "name": "nested-root",
+  "private": true
+}
+JSON
+commit_all "$R"
+run_case "npm: nested pnpm workspace roots, no manifest declares deps (red)" 1 "$R" npm
 
 # =====================================================================
 # pip
