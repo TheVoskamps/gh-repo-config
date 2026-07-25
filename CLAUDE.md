@@ -104,7 +104,14 @@ npm run build && npm test
       `renderTemplate`; a rendered non-workflow config (the CodeQL
       config) lands at a fixed bespoke path
       (`.github/codeql/codeql-config.yml`, the path the CodeQL
-      workflow's `config-file:` line references); verbatim scripts ship
+      workflow's `config-file:` line references); the `VERBATIM_AT_PATH`
+      list ships an unrendered `.yml` at a fixed bespoke path (the
+      `codeartifact-auth` composite action at
+      `.github/actions/codeartifact-auth/action.yml`, the directory its
+      `uses: ./.github/actions/codeartifact-auth` callers reference —
+      stored flat in `assets/` as `codeartifact-auth-action.yml`, and
+      deliberately not routed through the render path because it carries
+      nothing per-repo); verbatim scripts ship
       byte-for-byte and executable under `.github/scripts/`. The
       `COMMUNITY_FILES` list ships verbatim, non-executable
       community/governance files (`CONTRIBUTORS`, `LICENSE`, `PATENTS`,
@@ -199,10 +206,12 @@ npm run build && npm test
   `codeql-language-present.sh` runtime language-detection script + its
   `test-codeql-language-present.sh` self-test), the
   `protect-main-ruleset.json` ruleset body template, the `auto-enable-
-  automerge.yml` + `auto-rebase-prs.yml` workflows, and the
+  automerge.yml` + `auto-rebase-prs.yml` workflows, the
   `auto-rebase-lockfile-regen.sh` script + its
-  `test-auto-rebase-lockfile-regen.sh` self-test. All `.sh` scripts
-  ship verbatim and executable.
+  `test-auto-rebase-lockfile-regen.sh` self-test, and the
+  CodeArtifact-auth payload set (`codeartifact-auth-action.yml` composite
+  action, `codeartifact-auth.sh` + its `test-codeartifact-auth.sh`
+  self-test). All `.sh` scripts ship verbatim and executable.
   - `dependency-pinned-gate.sh` matches workspace-covering dependency
     globs order-independently (a negation before a positive glob still
     excludes the match). A pnpm `catalog:`/`catalog:<name>` reference is
@@ -227,7 +236,22 @@ npm run build && npm test
     least-privilege permissions. `auto-enable-automerge.yml` truncates
     an oversized PR body before merging, refuses to merge an
     unverified rebased head, and documents its cron schedule inline.
-  This repo's own `.github/scripts/` and `.github/workflows/` — the
+  - `codeartifact-auth.sh` is the whole of the `codeartifact-auth`
+    composite action's logic; `codeartifact-auth-action.yml` is thin
+    glue (parse → OIDC role assumption → configure) and reaches the
+    script via `$GITHUB_ACTION_PATH/../../scripts/`. It arms off a
+    single `CODEARTIFACT_ROLE` Actions variable (org-level default,
+    repo-level override via GitHub's own variable precedence, no merge
+    logic); empty means no-op, and more than one endpoint is an error
+    because npm/pnpm/yarn each resolve a package to exactly one
+    registry. It refuses to write a token into a `.npmrc` that git
+    tracks or does not ignore. `dependency-install-gate.yml` calls it
+    between checkout and install and is the only workflow carrying an
+    `id-token: write` grant — on its `gate` job only, latent (and
+    documented inline as such) on repos without CodeArtifact. Operator
+    prerequisites live in `docs/codeartifact-auth.md`.
+  This repo's own `.github/actions/`, `.github/scripts/`, and
+  `.github/workflows/` — the
   live copies the sweep renders onto this repo itself — are **not**
   hand-maintained: they converge on their own when the fanout sweep
   runs over this repo, the same way it converges every other managed

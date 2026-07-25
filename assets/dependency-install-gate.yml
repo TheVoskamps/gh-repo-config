@@ -46,11 +46,21 @@
 # run-all-then-fail logic lives in the sibling script
 # .github/scripts/dependency-install-gate.sh.
 #
+# CODEARTIFACT-BACKED REGISTRIES. The installs are real, so they resolve
+# against whatever registry the repo declares. When that is an AWS
+# CodeArtifact repository the install needs an authorization token, which
+# needs AWS credentials, which in GitHub Actions means OIDC. The `gate`
+# job therefore calls the fanned-out `./.github/actions/codeartifact-auth`
+# composite action between checkout and install; it no-ops on a repo
+# where the `CODEARTIFACT_ROLE` variable is unset.
+#
 # Hardening invariants (do not regress these — see issue #222 item 9):
 #   - Every action is SHA-pinned (a floating @v4/@v5 tag is a supply-
 #     chain risk; the trailing comment records the human-readable tag).
-#   - `permissions: contents: read` (least privilege; the gate only
-#     reads the tree).
+#   - Least privilege: `contents: read` workflow-wide, and the ONLY
+#     elevation is `id-token: write` on the `gate` job (see the comment
+#     there). `detect` and `install-gate-required` keep `contents: read`
+#     alone.
 #   - Each job checks out github.event.pull_request.head.sha so the
 #     gate validates the PR head, not a merge commit.
 #   - Every package-manager job blocks install/build lifecycle scripts
@@ -108,6 +118,33 @@ jobs:
     needs: detect
     if: ${{ needs.detect.outputs.pms != '[]' }}
     runs-on: ubuntu-latest
+    # `id-token: write` lets THIS job mint an OIDC token for
+    # ./.github/actions/codeartifact-auth, which exchanges it for an AWS
+    # role and then for a CodeArtifact authorization token. A job-level
+    # `permissions:` block REPLACES the workflow-level one, so
+    # `contents: read` is restated here.
+    #
+    # ON A REPO WITHOUT CODEARTIFACT THE GRANT IS LATENT, and that is
+    # intentional: such a repo can mint an OIDC token, but it is named in
+    # no IAM role's trust policy, so no role will accept it -- and the
+    # action itself no-ops when `CODEARTIFACT_ROLE` is unset. `permissions:`
+    # is static YAML and cannot be made conditional, and converge-time
+    # detection was considered and rejected: the converger reads the
+    # DEFAULT BRANCH while this gate runs against the PR HEAD, so a
+    # runtime check would still be required and the converge-time copy
+    # would be a second, weaker implementation of the same rule. Worse,
+    # this gate is a REQUIRED check -- a repo that adopted CodeArtifact
+    # between sweeps would have every PR blocked until a scheduled run
+    # corrected it. Arming broadly and deciding at runtime is the
+    # precedent `dependency-pinned-gate` already documents.
+    #
+    # OPERATOR REQUIREMENT: IAM trust policies must name concrete
+    # repositories in their `sub` condition, never wildcards. A wildcard
+    # would let any repo in the org assume the role, which is exactly what
+    # this latent grant would otherwise expose.
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -130,6 +167,16 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
+
+      # Runs on EVERY leg, including `pip`: the action is a no-op when
+      # `CODEARTIFACT_ROLE` is unset, and on a `pip` leg it only writes an
+      # .npmrc that pip never reads. Keeping it unconditional avoids a
+      # second place where "which package managers need auth" has to be
+      # kept in sync.
+      - name: Authenticate against CodeArtifact
+        uses: ./.github/actions/codeartifact-auth
+        with:
+          role: ${{ vars.CODEARTIFACT_ROLE }}
 
       - name: Strict install over discovered manifests
         run: bash .github/scripts/dependency-install-gate.sh ${{ matrix.pm }}

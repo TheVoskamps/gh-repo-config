@@ -5,7 +5,7 @@ import { readAssetText } from "../dist/index.js";
 
 const CTX = { org: "TheVoskamps", repo: "example", defaultBranch: "main" };
 
-test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/config + gate/guard workflows + scripts + community files", () => {
+test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/config + gate/guard workflows + the codeartifact-auth action + scripts + community files", () => {
   const files = buildDesiredFiles(CTX);
   const paths = files.map((f) => f.path);
   assert.deepEqual(paths, [
@@ -17,6 +17,7 @@ test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/confi
     ".github/workflows/auto-enable-automerge.yml",
     ".github/workflows/auto-rebase-prs.yml",
     ".github/codeql/codeql-config.yml",
+    ".github/actions/codeartifact-auth/action.yml",
     ".github/scripts/dependency-install-gate.sh",
     ".github/scripts/dependency-pinned-gate.sh",
     ".github/scripts/test-dependency-pinned-gate.sh",
@@ -26,6 +27,8 @@ test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/confi
     ".github/scripts/test-codeql-language-present.sh",
     ".github/scripts/auto-rebase-lockfile-regen.sh",
     ".github/scripts/test-auto-rebase-lockfile-regen.sh",
+    ".github/scripts/codeartifact-auth.sh",
+    ".github/scripts/test-codeartifact-auth.sh",
     "CONTRIBUTORS",
     "LICENSE",
     "PATENTS",
@@ -106,6 +109,70 @@ test("gate/guard workflows carry the per-repo default branch", () => {
   for (const wf of workflows) {
     assert.match(wf.content, /branches: \[trunk\]/, `${wf.path}`);
   }
+});
+
+const CODEARTIFACT_ACTION_PATH = ".github/actions/codeartifact-auth/action.yml";
+
+test("the codeartifact-auth action ships verbatim, non-executable, at the path its callers reference", () => {
+  const files = buildDesiredFiles(CTX);
+  const action = files.find((f) => f.path === CODEARTIFACT_ACTION_PATH);
+  assert.ok(action, "codeartifact-auth action.yml present");
+  // Verbatim: the action carries nothing per-repo, so it must be a
+  // byte-for-byte copy of the asset (issue #39).
+  assert.equal(action.content, readAssetText("codeartifact-auth-action.yml"));
+  assert.equal(action.executable, false);
+  assert.equal(action.honoredLocations, undefined);
+  assert.match(action.content, /using: composite/);
+});
+
+test("the codeartifact-auth action carries no per-repo tokens to render", () => {
+  const a = buildDesiredFiles({ org: "O", repo: "r", defaultBranch: "trunk" });
+  const b = buildDesiredFiles({ org: "P", repo: "s", defaultBranch: "main" });
+  const pick = (files) =>
+    files.find((f) => f.path === CODEARTIFACT_ACTION_PATH).content;
+  assert.equal(pick(a), pick(b));
+});
+
+test("the install gate calls the codeartifact-auth action at the path it ships to", () => {
+  const files = buildDesiredFiles(CTX);
+  const gate = files.find(
+    (f) => f.path === ".github/workflows/dependency-install-gate.yml",
+  );
+  assert.ok(gate, "dependency-install-gate.yml present");
+  // The `uses:` path and the action's own target path must stay
+  // consistent — a local composite action resolves by directory.
+  assert.match(gate.content, /uses: \.\/\.github\/actions\/codeartifact-auth/);
+  assert.equal(
+    CODEARTIFACT_ACTION_PATH,
+    ".github/actions/codeartifact-auth/action.yml",
+  );
+  assert.ok(files.some((f) => f.path === CODEARTIFACT_ACTION_PATH));
+  // The variable name is static because a composite action cannot read
+  // the `vars` context; the value must therefore be passed in.
+  assert.match(gate.content, /role: \$\{\{ vars\.CODEARTIFACT_ROLE \}\}/);
+});
+
+test("the install gate grants id-token: write on the gate job only", () => {
+  const files = buildDesiredFiles(CTX);
+  const gate = files.find(
+    (f) => f.path === ".github/workflows/dependency-install-gate.yml",
+  );
+  const idTokenGrants = gate.content.match(/^\s*id-token: write$/gm) ?? [];
+  assert.equal(idTokenGrants.length, 1, "exactly one id-token: write grant");
+
+  // Locate the grant relative to the three job headers: it must fall
+  // inside `gate:`, i.e. after it and before `install-gate-required:`.
+  const at = (needle) => gate.content.indexOf(needle);
+  const grantAt = gate.content.search(/^\s*id-token: write$/m);
+  assert.ok(at("\n  detect:") < at("\n  gate:"));
+  assert.ok(at("\n  gate:") < grantAt);
+  assert.ok(grantAt < at("\n  install-gate-required:"));
+
+  // The latent-grant rationale must travel with the grant: an auditor
+  // seeing `id-token: write` on a repo with no CodeArtifact needs to
+  // find the explanation in the file itself.
+  assert.match(gate.content, /LATENT/);
+  assert.match(gate.content, /no IAM role's trust policy/);
 });
 
 const COMMUNITY_PATHS = ["CONTRIBUTORS", "LICENSE", "PATENTS", "PRIOR_ART.md"];
