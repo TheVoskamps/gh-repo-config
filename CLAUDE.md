@@ -259,9 +259,9 @@ npm run build && npm test
     replaced in that file, so another registry's credential survives.
     `dependency-install-gate.yml` calls it between checkout and install
     on every non-`pip` matrix leg (mirroring its `Set up Node` guard)
-    and is the only workflow carrying an `id-token: write` grant — on
-    its `gate` job only, latent (and documented inline as such) on repos
-    without CodeArtifact. Operator prerequisites live in
+    and is the only fanned-out workflow carrying an `id-token: write`
+    grant — on its `gate` job only, latent (and documented inline as
+    such) on repos without CodeArtifact. Operator prerequisites live in
     `docs/codeartifact-auth.md`, including the hard requirement that an
     org-level `CODEARTIFACT_ROLE` be scoped to exactly the repositories
     the IAM trust policy names.
