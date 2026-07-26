@@ -17,6 +17,9 @@
  * rendered) that seed **only when the target repo has no copy of its
  * own** anywhere GitHub honors that file kind (see
  * {@link COMMUNITY_FILES} and `writer.ts`'s seed-if-absent branch).
+ * Issue #39 adds the `codeartifact-auth` composite action — the first
+ * payload that is verbatim (no placeholders) yet lands at a bespoke
+ * non-workflow path (see {@link VERBATIM_AT_PATH}).
  *
  * Production modes:
  *
@@ -28,6 +31,12 @@
  *   config lands at `.github/codeql/codeql-config.yml`, the path the
  *   workflow's `config-file:` line references). `dependabot.yml` under
  *   `.github/` is the other bespoke-path rendered file.
+ * - **verbatim `.yml` at a fixed non-workflow path** — shipped
+ *   byte-for-byte, non-executable, at a bespoke path. The composite
+ *   action `.github/actions/codeartifact-auth/action.yml` is the only
+ *   one today: it carries nothing per-repo (everything repo-specific
+ *   arrives at call time in its `role` input), so there is nothing to
+ *   render.
  * - **verbatim `.sh` scripts** — shipped byte-for-byte and executable
  *   (mode `100755`) under `.github/scripts/`. Scripts are never token-
  *   asserted (a shell script may legitimately contain `__`-words).
@@ -86,6 +95,13 @@ const VERBATIM_SCRIPTS: readonly string[] = [
   // PR-automation lockfile-regen script + its self-test (issue #25).
   "auto-rebase-lockfile-regen.sh",
   "test-auto-rebase-lockfile-regen.sh",
+  // Shell half of the codeartifact-auth composite action + its self-test
+  // (issue #39). All of the action's logic lives here so it is testable
+  // without a runner; the action.yml is thin glue (see
+  // {@link VERBATIM_AT_PATH}) and reaches this script relatively, via
+  // `$GITHUB_ACTION_PATH/../../scripts/`.
+  "codeartifact-auth.sh",
+  "test-codeartifact-auth.sh",
 ];
 
 /**
@@ -128,6 +144,31 @@ const RENDERED_PR_AUTOMATION_WORKFLOWS: readonly string[] = [
  */
 const RENDERED_AT_PATH: readonly { asset: string; path: string }[] = [
   { asset: "codeql-config.yml", path: ".github/codeql/codeql-config.yml" },
+];
+
+/**
+ * A **verbatim** asset that lands at a fixed non-workflow path (issue
+ * #39): shipped byte-for-byte and non-executable, with no render and no
+ * token assertion. Distinct from {@link RENDERED_AT_PATH} because there
+ * is genuinely nothing to substitute — routing a placeholder-free file
+ * through the render path would advertise a per-repo variability it does
+ * not have.
+ *
+ * The `codeartifact-auth` composite action is the only entry today.
+ * Consumers call it as `uses: ./.github/actions/codeartifact-auth`, so
+ * the directory name is part of its contract; the asset is stored under
+ * the distinguishing flat name `codeartifact-auth-action.yml` because
+ * `assets/` is a flat directory (see `assets.ts`'s `readAssetText`) and
+ * a bare `action.yml` there would say nothing about which action it is.
+ * The action deliberately carries no per-repo values: everything
+ * repo-specific arrives at call time in its `role` input, fed from the
+ * `CODEARTIFACT_ROLE` variable (org-level default, repo-level override).
+ */
+const VERBATIM_AT_PATH: readonly { asset: string; path: string }[] = [
+  {
+    asset: "codeartifact-auth-action.yml",
+    path: ".github/actions/codeartifact-auth/action.yml",
+  },
 ];
 
 /**
@@ -181,8 +222,9 @@ const COMMUNITY_FILES: readonly {
  * repo's converge); verbatim scripts are shipped as-is.
  *
  * The returned list is stable-ordered (dependabot, then workflows, then
- * scripts, then community files, each in declaration order) so a diff /
- * commit is deterministic.
+ * rendered-at-path config, then verbatim-at-path YAML, then scripts,
+ * then community files, each in declaration order) so a diff / commit is
+ * deterministic.
  */
 export function buildDesiredFiles(ctx: RepoContext): DesiredFile[] {
   const files: DesiredFile[] = [];
@@ -231,6 +273,14 @@ export function buildDesiredFiles(ctx: RepoContext): DesiredFile[] {
     const rendered = renderTemplate(readAssetText(asset), ctx);
     assertNoUnresolvedTokens(rendered, path);
     files.push({ path, content: rendered, executable: false });
+  }
+
+  // Verbatim YAML at fixed non-workflow paths (the codeartifact-auth
+  // composite action at .github/actions/codeartifact-auth/action.yml —
+  // the exact path its `uses: ./.github/actions/codeartifact-auth`
+  // callers reference). No render, nothing per-repo to substitute.
+  for (const { asset, path } of VERBATIM_AT_PATH) {
+    files.push({ path, content: readAssetText(asset), executable: false });
   }
 
   // Verbatim scripts under .github/scripts/, executable.
