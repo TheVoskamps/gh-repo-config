@@ -244,12 +244,27 @@ npm run build && npm test
     repo-level override via GitHub's own variable precedence, no merge
     logic); empty means no-op, and more than one endpoint is an error
     because npm/pnpm/yarn each resolve a package to exactly one
-    registry. It refuses to write a token into a `.npmrc` that git
-    tracks or does not ignore. `dependency-install-gate.yml` calls it
-    between checkout and install and is the only workflow carrying an
-    `id-token: write` grant — on its `gate` job only, latent (and
-    documented inline as such) on repos without CodeArtifact. Operator
-    prerequisites live in `docs/codeartifact-auth.md`.
+    registry. It writes **nothing into the working tree**: the
+    credential goes to `$RUNNER_TEMP/.npmrc` with
+    `NPM_CONFIG_USERCONFIG` exported through `$GITHUB_ENV`, matching how
+    yarn Berry is already handled via `YARN_NPM_*`. That is the only
+    shape independent of the directory the installer `cd`s into — npm
+    resolves a project `.npmrc` from the nearest package directory and
+    never walks up to the git root, pnpm only up to a covering
+    `pnpm-workspace.yaml`, and `dependency-install-gate.sh` installs
+    from each discovered lockfile's own directory — so a repo-root
+    `.npmrc` would miss every non-root manifest. `$HOME/.npmrc` was
+    rejected as a cross-repo credential pool. Only the `registry=` line
+    and the configured endpoint's own `//<host><path>:` namespace are
+    replaced in that file, so another registry's credential survives.
+    `dependency-install-gate.yml` calls it between checkout and install
+    on every non-`pip` matrix leg (mirroring its `Set up Node` guard)
+    and is the only workflow carrying an `id-token: write` grant — on
+    its `gate` job only, latent (and documented inline as such) on repos
+    without CodeArtifact. Operator prerequisites live in
+    `docs/codeartifact-auth.md`, including the hard requirement that an
+    org-level `CODEARTIFACT_ROLE` be scoped to exactly the repositories
+    the IAM trust policy names.
   This repo's own `.github/actions/`, `.github/scripts/`, and
   `.github/workflows/` — the
   live copies the sweep renders onto this repo itself — are **not**

@@ -168,12 +168,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Runs on EVERY leg, including `pip`: the action is a no-op when
-      # `CODEARTIFACT_ROLE` is unset, and on a `pip` leg it only writes an
-      # .npmrc that pip never reads. Keeping it unconditional avoids a
-      # second place where "which package managers need auth" has to be
-      # kept in sync.
+      # Skipped on the `pip` leg, mirroring `Set up Node` above: the
+      # action configures npm, pnpm, and yarn Berry, none of which pip
+      # reads. Without the guard a `pip` leg would still perform a real
+      # `AssumeRoleWithWebIdentity` and a real `get-authorization-token`,
+      # so an AWS-side failure would redden a leg with no CodeArtifact
+      # dependency at all. (A CodeArtifact-backed PyPI registry is out of
+      # scope -- see docs/codeartifact-auth.md.)
       - name: Authenticate against CodeArtifact
+        if: ${{ matrix.pm != 'pip' }}
         uses: ./.github/actions/codeartifact-auth
         with:
           role: ${{ vars.CODEARTIFACT_ROLE }}

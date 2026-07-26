@@ -150,6 +150,15 @@ test("the install gate calls the codeartifact-auth action at the path it ships t
   // The variable name is static because a composite action cannot read
   // the `vars` context; the value must therefore be passed in.
   assert.match(gate.content, /role: \$\{\{ vars\.CODEARTIFACT_ROLE \}\}/);
+  // The auth step is skipped on the `pip` leg, mirroring `Set up Node`:
+  // the action configures npm/pnpm/yarn only, and without the guard a
+  // `pip` leg would still perform a real role assumption and a real
+  // token mint, so an AWS-side failure would redden a leg with no
+  // CodeArtifact dependency at all.
+  assert.match(
+    gate.content,
+    /- name: Authenticate against CodeArtifact\n\s+if: \$\{\{ matrix\.pm != 'pip' \}\}\n/,
+  );
 });
 
 test("the install gate grants id-token: write on the gate job only", () => {

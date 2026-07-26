@@ -57,8 +57,9 @@
 #     interpolated into a `run:` body, so a crafted variable value cannot
 #     inject shell.
 #   - The minted token is `::add-mask::`-ed before it can reach any log
-#     line, and the script refuses to write it into a `.npmrc` that git
-#     tracks or does not ignore.
+#     line, and NOTHING is written into the working tree: the credential
+#     lives in job-scoped storage ($RUNNER_TEMP) reached by environment
+#     variable, so it cannot be committed and is wiped with the job.
 #
 # Operator prerequisites live in the target AWS account and are NOT built
 # by the converger -- see docs/codeartifact-auth.md in gh-repo-config for
@@ -117,8 +118,12 @@ runs:
         aws-region: ${{ steps.parse.outputs.region }}
 
     # Stage 3: mint the domain-scoped token and point the package
-    # managers at the endpoint -- npm and pnpm via the repo-root .npmrc,
-    # yarn Berry via $GITHUB_ENV with no file written.
+    # managers at the endpoint. Every mechanism is JOB-SCOPED and reached
+    # by environment variable, so the configuration is independent of the
+    # working directory the install later runs from, and nothing lands in
+    # the working tree: npm and pnpm via $RUNNER_TEMP/.npmrc exported as
+    # NPM_CONFIG_USERCONFIG, yarn Berry via YARN_NPM_* -- both through
+    # $GITHUB_ENV.
     - name: Mint the token and configure npm, pnpm, and yarn
       if: ${{ steps.parse.outputs.enabled == 'true' }}
       shell: bash

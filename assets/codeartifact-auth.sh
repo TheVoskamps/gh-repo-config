@@ -57,17 +57,47 @@
 #   - a trust policy naming the consuming GitHub repositories CONCRETELY
 #     in its `sub` condition, never with a wildcard.
 #
+# NOTHING IS WRITTEN INTO THE WORKING TREE. The credential lives in
+# JOB-SCOPED storage reached by ENVIRONMENT VARIABLE:
+#
+#   npm + pnpm  $RUNNER_TEMP/.npmrc, with NPM_CONFIG_USERCONFIG exported
+#               through $GITHUB_ENV to point at it.
+#   yarn Berry  YARN_NPM_REGISTRY_SERVER / YARN_NPM_AUTH_TOKEN in
+#               $GITHUB_ENV, no file at all.
+#
+# WHY NOT THE REPO-ROOT `.npmrc` (the shape `aws codeartifact login`
+# produces locally): npm resolves a project `.npmrc` relative to the
+# NEAREST package directory and never walks up to the git root, and pnpm
+# only walks up to a covering `pnpm-workspace.yaml`. `dependency-install-
+# gate.sh` discovers lockfiles at ANY depth and installs with cwd set to
+# each lockfile's OWN directory, and a lockfile below the repo root
+# exists precisely when no workspace root covers it. So a repo-root file
+# would be invisible to exactly the installs that need it -- a
+# `frontend/` beside a Python service, an independent `infra/` CDK app,
+# per-function Lambda manifests. Environment-reached job-scoped storage
+# is the only shape where this script does not have to know or guess
+# which directory the installer will `cd` into; it is also symmetric
+# with how yarn Berry is already handled.
+#
+# WHY NOT `$HOME/.npmrc`: on a machine running more than one repo it
+# pools every repo's token in one file that any repo's install reads --
+# a cross-boundary credential hole, and the opposite of the
+# endpoint-as-allowlist property this design rests on. `$RUNNER_TEMP` is
+# created and wiped per job, so it does not have that problem.
+#
 # Subcommands:
 #   parse      Read CODEARTIFACT_ROLE from the environment, validate it,
 #              and emit the parsed fields as step outputs. Never calls
 #              AWS and never writes credentials.
 #   configure  Mint a domain-scoped CodeArtifact authorization token and
-#              point npm/pnpm (repo-root .npmrc) and yarn Berry
-#              ($GITHUB_ENV) at the endpoint.
+#              point npm/pnpm ($RUNNER_TEMP/.npmrc via
+#              NPM_CONFIG_USERCONFIG) and yarn Berry ($GITHUB_ENV) at
+#              the endpoint.
 #
 # Exit codes:
 #   0 -- success (including the unconfigured no-op)
-#   1 -- usage error, malformed configuration, or an unsafe .npmrc
+#   1 -- usage error, malformed configuration, or missing job-scoped
+#        storage to write the credential into
 
 set -euo pipefail
 
@@ -85,7 +115,8 @@ Usage: codeartifact-auth.sh <parse|configure>
              GITHUB_OUTPUT is unset).
   configure  Mint a CodeArtifact token and configure npm/pnpm/yarn.
              Requires CA_HOST, CA_PATH, CA_REGISTRY, CA_DOMAIN,
-             CA_DOMAIN_OWNER, and CA_REGION -- all emitted by `parse`.
+             CA_DOMAIN_OWNER, and CA_REGION -- all emitted by `parse` --
+             plus the runner's own RUNNER_TEMP and GITHUB_ENV.
 EOF
   exit 1
 }
@@ -148,8 +179,17 @@ CODEARTIFACT_ROLE at the repository level to override the organization value."
   # <endpoint> <role-arn> pair is malformed -- in particular, a second
   # pair crammed onto the same line is the same "more than one endpoint"
   # error as a second line.
+  #
+  # `set -f` disables pathname expansion for the duration of the split:
+  # word splitting is wanted, globbing is NOT. Without it a value
+  # containing a glob metacharacter (a bare `*` is the degenerate case)
+  # would be expanded against the current directory, so the reported
+  # field count and error message would describe the runner's filesystem
+  # rather than what the operator typed.
+  set -f
   # shellcheck disable=SC2086
   set -- $trimmed
+  set +f
   if [ "$#" -gt 2 ]; then
     fatal "CODEARTIFACT_ROLE line has $# whitespace-separated fields; expected exactly two
 (<endpoint> <role-arn>). A second endpoint/role pair is not a supported
@@ -216,33 +256,49 @@ path, e.g. my_domain-111122223333.d.codeartifact.us-west-2.amazonaws.com/npm/rel
 # configure
 # ---------------------------------------------------------------------
 
-# Refuse to write a credential into a file git would keep. Both halves
-# matter: an untracked-but-unignored .npmrc is one `git add -A` away from
-# a committed token, and a tracked .npmrc is already one.
-assert_npmrc_safe() {
-  local root="$1"
-  if git -C "$root" ls-files --error-unmatch -- .npmrc >/dev/null 2>&1; then
-    fatal ".npmrc is TRACKED by git in $root. Refusing to write a CodeArtifact
-authorization token into a file git will keep. Remove it from the index
-(git rm --cached .npmrc) and add '.npmrc' to .gitignore."
-  fi
-  if ! git -C "$root" check-ignore -q -- .npmrc; then
-    fatal ".npmrc is not gitignored in $root. Refusing to write a CodeArtifact
-authorization token into a file git may pick up. Add '.npmrc' to .gitignore."
-  fi
-}
-
-# npm and pnpm both read the repo-root .npmrc, so one file serves both --
-# the same file and shape `aws codeartifact login` produces locally.
-# Pre-existing registry/auth lines are dropped rather than appended to, so
-# a second run replaces the credential instead of stacking duplicates;
-# every other setting in the file is preserved.
+# npm and pnpm are configured through a JOB-SCOPED npm USER config file
+# in $RUNNER_TEMP, pointed at by NPM_CONFIG_USERCONFIG exported through
+# $GITHUB_ENV. Nothing is written into the working tree.
+#
+# The user config is read regardless of the installer's working
+# directory, which the repo-root project `.npmrc` is not: npm resolves a
+# project `.npmrc` relative to the nearest package directory and never
+# walks up to the git root, and pnpm only walks up to a covering
+# `pnpm-workspace.yaml`. `dependency-install-gate.sh` installs from each
+# discovered lockfile's OWN directory, so a repo-root file would miss
+# every manifest that is not at the repo root. Verified against npm
+# 11.6.2 and pnpm 11.15.0: with NPM_CONFIG_USERCONFIG set, both resolve
+# the configured registry and its auth line from a nested manifest
+# directory; with it unset, both fall back to registry.npmjs.org.
+#
+# The file's own path is left as `$RUNNER_TEMP/.npmrc` -- the same path
+# `actions/setup-node` uses for its `registry-url` output -- so the two
+# converge on one file rather than each pointing NPM_CONFIG_USERCONFIG
+# at a different one and silently winning by step order.
+#
+# Only the lines THIS action owns are replaced: the bare `registry=` line
+# and the `//<host><path>:` auth namespace for the configured endpoint.
+# The rest of the file survives, including another registry's own
+# `//<other-host>/:_authToken=` line -- stripping the whole `//`
+# namespace would leave a repo's `@scope:registry=` line pointing at a
+# host whose credential had just been deleted, i.e. a silent 401. Two
+# runs in one job therefore replace the credential instead of stacking
+# duplicates.
 write_npmrc() {
-  local root="$1" host="$2" path="$3" registry="$4" token="$5"
-  local npmrc="$root/.npmrc" tmp
-  tmp="$(mktemp)"
+  local host="$1" path="$2" registry="$3" token="$4"
+  local npmrc="$RUNNER_TEMP/.npmrc" tmp
+  # The scratch copy holds the token too, so it is built inside the same
+  # job-scoped directory (mktemp gives it mode 600) rather than in a
+  # shared TMPDIR -- which also makes the `mv` a same-filesystem rename.
+  tmp="$(mktemp "$RUNNER_TEMP/.npmrc.XXXXXX")"
   if [ -f "$npmrc" ]; then
-    grep -v -E '^(registry=|//)' "$npmrc" > "$tmp" || true
+    # `index($0, prefix) == 1` is a literal prefix test, so neither the
+    # host nor the path needs regex escaping.
+    awk -v prefix="//${host}${path}:" '
+      /^registry=/ { next }
+      index($0, prefix) == 1 { next }
+      { print }
+    ' "$npmrc" > "$tmp" || true
   fi
   {
     printf 'registry=%s\n' "$registry"
@@ -250,7 +306,10 @@ write_npmrc() {
   } >> "$tmp"
   mv "$tmp" "$npmrc"
   chmod 600 "$npmrc"
-  echo "Wrote CodeArtifact registry + auth token to $npmrc (mode 600)."
+  printf 'NPM_CONFIG_USERCONFIG=%s\n' "$npmrc" >> "$GITHUB_ENV"
+  echo "Wrote CodeArtifact registry + auth token to $npmrc (mode 600) and"
+  echo "exported NPM_CONFIG_USERCONFIG, so npm and pnpm read it from any"
+  echo "working directory. Nothing was written into the working tree."
 }
 
 # yarn Berry accepts a YARN_ env override for most settings, so nothing is
@@ -260,12 +319,10 @@ write_npmrc() {
 # needed.) A file was rejected on all three available paths: the project
 # .yarnrc.yml is tracked (token-commit risk), a home-level file is not
 # repo-local, and YARN_RC_FILENAME overrides the filename rather than the
-# path, so a subdirectory is never consulted.
+# path, so a subdirectory is never consulted. The npm/pnpm path above is
+# the same shape for the same reason.
 write_yarn_env() {
   local registry="$1" token="$2"
-  if [ -z "${GITHUB_ENV:-}" ]; then
-    fatal "GITHUB_ENV is not set; cannot export the yarn Berry configuration."
-  fi
   {
     printf 'YARN_NPM_REGISTRY_SERVER=%s\n' "$registry"
     printf 'YARN_NPM_AUTH_TOKEN=%s\n' "$token"
@@ -289,13 +346,23 @@ cmd_configure() {
     fatal "missing required environment:$missing (all are emitted by the 'parse' subcommand)"
   fi
 
-  local root
-  root="$(git rev-parse --show-toplevel 2>/dev/null)" \
-    || fatal "not inside a git working tree; cannot locate the repo root."
-
-  # Assert BEFORE minting: if the token has nowhere safe to live, do not
-  # ask AWS for one.
-  assert_npmrc_safe "$root"
+  # Assert BEFORE minting: if the token has nowhere job-scoped to live,
+  # do not ask AWS for one. Both variables are set by the runner itself;
+  # their absence means this is not running as a GitHub Actions step, and
+  # the fallbacks are all worse than failing (the working tree would put
+  # a credential where git can pick it up, $HOME would pool every repo's
+  # token in one file that any repo's install reads).
+  if [ -z "${RUNNER_TEMP:-}" ]; then
+    fatal "RUNNER_TEMP is not set; there is no job-scoped directory to write the
+npm credential into. This script must run as a GitHub Actions step."
+  fi
+  if [ ! -d "$RUNNER_TEMP" ]; then
+    fatal "RUNNER_TEMP ('$RUNNER_TEMP') is not a directory."
+  fi
+  if [ -z "${GITHUB_ENV:-}" ]; then
+    fatal "GITHUB_ENV is not set; cannot export the npm, pnpm, and yarn Berry
+configuration to the steps that install."
+  fi
 
   # The token is DOMAIN-scoped -- it takes no --repository argument -- so
   # per-repository restriction comes from the role's IAM policy, not from
@@ -317,7 +384,7 @@ cmd_configure() {
   # Mask before the token can reach any later log line.
   echo "::add-mask::$token"
 
-  write_npmrc "$root" "$host" "$path" "$registry" "$token"
+  write_npmrc "$host" "$path" "$registry" "$token"
   write_yarn_env "$registry" "$token"
 }
 

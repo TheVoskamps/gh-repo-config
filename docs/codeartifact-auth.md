@@ -15,6 +15,12 @@ converger's own `dependency-install-gate` first among them — can resolve
 against a CodeArtifact-backed registry. It is **inert, with zero
 configuration, on every managed repo that does not use CodeArtifact**.
 
+**npm, pnpm, and yarn Berry only.** A CodeArtifact-backed PyPI registry
+is out of scope: the endpoint is validated by host, so a `/pypi/<repo>/`
+path parses, but nothing configures pip and the install gate's `pip` leg
+skips the action entirely. Do not set `CODEARTIFACT_ROLE` to a pypi
+endpoint and expect it to work.
+
 Everything below is provisioned by an operator in the target AWS account
 and in GitHub. None of it is built by this repo, in the same way the
 three org custom properties the sweep requires
@@ -126,8 +132,9 @@ CodeArtifact between sweeps would have every PR blocked until the next
 scheduled run. The grant is therefore latent everywhere, and the trust
 policy is the control that keeps it inert.
 
-Adding a consuming repo is an edit to this list. There is no
-converger-side step.
+Adding a consuming repo is an edit to this list **and** an edit to the
+`CODEARTIFACT_ROLE` variable's repository-access list (§4) — two edits
+that must be made together. There is still no converger-side step.
 
 ## 4. The `CODEARTIFACT_ROLE` variable
 
@@ -150,6 +157,33 @@ The endpoint encodes the domain, the domain-owner account, and the
 region, so none of the three is configured separately. The `https://`
 scheme prefix and the trailing slash are both optional.
 
+### The organization variable's repository access is a hard requirement
+
+An organization variable created with **All repositories** access is
+visible to every repo in the organization. The action arms purely on the
+variable being non-empty, so that setting arms it **everywhere** —
+including on repos the §3 trust policy deliberately does not name.
+
+When you create or edit the organization variable, set its repository
+access to **Selected repositories** and select **exactly the
+repositories named in the §3 trust policy `sub` condition**. The two
+lists are one list maintained in two places; keep them in lockstep.
+
+What happens when they drift:
+
+| Drift | Consequence |
+| --- | --- |
+| Repo has the **variable** but is **not** in the trust policy | The action arms, `AssumeRoleWithWebIdentity` is denied, the role-assumption step fails (there is no `continue-on-error`), the `gate` leg fails, and `install-gate-required` — a **required check** — fails. **Every PR on that repo is blocked, with no mechanism by which it could go green.** |
+| Repo is in the **trust policy** but does **not** have the variable | The action no-ops. Installs resolve from the public registry and fail on any private package. Nothing is blocked spuriously, and nothing is granted that was not already grantable. |
+
+The first row is the failure this whole payload exists to eliminate,
+reproduced in mirror image, so it is the one to guard against. If your
+plan tier cannot scope an organization variable to selected
+repositories, do **not** use an organization variable: put
+`CODEARTIFACT_ROLE` at **repository** level on each consuming repo
+instead. Repository-level placement makes the arming list and the trust
+policy list the same enumeration by construction.
+
 ### Exactly one endpoint
 
 A value naming more than one endpoint fails the run with a clear message.
@@ -163,22 +197,67 @@ CodeArtifact **upstream** relationships to reach a second repository;
 that solves the problem at the CodeArtifact layer rather than the
 package-manager layer.
 
-## 5. `.npmrc` must be gitignored and untracked
+## 5. Nothing to provision — the credential is job-scoped
 
-The action writes the registry and the authorization token to the
-repo-root `.npmrc` — the same file and shape developers get from
-`aws codeartifact login` locally. Before writing, it asserts that
-`.npmrc` is **both** gitignored **and** untracked, and fails loudly
-otherwise: it must never write a token into a file git will keep. Add
-`.npmrc` to the repo's `.gitignore`.
+There is no repo-side prerequisite for the credential itself. **The
+action writes nothing into the working tree.** Every mechanism is
+job-scoped and reached by environment variable:
 
-Yarn Berry needs no file: the action exports
-`YARN_NPM_REGISTRY_SERVER` and `YARN_NPM_AUTH_TOKEN` through
-`$GITHUB_ENV`. A file was rejected on every available path — the project
+| Package manager | Mechanism |
+| --- | --- |
+| npm, pnpm | `$RUNNER_TEMP/.npmrc` (mode 600), with `NPM_CONFIG_USERCONFIG` exported through `$GITHUB_ENV` to point at it |
+| yarn Berry | `YARN_NPM_REGISTRY_SERVER` / `YARN_NPM_AUTH_TOKEN` in `$GITHUB_ENV`, no file at all |
+
+`$RUNNER_TEMP` is created and wiped per job, so the token cannot be
+committed and does not outlive the run. You do **not** need to add
+`.npmrc` to the repo's `.gitignore` for this action's sake.
+
+### Why not the repo-root `.npmrc`
+
+Because installs do not run from the repo root. `npm` resolves a project
+`.npmrc` relative to the **nearest package directory** and never walks up
+to the git root; `pnpm` walks up only as far as a covering
+`pnpm-workspace.yaml`. The install gate discovers lockfiles at any depth
+and installs with the working directory set to **each lockfile's own
+directory** — and a lockfile below the repo root exists precisely when no
+workspace root covers it, since a workspace consolidates to a single
+lockfile at its own root.
+
+So a repo-root file would be invisible to exactly the installs that need
+it. That is not an exotic shape: a Python or Go service at the repo root
+with `frontend/` carrying the only JS manifest, an `infra/` CDK app kept
+deliberately independent of the app, per-function Lambda manifests that
+each deploy in isolation. All are legitimate, and none may be left with a
+permanently red required check.
+
+Job-scoped storage reached by environment variable is the only shape
+where the action does not have to know or guess which directory the
+installer will `cd` into. It is also symmetric with how yarn Berry was
+already handled.
+
+`$HOME/.npmrc` was considered and rejected for the same class of reason
+the working tree was: on a machine running more than one repo it pools
+every repo's token into one file that any repo's install reads — a
+cross-boundary credential hole, and the opposite of the
+endpoint-as-allowlist property this design rests on.
+
+A yarn file was rejected on every available path — the project
 `.yarnrc.yml` is tracked (token-commit risk), a home-level file is not
 repo-local and depends on runner directory layout, and
 `YARN_RC_FILENAME` overrides the filename rather than the path, so a
 subdirectory is never consulted.
+
+### Coexisting with other registries
+
+Only the lines the action owns are replaced in `$RUNNER_TEMP/.npmrc`:
+the bare `registry=` line and the `//<host><path>:` auth namespace for
+the configured endpoint. Another registry's `@scope:registry=` line and
+its matching `//<other-host>/:_authToken=` line both survive, so a repo
+that resolves its default registry from CodeArtifact while pulling one
+scope from (say) GitHub Packages keeps working. The path is the same one
+`actions/setup-node` uses for its own `registry-url` output, so the two
+converge on one file instead of each pointing `NPM_CONFIG_USERCONFIG`
+somewhere different and winning by step order.
 
 ## Using the action from a repo-owned workflow
 
@@ -216,10 +295,18 @@ repos that accept fork PRs do not use CodeArtifact.
   attacker-controlled host receives no credentials.
 - Role ARNs are not secrets; the IAM trust policy is the control.
 - The minted token is masked in the log before it can reach any output
-  line, and is written only to a `.npmrc` that git provably ignores.
+  line, and never enters the working tree at all — it lives in
+  `$RUNNER_TEMP`, which the runner creates and wipes per job. The
+  can't-be-committed property is therefore structural, not asserted:
+  there is no in-tree path to get it wrong.
 - The `role` input reaches the shell as an environment variable, never
   interpolated into a `run:` body, so a crafted variable value cannot
   inject shell.
+- Ephemeral GitHub-hosted runners are assumed. On a **self-hosted**
+  runner, `$RUNNER_TEMP` is cleaned per job by the runner itself, but
+  the machine is shared across jobs and repos in a way a hosted runner
+  is not; a self-hosted fleet needs its own review of who can read the
+  work directory while a job is live.
 
 ## Verifying
 

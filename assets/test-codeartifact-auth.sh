@@ -20,11 +20,19 @@
 #     (i) non-CodeArtifact host            -- fail
 #     (j) endpoint with no path            -- fail
 #     (k) malformed role ARN               -- fail
+#     (l) value containing a glob          -- field count is the operator's,
+#                                             not the working directory's
 #   configure
-#     (l) .npmrc gitignored and untracked  -- writes .npmrc + yarn env
-#     (m) .npmrc TRACKED                   -- fail, write nothing, no AWS call
-#     (n) .npmrc not gitignored            -- fail, write nothing, no AWS call
-#     (o) run twice                        -- idempotent, unrelated lines kept
+#     (m) happy path                       -- writes $RUNNER_TEMP/.npmrc, exports
+#                                             NPM_CONFIG_USERCONFIG + yarn env,
+#                                             and writes NOTHING into the tree
+#     (n) nested manifest                  -- run from a subdirectory reaches the
+#                                             same credential (the whole point of
+#                                             the job-scoped file)
+#     (o) RUNNER_TEMP unset                -- fail, write nothing, no AWS call
+#     (p) GITHUB_ENV unset                 -- fail, write nothing, no AWS call
+#     (q) run twice                        -- idempotent, unrelated lines kept,
+#                                             ANOTHER registry's credential kept
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -119,26 +127,59 @@ git_init_repo() {
   git -C "$dir" commit -q -m "init"
 }
 
-# Run `configure` inside `$1`. Sets CONF_STATUS, CONF_LOG, CONF_ENV_FILE.
+# Run `configure` with cwd `$1` and RUNNER_TEMP `$2`. Sets CONF_STATUS,
+# CONF_LOG, CONF_ENV_FILE and CONF_NPMRC. A third argument of `no-env`
+# runs with GITHUB_ENV unset, and a RUNNER_TEMP of `-` runs with
+# RUNNER_TEMP unset.
 run_configure() {
-  local dir="$1" logfile
+  local dir="$1" runner_temp="$2" mode="${3:-}" logfile
   logfile="$(mktemp "$TMP/conflog.XXXXXX")"
   CONF_ENV_FILE="$dir/github-env"
   : > "$CONF_ENV_FILE"
+  CONF_NPMRC="$runner_temp/.npmrc"
   (
     cd "$dir" || exit 1
-    AWS_STUB_CALLS="$dir/aws-calls.log" \
-    GITHUB_ENV="$CONF_ENV_FILE" \
-    CA_HOST="my_domain-111122223333.d.codeartifact.us-west-2.amazonaws.com" \
-    CA_PATH="/npm/releases/" \
-    CA_REGISTRY="https://my_domain-111122223333.d.codeartifact.us-west-2.amazonaws.com/npm/releases/" \
-    CA_DOMAIN="my_domain" \
-    CA_DOMAIN_OWNER="111122223333" \
-    CA_REGION="us-west-2" \
-      bash "$AUTH" configure
+    export AWS_STUB_CALLS="$dir/aws-calls.log"
+    export CA_HOST="my_domain-111122223333.d.codeartifact.us-west-2.amazonaws.com"
+    export CA_PATH="/npm/releases/"
+    export CA_REGISTRY="https://my_domain-111122223333.d.codeartifact.us-west-2.amazonaws.com/npm/releases/"
+    export CA_DOMAIN="my_domain"
+    export CA_DOMAIN_OWNER="111122223333"
+    export CA_REGION="us-west-2"
+    if [ "$runner_temp" = "-" ]; then
+      unset RUNNER_TEMP
+    else
+      export RUNNER_TEMP="$runner_temp"
+    fi
+    if [ "$mode" = "no-env" ]; then
+      unset GITHUB_ENV
+    else
+      export GITHUB_ENV="$CONF_ENV_FILE"
+    fi
+    bash "$AUTH" configure
   ) > "$logfile" 2>&1
   CONF_STATUS=$?
   CONF_LOG="$(cat "$logfile")"
+}
+
+# A throwaway job-scoped RUNNER_TEMP.
+new_runner_temp() {
+  local dir="$TMP/runner-temp-$1"
+  mkdir -p "$dir"
+  printf '%s' "$dir"
+}
+
+# Assert that `configure` left the working tree alone. The whole safety
+# property of the job-scoped design is structural: there is no in-tree
+# path to write, so there is nothing to assert about gitignore state.
+expect_clean_tree() {
+  local case_name="$1" dir="$2" dirty
+  dirty="$(git -C "$dir" status --porcelain --ignored 2>/dev/null | grep -v 'github-env\|aws-calls.log' || true)"
+  if [ -z "$dirty" ]; then
+    ok "$case_name: nothing written into the working tree"
+  else
+    bad "$case_name" "the working tree gained: $dirty"
+  fi
 }
 
 expect_status() {
@@ -263,95 +304,159 @@ expect_status "k: bad role arn" 1 "$PARSE_STATUS"
 expect_match "k: bad role arn" "$PARSE_LOG" "is not an IAM role ARN"
 
 # ---------------------------------------------------------------
-# (l) configure: .npmrc gitignored and untracked
+# (l) A glob metacharacter is word-split, never pathname-expanded, so
+#     the reported field count describes the operator's value and not
+#     the contents of whatever directory the step happened to run in.
 # ---------------------------------------------------------------
-REPO_L="$TMP/repo-l"
-git_init_repo "$REPO_L" ".npmrc"
-run_configure "$REPO_L"
-expect_status "l: safe .npmrc" 0 "$CONF_STATUS"
-if [ -f "$REPO_L/.npmrc" ]; then
-  ok "l: safe .npmrc: file written"
-  expect_match "l: safe .npmrc" "$(cat "$REPO_L/.npmrc")" \
-    "registry=https://$VALID_HOST/npm/releases/"
-  expect_match "l: safe .npmrc" "$(cat "$REPO_L/.npmrc")" \
-    "//$VALID_HOST/npm/releases/:_authToken=$STUB_TOKEN"
-else
-  bad "l: safe .npmrc" ".npmrc was not written"
-fi
-expect_match "l: safe .npmrc yarn env" "$(cat "$CONF_ENV_FILE")" \
-  "YARN_NPM_REGISTRY_SERVER=https://$VALID_HOST/npm/releases/"
-expect_match "l: safe .npmrc yarn env" "$(cat "$CONF_ENV_FILE")" \
-  "YARN_NPM_AUTH_TOKEN=$STUB_TOKEN"
-expect_match "l: safe .npmrc masks the token" "$CONF_LOG" "::add-mask::$STUB_TOKEN"
-expect_match "l: safe .npmrc token is domain-scoped" "$(cat "$REPO_L/aws-calls.log")" \
-  "get-authorization-token --domain my_domain --domain-owner 111122223333"
-if grep -q -- "--repository" "$REPO_L/aws-calls.log"; then
-  bad "l: safe .npmrc" "the token request passed --repository; it is domain-scoped"
-else
-  ok "l: safe .npmrc: token request passes no --repository"
-fi
+GLOB_DIR="$TMP/glob-dir"
+mkdir -p "$GLOB_DIR"
+touch "$GLOB_DIR/one" "$GLOB_DIR/two" "$GLOB_DIR/three"
+(
+  cd "$GLOB_DIR" || exit 1
+  CODEARTIFACT_ROLE='*' bash "$AUTH" parse
+) > "$TMP/glob.log" 2>&1
+GLOB_STATUS=$?
+GLOB_LOG="$(cat "$TMP/glob.log")"
+expect_status "l: glob value" 1 "$GLOB_STATUS"
+expect_match "l: glob value" "$GLOB_LOG" "has 1 field(s)"
 
 # ---------------------------------------------------------------
-# (m) configure: .npmrc is TRACKED -> refuse
+# (m) configure: happy path -- job-scoped file, exported env, and an
+#     untouched working tree
 # ---------------------------------------------------------------
 REPO_M="$TMP/repo-m"
-git_init_repo "$REPO_M" ".npmrc"
-printf 'some-setting=1\n' > "$REPO_M/.npmrc"
-git -C "$REPO_M" add -f .npmrc
-git -C "$REPO_M" commit -q -m "track .npmrc"
-run_configure "$REPO_M"
-expect_status "m: tracked .npmrc" 1 "$CONF_STATUS"
-expect_match "m: tracked .npmrc" "$CONF_LOG" "TRACKED by git"
-if [ "$(cat "$REPO_M/.npmrc")" = "some-setting=1" ]; then
-  ok "m: tracked .npmrc: left untouched"
+RT_M="$(new_runner_temp m)"
+git_init_repo "$REPO_M" "node_modules/"
+run_configure "$REPO_M" "$RT_M"
+expect_status "m: happy path" 0 "$CONF_STATUS"
+if [ -f "$CONF_NPMRC" ]; then
+  ok "m: happy path: \$RUNNER_TEMP/.npmrc written"
+  expect_match "m: happy path" "$(cat "$CONF_NPMRC")" \
+    "registry=https://$VALID_HOST/npm/releases/"
+  expect_match "m: happy path" "$(cat "$CONF_NPMRC")" \
+    "//$VALID_HOST/npm/releases/:_authToken=$STUB_TOKEN"
 else
-  bad "m: tracked .npmrc" ".npmrc was modified: $(cat "$REPO_M/.npmrc")"
+  bad "m: happy path" "\$RUNNER_TEMP/.npmrc was not written"
 fi
-if [ ! -s "$REPO_M/aws-calls.log" ]; then
-  ok "m: tracked .npmrc: no AWS call"
+expect_match "m: happy path npm env" "$(cat "$CONF_ENV_FILE")" \
+  "NPM_CONFIG_USERCONFIG=$RT_M/.npmrc"
+expect_match "m: happy path yarn env" "$(cat "$CONF_ENV_FILE")" \
+  "YARN_NPM_REGISTRY_SERVER=https://$VALID_HOST/npm/releases/"
+expect_match "m: happy path yarn env" "$(cat "$CONF_ENV_FILE")" \
+  "YARN_NPM_AUTH_TOKEN=$STUB_TOKEN"
+expect_match "m: happy path masks the token" "$CONF_LOG" "::add-mask::$STUB_TOKEN"
+expect_match "m: happy path token is domain-scoped" "$(cat "$REPO_M/aws-calls.log")" \
+  "get-authorization-token --domain my_domain --domain-owner 111122223333"
+if grep -q -- "--repository" "$REPO_M/aws-calls.log"; then
+  bad "m: happy path" "the token request passed --repository; it is domain-scoped"
 else
-  bad "m: tracked .npmrc" "the aws stub was invoked before the safety check"
+  ok "m: happy path: token request passes no --repository"
 fi
+expect_clean_tree "m: happy path" "$REPO_M"
 
 # ---------------------------------------------------------------
-# (n) configure: .npmrc not gitignored -> refuse
+# (n) configure from a NESTED manifest directory -- the shape
+#     dependency-install-gate.sh actually installs from. The credential
+#     must reach it, and still nothing may land in the tree. This is the
+#     case a repo-root .npmrc silently failed.
 # ---------------------------------------------------------------
 REPO_N="$TMP/repo-n"
+RT_N="$(new_runner_temp n)"
 git_init_repo "$REPO_N" "node_modules/"
-run_configure "$REPO_N"
-expect_status "n: unignored .npmrc" 1 "$CONF_STATUS"
-expect_match "n: unignored .npmrc" "$CONF_LOG" "not gitignored"
-if [ ! -e "$REPO_N/.npmrc" ]; then
-  ok "n: unignored .npmrc: nothing written"
+mkdir -p "$REPO_N/services/api"
+printf '{}\n' > "$REPO_N/services/api/package.json"
+git -C "$REPO_N" add services/api/package.json
+git -C "$REPO_N" commit -q -m "nested manifest"
+run_configure "$REPO_N/services/api" "$RT_N"
+expect_status "n: nested manifest dir" 0 "$CONF_STATUS"
+if [ -f "$RT_N/.npmrc" ]; then
+  ok "n: nested manifest dir: credential lands in \$RUNNER_TEMP, not beside the manifest"
 else
-  bad "n: unignored .npmrc" ".npmrc was created anyway"
+  bad "n: nested manifest dir" "\$RUNNER_TEMP/.npmrc was not written"
 fi
-if [ ! -s "$REPO_N/aws-calls.log" ]; then
-  ok "n: unignored .npmrc: no AWS call"
+if [ -e "$REPO_N/services/api/.npmrc" ] || [ -e "$REPO_N/.npmrc" ]; then
+  bad "n: nested manifest dir" "an .npmrc was written into the working tree"
 else
-  bad "n: unignored .npmrc" "the aws stub was invoked before the safety check"
+  ok "n: nested manifest dir: no .npmrc anywhere in the working tree"
+fi
+expect_match "n: nested manifest dir" "$(cat "$CONF_ENV_FILE")" \
+  "NPM_CONFIG_USERCONFIG=$RT_N/.npmrc"
+
+# ---------------------------------------------------------------
+# (o) configure: RUNNER_TEMP unset -> refuse before minting
+# ---------------------------------------------------------------
+REPO_O="$TMP/repo-o"
+git_init_repo "$REPO_O" "node_modules/"
+run_configure "$REPO_O" "-"
+expect_status "o: no RUNNER_TEMP" 1 "$CONF_STATUS"
+expect_match "o: no RUNNER_TEMP" "$CONF_LOG" "RUNNER_TEMP is not set"
+if [ ! -s "$REPO_O/aws-calls.log" ]; then
+  ok "o: no RUNNER_TEMP: no AWS call"
+else
+  bad "o: no RUNNER_TEMP" "the aws stub was invoked before the precondition check"
+fi
+expect_clean_tree "o: no RUNNER_TEMP" "$REPO_O"
+
+# ---------------------------------------------------------------
+# (p) configure: GITHUB_ENV unset -> refuse before minting
+# ---------------------------------------------------------------
+REPO_P="$TMP/repo-p"
+RT_P="$(new_runner_temp p)"
+git_init_repo "$REPO_P" "node_modules/"
+run_configure "$REPO_P" "$RT_P" no-env
+expect_status "p: no GITHUB_ENV" 1 "$CONF_STATUS"
+expect_match "p: no GITHUB_ENV" "$CONF_LOG" "GITHUB_ENV is not set"
+if [ ! -e "$RT_P/.npmrc" ]; then
+  ok "p: no GITHUB_ENV: nothing written"
+else
+  bad "p: no GITHUB_ENV" "\$RUNNER_TEMP/.npmrc was written anyway"
+fi
+if [ ! -s "$REPO_P/aws-calls.log" ]; then
+  ok "p: no GITHUB_ENV: no AWS call"
+else
+  bad "p: no GITHUB_ENV" "the aws stub was invoked before the precondition check"
 fi
 
 # ---------------------------------------------------------------
-# (o) configure twice: idempotent, unrelated settings preserved
+# (q) configure twice: idempotent, unrelated settings preserved, and
+#     ANOTHER registry's credential survives. Stripping the whole `//`
+#     namespace would leave a surviving `@scope:registry=` line pointing
+#     at a host whose auth token had just been deleted -- a silent 401.
 # ---------------------------------------------------------------
-REPO_O="$TMP/repo-o"
-git_init_repo "$REPO_O" ".npmrc"
-printf 'ignore-scripts=true\n' > "$REPO_O/.npmrc"
-run_configure "$REPO_O"
-run_configure "$REPO_O"
-expect_status "o: second run" 0 "$CONF_STATUS"
-o_registry_lines="$(grep -c '^registry=' "$REPO_O/.npmrc")"
-o_token_lines="$(grep -c '_authToken=' "$REPO_O/.npmrc")"
-if [ "$o_registry_lines" = "1" ] && [ "$o_token_lines" = "1" ]; then
-  ok "o: second run: no duplicated registry/auth lines"
+REPO_Q="$TMP/repo-q"
+RT_Q="$(new_runner_temp q)"
+git_init_repo "$REPO_Q" "node_modules/"
+cat > "$RT_Q/.npmrc" <<'EOF'
+ignore-scripts=true
+@myorg:registry=https://npm.pkg.github.com/
+//npm.pkg.github.com/:_authToken=gh-packages-token
+EOF
+run_configure "$REPO_Q" "$RT_Q"
+run_configure "$REPO_Q" "$RT_Q"
+expect_status "q: second run" 0 "$CONF_STATUS"
+q_registry_lines="$(grep -c '^registry=' "$RT_Q/.npmrc")"
+q_token_lines="$(grep -c "^//$VALID_HOST" "$RT_Q/.npmrc")"
+if [ "$q_registry_lines" = "1" ] && [ "$q_token_lines" = "1" ]; then
+  ok "q: second run: no duplicated registry/auth lines"
 else
-  bad "o: second run" "expected 1 registry and 1 auth line, got $o_registry_lines / $o_token_lines"
+  bad "q: second run" "expected 1 registry and 1 auth line, got $q_registry_lines / $q_token_lines"
 fi
-if grep -q '^ignore-scripts=true$' "$REPO_O/.npmrc"; then
-  ok "o: second run: unrelated settings preserved"
+if grep -q '^ignore-scripts=true$' "$RT_Q/.npmrc"; then
+  ok "q: second run: unrelated settings preserved"
 else
-  bad "o: second run" "an unrelated .npmrc setting was dropped"
+  bad "q: second run" "an unrelated .npmrc setting was dropped"
+fi
+if grep -q '^@myorg:registry=https://npm.pkg.github.com/$' "$RT_Q/.npmrc" \
+  && grep -q '^//npm.pkg.github.com/:_authToken=gh-packages-token$' "$RT_Q/.npmrc"; then
+  ok "q: second run: an unrelated registry keeps BOTH its lines"
+else
+  bad "q: second run" "an unrelated registry's credential was dropped: $(cat "$RT_Q/.npmrc")"
+fi
+q_env_lines="$(grep -c '^NPM_CONFIG_USERCONFIG=' "$CONF_ENV_FILE")"
+if [ "$q_env_lines" = "1" ]; then
+  ok "q: second run: one NPM_CONFIG_USERCONFIG export per run"
+else
+  bad "q: second run" "expected 1 NPM_CONFIG_USERCONFIG line, got $q_env_lines"
 fi
 
 # ---------------------------------------------------------------
