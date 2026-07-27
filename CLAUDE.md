@@ -361,7 +361,18 @@ npm run lint:md
   PR against `main` — mirroring `src/converge/writer.ts`'s own
   fixed-branch, open-or-update contract rather than a timestamped
   branch per run, so a lingering unmerged bump is amended instead of
-  duplicated. The commit/push/PR step mints a short-lived GitHub App
+  duplicated. Before that force-push, a bot-authorship guard reads the
+  branch's LIVE remote tip via `git ls-remote` (not the possibly-stale
+  ref `actions/checkout` already fetched) and, if the branch exists,
+  refuses to push unless that tip's committer email is this workflow's
+  own bot identity — a bare `--force-with-lease` is not sufficient
+  since checkout's own fetch would have already refreshed the lease's
+  remote-tracking ref, so a maintainer's own new commit on the branch
+  would silently be clobbered otherwise. `--force-with-lease=<ref>:
+  <expected>` (or `<ref>:` with an empty expected value when the
+  branch doesn't yet exist) is layered on top as defense-in-depth
+  against the narrower race between that check and the push itself.
+  The commit/push/PR step mints a short-lived GitHub App
   installation token from the `AUTOMERGE_APP_ID` /
   `AUTOMERGE_APP_PRIVATE_KEY` repo secrets (the same PR-operations App
   `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use) rather than
@@ -370,10 +381,12 @@ npm run lint:md
   would never run on its own PRs and they could never satisfy the
   `ci-required` / `pin-shape-required` required checks. That App token
   is scoped to only this last step, kept out of the checkout and the
-  bump script that parse untrusted upstream release/advisory text.
-  Never uses `CONVERGER_APP_*` — that App's Administration/Org
-  administration scope must not be held by a job parsing untrusted
-  upstream release notes and advisory text.
+  bump script that parse untrusted upstream release/advisory text —
+  `git remote set-url` does write it into `.git/config`, but only here,
+  on the ephemeral runner, after the untrusted-text-parsing steps have
+  already finished. Never uses `CONVERGER_APP_*` — that App's
+  Administration/Org administration scope must not be held by a job
+  parsing untrusted upstream release notes and advisory text.
 - `.github/workflows/pin-shape.yml` — REPO-OWN workflow, not part of
   the sweep's rendered payload (no `assets/` counterpart, hand-
   maintained here only). Runs `scripts/check-pin-shape.sh` on every PR

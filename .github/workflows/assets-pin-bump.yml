@@ -130,17 +130,85 @@ jobs:
           # updates its head), never duplicated.
           BASE_SHA="$(git rev-parse HEAD)"
           BRANCH="assets-pin-bump/main"
+          BOT_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
 
           # The App token is introduced here for the first time -- the
           # checkout and the bump script above ran with only the ambient
-          # read-only github.token. Rewrite the remote to carry it rather
-          # than persisting it into .git/config for the whole job.
+          # read-only github.token, so the App token was absent from disk
+          # for both the checkout and the untrusted-release-parsing step.
+          # `git remote set-url` DOES write the token into .git/config
+          # (confirmed by grepping .git/config after this runs) -- it is
+          # not avoiding that. The actual narrowing is *when* and *where*
+          # that happens: the token only lands in .git/config here, on
+          # this ephemeral runner, for this final push/PR step, after the
+          # steps that handle attacker-controlled upstream text have
+          # already finished.
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # Bot-authorship guard: this branch is force-pushed every run
+          # (see the fixed-branch contract above), which is only safe
+          # when the branch's current tip is our own prior run's commit.
+          # A bare --force-with-lease is NOT sufficient here: the
+          # "Checkout" step above already ran actions/checkout, which
+          # fetches and refreshes the local remote-tracking ref for
+          # origin/${BRANCH} (when the branch exists) as a side effect of
+          # its own fetch -- so a lease captured from that ref would
+          # match a maintainer's own new commit and the push would
+          # proceed anyway, silently discarding it. Guard against that by
+          # asking for the LIVE tip of the remote branch and its
+          # committer identity, right before pushing: if the branch
+          # exists and its tip was not committed by this workflow's own
+          # bot identity, refuse to push at all rather than risk
+          # clobbering a human's work. If the branch does not exist yet,
+          # there is nothing to clobber and the guard passes.
+          #
+          # `git ls-remote` (not the REST "commits/{ref}" endpoint) reads
+          # the live tip SHA: BRANCH contains a literal "/"
+          # (assets-pin-bump/main), and the REST ref path parameter does
+          # not reliably handle an un-namespaced, unencoded slash in a
+          # branch name. ls-remote takes a plain refname and has no such
+          # ambiguity. The commit-details lookup that follows is then
+          # queried by bare SHA (never contains a slash), sidestepping
+          # the encoding question entirely.
+          REMOTE_TIP_SHA="$(git ls-remote origin "refs/heads/${BRANCH}" | cut -f1)"
+          if [ -n "$REMOTE_TIP_SHA" ]; then
+            REMOTE_TIP_COMMITTER_EMAIL="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REMOTE_TIP_SHA}" --jq '.commit.committer.email // empty')"
+            if [ "$REMOTE_TIP_COMMITTER_EMAIL" != "$BOT_EMAIL" ]; then
+              echo "::error::Refusing to force-push ${BRANCH}: its current tip ${REMOTE_TIP_SHA} was committed by '${REMOTE_TIP_COMMITTER_EMAIL}', not this workflow's bot identity (${BOT_EMAIL}). A maintainer commit is on this branch; force-pushing would silently discard it. Resolve manually (e.g. merge or close the existing bumper PR) before the next scheduled run."
+              exit 1
+            fi
+            echo "Remote tip of ${BRANCH} (${REMOTE_TIP_SHA}) is our own prior commit; safe to force-push."
+          else
+            echo "Branch ${BRANCH} does not exist yet on the remote; safe to push."
+          fi
 
           git checkout -b "$BRANCH"
           git add assets/
           git commit -m "Bump assets/ action pins to current eligible releases"
-          git push --force origin "HEAD:refs/heads/${BRANCH}"
+
+          # --force-with-lease=<ref>:<expected> narrows the race between
+          # the authorship check above and this push (e.g. a push landing
+          # in that window): it rejects the push outright if the remote
+          # has moved since REMOTE_TIP_SHA was read, rather than
+          # overwriting whatever is there. This is defense-in-depth on
+          # top of the authorship check above, not a replacement for it
+          # -- see the comment there for why a lease alone (sourced from
+          # actions/checkout's own remote-tracking ref) does not catch a
+          # maintainer commit.
+          if [ -n "${REMOTE_TIP_SHA:-}" ]; then
+            git push --force-with-lease="${BRANCH}:${REMOTE_TIP_SHA}" origin "HEAD:refs/heads/${BRANCH}"
+          else
+            # Branch does not exist remotely yet: <ref>:<expect> with an
+            # EMPTY <expect> is git's documented form for "the named ref
+            # must not already exist" (git-push(1)), which is what we
+            # want here -- reject the push if anyone has created the
+            # branch since the authorship check above ran. This is NOT
+            # the same as --force-with-lease=<ref> with no colon at all,
+            # which falls back to the local remote-tracking branch (the
+            # exact stale-ref problem the authorship check above exists
+            # to route around) and would defeat this guard.
+            git push --force-with-lease="${BRANCH}:" origin "HEAD:refs/heads/${BRANCH}"
+          fi
 
           # Diff against the checked-out HEAD's own SHA, not a local
           # `main` ref name -- actions/checkout only creates a local
