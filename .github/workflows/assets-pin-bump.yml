@@ -37,6 +37,25 @@
 # carries Administration and Org administration scope for the sweep;
 # this job parses untrusted upstream release notes and advisory text
 # and must not hold org-level authority.
+#
+# Token-scoping (defense-in-depth): the App token is minted up front
+# (create-github-app-token has no per-step scoping), but it is kept
+# OUT of the checkout and the bump-asset-pins step, which parse
+# attacker-controlled upstream release/advisory text. The checkout
+# uses the ambient github.token (read-only, contents: read is all a
+# plain checkout needs) with persist-credentials: false, and the
+# bump script itself only ever makes read-only GitHub API calls (see
+# its own header). The App token is introduced for the first time in
+# the commit/push/PR step below, which is trusted, non-parsing
+# plumbing.
+#
+# Branch/PR strategy: this mirrors src/converge/writer.ts's own
+# fixed-branch, open-or-update contract rather than inventing a
+# second pattern. A FIXED branch (BRANCH below) is force-reset onto
+# the current main every run; the workflow looks for an already-open
+# PR on that branch before creating a new one, so a lingering
+# not-yet-merged bump is updated in place instead of accumulating a
+# fresh duplicate PR every day.
 name: assets-pin-bump
 
 on:
@@ -46,10 +65,11 @@ on:
     - cron: "0 9 * * *"
   workflow_dispatch: {}
 
-# Only the checkout's implicit GITHUB_TOKEN usage is governed here (the
-# App installation token below carries its own permissions and is used
-# explicitly for every privileged git/API operation). Keep this block
-# minimal; contents: read is enough for a plain checkout.
+# The ambient github.token is used for the checkout and the bump
+# script's own read-only API calls (contents: read covers both). The
+# App installation token minted below carries its own permissions and
+# is used explicitly for the commit/push/PR step instead of widening
+# this block.
 permissions:
   contents: read
 
@@ -72,12 +92,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Run bump-asset-pins
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/bump-asset-pins.sh
 
       - name: Check for changes
@@ -96,19 +115,32 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit, push, and open PR
+      - name: Commit, push, and open-or-update PR
         if: steps.diff.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
 
+          # Fixed branch (mirrors src/converge/writer.ts's CONVERGE_BRANCH
+          # contract): every run force-resets this SAME branch onto the
+          # current main plus today's eligible bumps, rather than opening
+          # a new timestamped branch/PR each time. A prior run's
+          # still-open PR is updated in place (the push below force-
+          # updates its head), never duplicated.
           BASE_SHA="$(git rev-parse HEAD)"
-          BRANCH="assets-pin-bump/$(date -u +%Y%m%d-%H%M%S)"
+          BRANCH="assets-pin-bump/main"
+
+          # The App token is introduced here for the first time -- the
+          # checkout and the bump script above ran with only the ambient
+          # read-only github.token. Rewrite the remote to carry it rather
+          # than persisting it into .git/config for the whole job.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
           git checkout -b "$BRANCH"
           git add assets/
           git commit -m "Bump assets/ action pins to current eligible releases"
-          git push origin "HEAD:refs/heads/${BRANCH}"
+          git push --force origin "HEAD:refs/heads/${BRANCH}"
 
           # Diff against the checked-out HEAD's own SHA, not a local
           # `main` ref name -- actions/checkout only creates a local
@@ -118,6 +150,18 @@ jobs:
           # would fail AFTER the branch and PR-worthy commit have
           # already been pushed.
           CHANGED_FILES="$(git diff --name-only "$BASE_SHA".."$BRANCH" -- assets/ | sed 's/^/- `/; s/$/`/')"
+
+          # Open-or-update: skip gh pr create entirely when a bumper PR
+          # is already open on this branch -- the force-push above
+          # already carried today's rewrite into it. Creating a second
+          # PR on the same head branch would fail anyway, but checking
+          # first keeps the intent explicit and avoids depending on that
+          # failure mode.
+          EXISTING_PR="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Bumper PR #${EXISTING_PR} is already open on ${BRANCH} -- updated in place, not opening a new one."
+            exit 0
+          fi
 
           # Build the PR body with printf (one call per line) rather
           # than a heredoc: a heredoc's closing delimiter must start at

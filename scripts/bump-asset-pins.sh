@@ -33,15 +33,24 @@
 # every managed repo's rendered COPIES current.
 #
 # WHAT THIS SCRIPT DOES: discovers pins, resolves each owner/repo's
-# eligible upstream release via the GitHub API (through `gh api`, so it
-# needs only the workflow's own GITHUB_TOKEN -- no extra secret), and
-# rewrites the SHA + trailing `# vX.Y.Z` comment in place, everywhere
-# that pin occurs across assets/*.yml. It does NOT create a branch,
-# commit, push, or open a PR -- that git/PR plumbing lives in the
-# calling workflow (.github/workflows/assets-pin-bump.yml), which only
-# proceeds to commit when this script actually changed something
-# (`git status --porcelain` is non-empty). No eligible bumps -> no
-# changed files -> no branch, no PR.
+# eligible upstream release via the GitHub API (through `gh api`, all
+# READ-ONLY calls -- repos/*/releases, advisories, git/ref/tags,
+# git/tags), and rewrites the SHA + trailing `# vX.Y.Z` comment in
+# place, everywhere that pin occurs across assets/*.yml. It does NOT
+# create a branch, commit, push, or open a PR -- that git/PR plumbing
+# lives in the calling workflow (.github/workflows/assets-pin-bump.yml),
+# which only proceeds to commit when this script actually changed
+# something (`git status --porcelain` is non-empty). No eligible bumps
+# -> no changed files -> no branch, no PR.
+#
+# Because every call this script makes is read-only, the CALLER can run
+# it with nothing more than the ambient github.token (contents: read).
+# A write-capable App token is still required, but only by the
+# workflow's later commit/push/PR step -- a PR opened with the default
+# GITHUB_TOKEN does not trigger `pull_request` workflows, so ci.yml and
+# pin-shape.yml would never run on the bumper's own PRs. See
+# assets-pin-bump.yml's own Auth block for the full rationale and why
+# that token is deliberately kept out of this script's invocation.
 #
 # Usage:
 #   bump-asset-pins.sh [assets-dir]
@@ -455,7 +464,7 @@ import re, sys
 
 path, old_ref, old_sha, new_sha, new_tag = sys.argv[1:6]
 
-USES_RE = re.compile(r'^(\s*-?\s*uses:\s*)' + re.escape(old_ref) + '@' + re.escape(old_sha) + r'(\s*)(#.*)?$')
+USES_RE = re.compile(r'^(\s*-?\s*uses:\s*)' + re.escape(old_ref) + '@' + re.escape(old_sha) + r'\s*(?:#.*)?$')
 
 with open(path) as fh:
     lines = fh.readlines()
@@ -465,7 +474,7 @@ out = []
 for line in lines:
     m = USES_RE.match(line.rstrip("\n"))
     if m:
-        prefix, trailing_ws = m.group(1), m.group(2)
+        prefix = m.group(1)
         newline = f"{prefix}{old_ref}@{new_sha} # {new_tag}\n"
         out.append(newline)
         changed = True
