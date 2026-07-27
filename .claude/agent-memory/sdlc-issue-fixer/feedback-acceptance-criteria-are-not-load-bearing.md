@@ -5,6 +5,8 @@ metadata:
   type: feedback
 ---
 
+# Acceptance criteria are not load-bearing
+
 When a PR review finding reveals that an issue's stated design (or one
 of its acceptance criteria) is itself wrong, change the design and
 **update the issue body to match**. Do not preserve the old mechanism

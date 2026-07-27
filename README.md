@@ -1,4 +1,5 @@
 # gh-repo-config
+
 GitHub Organization-wide Repo configuration for fan-out of rulesets, actions, and workflows to protect and automate
 
 ## Development
@@ -7,6 +8,7 @@ GitHub Organization-wide Repo configuration for fan-out of rulesets, actions, an
 npm ci
 npm run build
 npm test
+npm run lint:md
 ```
 
 Releases are published as immutable, attested GitHub Releases from

@@ -25,6 +25,19 @@ Test (runs compiled output under `dist/`, so build first):
 npm run build && npm test
 ```
 
+Lint Markdown (all tracked `.md` files, config in `.markdownlint.jsonc`).
+`lint:md`'s glob (`**/*.md`, excluding only `node_modules` and `dist`)
+covers `.claude/agent-memory/**/*.md` too, and `MD041` (first-line
+heading) stays live there — any new agent-memory entry file (which
+opens with YAML front matter, not a heading) needs a `# H1` as its
+first content line after the front matter, or `lint:md` fails on it.
+`MEMORY.md` index files are unaffected since they already open with a
+heading.
+
+```bash
+npm run lint:md
+```
+
 ## Structure
 
 - `src/` — TypeScript source, compiled to `dist/` by `npm run build`.
@@ -247,7 +260,11 @@ npm run build && npm test
     registry. It writes **nothing into the working tree**: the
     credential goes to `$RUNNER_TEMP/.npmrc` with
     `NPM_CONFIG_USERCONFIG` exported through `$GITHUB_ENV`, matching how
-    yarn Berry is already handled via `YARN_NPM_*`. That is the only
+    yarn Berry is already handled via `YARN_NPM_*`. Yarn classic (v1)
+    also resolves the registry and its auth token from
+    `NPM_CONFIG_USERCONFIG` even though it, like npm and pnpm, ignores
+    a repo-root `.npmrc` from a nested manifest directory — it needs no
+    separate `YARN_NPM_*`-style handling. That is the only
     shape independent of the directory the installer `cd`s into — npm
     resolves a project `.npmrc` from the nearest package directory and
     never walks up to the git root, pnpm only up to a covering
@@ -290,6 +307,18 @@ npm run build && npm test
   sweep summary also prints each repo's CodeQL default-setup and
   `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
 - `test/` — `node:test` files, run via `node --test test/**/*.test.js`.
+- `.github/workflows/ci.yml` — REPO-OWN workflow, not part of the
+  sweep's rendered payload (it has no `assets/` counterpart and is
+  hand-maintained here only). Runs on every PR against `main`: build +
+  `npm test`, the `assets/test-*.sh` payload self-tests (looped over
+  the discovered set, so a new self-test is picked up automatically),
+  and lint (`actionlint` over `.github/workflows/*.yml`, `shellcheck`
+  over `assets/*.sh`, `npm run lint:md`). A `ci-required` aggregator
+  job depends on all three and is the single status context registered
+  as required, via the repo-level `repo-required-checks` ruleset — not
+  `protect-main`, which is converged by `src/converge/ruleset.ts`
+  against `assets/protect-main-ruleset.json` and would revert a
+  hand-added context as drift.
 - `.github/workflows/release.yml` — publishes a tagged (`v*`) GitHub
   Release with a build-provenance attestation. Bumping the release
   version means editing `package.json`'s `version` and pushing a

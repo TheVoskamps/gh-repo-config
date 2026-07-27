@@ -1,0 +1,157 @@
+# REPO-OWN workflow — NOT part of the sweep's rendered payload set.
+# Everything else under .github/workflows/ in this repo is a converged
+# copy of assets/*.yml, rewritten every time the fanout sweep runs over
+# this repo (see the "Structure" section of CLAUDE.md). This file is
+# hand-maintained here and only here: it has no assets/ counterpart and
+# the sweep never reads, renders, or overwrites it.
+#
+# Runs this repo's own build, unit-test suite, payload self-tests, and
+# lint over every pull request (issue #58). Before this workflow
+# existed, `npm test` executed only inside release.yml (triggered by a
+# `v*` tag push, i.e. once per release, after the code already merged
+# to main), and the five assets/test-*.sh payload self-tests ran in no
+# workflow at all.
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+
+# Least-privilege: every job only reads the tree to build/test/lint it.
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and unit test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run unit tests
+        run: npm test
+
+  payload-self-tests:
+    name: Payload self-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      # Each assets/test-*.sh is a hermetic self-test of its sibling
+      # assets/*.sh script (no GitHub runner state or network needed).
+      # Looping over the discovered set (rather than hardcoding five
+      # names) means a new test-*.sh added alongside a future script is
+      # picked up automatically.
+      - name: Run payload self-tests
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tests=(assets/test-*.sh)
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo "No assets/test-*.sh self-tests found." >&2
+            exit 1
+          fi
+          for t in "${tests[@]}"; do
+            echo "::group::${t}"
+            bash "${t}"
+            echo "::endgroup::"
+          done
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: actionlint
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+        with:
+          files: ".github/workflows/*.yml"
+          # shellcheck already runs as its own dedicated step below over
+          # assets/*.sh; disable actionlint's bundled shellcheck pass
+          # over embedded `run:` blocks to avoid double-reporting the
+          # same class of issue under two different tools.
+          shellcheck: false
+
+      # Preinstalled on ubuntu-latest — no install step needed.
+      - name: shellcheck
+        run: shellcheck assets/*.sh
+
+      - name: markdownlint-cli2
+        run: npm run lint:md
+
+  # The single required status check. `needs:` every job above and
+  # fails when any of them failed, was cancelled, or was skipped — the
+  # same aggregate-context convention as this repo's existing required
+  # checks (codeql-required, install-gate-required, pinned-gate-required).
+  # Registered as a required status check via the repo-level
+  # `repo-required-checks` ruleset, NOT via `protect-main`:
+  # `protect-main` is converged by this repo's own sweep code
+  # (src/converge/ruleset.ts) against the canonical
+  # assets/protect-main-ruleset.json using an exact-set compare on
+  # required-check contexts, so a hand-added context there would be
+  # treated as drift and reverted on the next sweep tick. GitHub
+  # aggregates required checks across every active ruleset on a branch,
+  # so a check required by either ruleset is required.
+  ci-required:
+    name: ci-required
+    needs: [build-test, payload-self-tests, lint]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Conclude on the dependency jobs' results
+        run: |
+          results=(
+            "${{ needs.build-test.result }}"
+            "${{ needs.payload-self-tests.result }}"
+            "${{ needs.lint.result }}"
+          )
+          echo "build-test: ${{ needs.build-test.result }}"
+          echo "payload-self-tests: ${{ needs.payload-self-tests.result }}"
+          echo "lint: ${{ needs.lint.result }}"
+          for r in "${results[@]}"; do
+            if [ "${r}" != "success" ]; then
+              echo "ci-required aggregator: FAIL — at least one job did not succeed." >&2
+              exit 1
+            fi
+          done
+          echo "ci-required aggregator: PASS."

@@ -5,9 +5,11 @@ metadata:
   type: feedback
 ---
 
+# Self-review blocks request-changes
+
 `gh pr review --request-changes` fails on a self-authored PR with:
 
-```
+```text
 failed to create review: GraphQL: Review Can not request changes on
 your own pull request (addPullRequestReview)
 ```
