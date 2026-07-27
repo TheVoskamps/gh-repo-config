@@ -5,6 +5,8 @@ metadata:
   type: project
 ---
 
+# `gh-repo-config` markdownlint config
+
 `gh-repo-config`'s repo root carries a `.markdownlint.jsonc` that
 disables only `MD013` (line length, because `docs/` has wide tables
 and ASCII trees). Every other markdownlint default rule stays active,
