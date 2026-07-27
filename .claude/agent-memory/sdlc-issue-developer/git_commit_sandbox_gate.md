@@ -5,6 +5,8 @@ metadata:
   type: project
 ---
 
+# Git commit sandbox gate
+
 A `git commit -m "$(cat <<'EOF' ... EOF)"` command can be rejected by
 the harness's dynamic-argument gate with: "a 'git' command whose
 arguments are not all static literals ... cannot be statically
