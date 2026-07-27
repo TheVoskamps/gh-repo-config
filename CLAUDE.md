@@ -25,6 +25,12 @@ Test (runs compiled output under `dist/`, so build first):
 npm run build && npm test
 ```
 
+Lint Markdown (all tracked `.md` files, config in `.markdownlint.jsonc`):
+
+```bash
+npm run lint:md
+```
+
 ## Structure
 
 - `src/` — TypeScript source, compiled to `dist/` by `npm run build`.
@@ -290,6 +296,18 @@ npm run build && npm test
   sweep summary also prints each repo's CodeQL default-setup and
   `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
 - `test/` — `node:test` files, run via `node --test test/**/*.test.js`.
+- `.github/workflows/ci.yml` — REPO-OWN workflow, not part of the
+  sweep's rendered payload (it has no `assets/` counterpart and is
+  hand-maintained here only). Runs on every PR against `main`: build +
+  `npm test`, the `assets/test-*.sh` payload self-tests (looped over
+  the discovered set, so a new self-test is picked up automatically),
+  and lint (`actionlint` over `.github/workflows/*.yml`, `shellcheck`
+  over `assets/*.sh`, `npm run lint:md`). A `ci-required` aggregator
+  job depends on all three and is the single status context registered
+  as required, via the repo-level `repo-required-checks` ruleset — not
+  `protect-main`, which is converged by `src/converge/ruleset.ts`
+  against `assets/protect-main-ruleset.json` and would revert a
+  hand-added context as drift.
 - `.github/workflows/release.yml` — publishes a tagged (`v*`) GitHub
   Release with a build-provenance attestation. Bumping the release
   version means editing `package.json`'s `version` and pushing a
