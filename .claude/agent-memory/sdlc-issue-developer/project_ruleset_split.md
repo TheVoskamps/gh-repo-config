@@ -5,6 +5,8 @@ metadata:
   type: project
 ---
 
+# Project ruleset split
+
 `gh-repo-config`'s own repo carries two active repo-level rulesets on
 `main`, deliberately split by ownership:
 
