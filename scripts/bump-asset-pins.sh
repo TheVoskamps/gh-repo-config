@@ -50,7 +50,7 @@
 # sibling); overridable so the self-test can point at a throwaway
 # fixture directory instead of mutating the real assets/ tree.
 #
-# Requires: gh (authenticated via GITHUB_TOKEN / GH_TOKEN), python3.
+# Requires: gh (authenticated via GITHUB_TOKEN / GH_TOKEN), python3, jq.
 #
 # Exit codes:
 #   0 -- ran to completion (with or without any eligible bump found)
@@ -79,13 +79,22 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "bump-asset-pins: 'jq' not found on PATH." >&2
+  exit 1
+fi
+
 # is_workflow_or_action_shaped <file> -> exit 0 when the file has a
 # top-level `on:` key (workflow) or a top-level `runs:` key (composite
 # action). Mirrors check-pin-shape.sh's exclusion of
 # assets/codeql-config.yml, whose `queries: - uses: security-extended`
-# is a CodeQL query-suite name, not an action pin.
+# is a CodeQL query-suite name, not an action pin. The optional quotes
+# in the pattern accept the common `"on":` spelling (used to sidestep
+# YAML 1.1's `on` -> `true` boolean coercion) as well as the bare form
+# -- a file using that spelling would otherwise be silently skipped,
+# leaving its pins entirely unbumped.
 is_workflow_or_action_shaped() {
-  grep -qE '^(on|runs):' "$1"
+  grep -qE '^"?(on|runs)"?:' "$1"
 }
 
 shopt -s nullglob
@@ -171,29 +180,63 @@ PY
 resolve_bump() {
   local owner="$1" repo="$2" subpath="$3" current_version="$4"
 
-  local releases
-  releases="$(gh api "repos/${owner}/${repo}/releases" --paginate 2>/dev/null)" || {
-    echo "  warn: could not list releases for ${owner}/${repo} -- skipping" >&2
-    return 0
-  }
+  # Write gh api's output STRAIGHT TO DISK (redirect, never captured
+  # into a shell variable and re-interpolated) -- a large action like
+  # github/codeql-action can have enough --paginate'd release history
+  # that passing it as a jq CLI argument (--argjson) overflows
+  # ARG_MAX ("Argument list too long"), so the payloads are combined
+  # via --slurpfile below instead, which reads each file's own content
+  # directly.
+  local releases_file advisories_file
+  releases_file="$(mktemp)"
+  advisories_file="$(mktemp)"
 
-  local advisories
-  advisories="$(gh api "advisories?ecosystem=actions&affects=${owner}/${repo}" 2>/dev/null)" || advisories="[]"
+  if ! gh api "repos/${owner}/${repo}/releases" --paginate >"$releases_file" 2>/dev/null; then
+    echo "  warn: could not list releases for ${owner}/${repo} -- skipping" >&2
+    rm -f "$releases_file" "$advisories_file"
+    return 0
+  fi
+
+  if ! gh api "advisories?ecosystem=actions&affects=${owner}/${repo}" >"$advisories_file" 2>/dev/null; then
+    printf '[]' > "$advisories_file"
+  fi
 
   local is_codeql_action="false"
   if [ "${owner}/${repo}" = "github/codeql-action" ]; then
     is_codeql_action="true"
   fi
 
-  python3 - "$current_version" "$is_codeql_action" <<PY
+  # Untrusted input: `releases` and `advisories` are attacker-controlled
+  # upstream JSON (release names/bodies/tags, advisory text). NEVER
+  # interpolate them into Python source -- a release body containing
+  # the host language's own string delimiters would terminate the
+  # literal early and the remainder would execute as code. Feed both
+  # payloads to the Python process via a TEMP FILE PATH on argv instead
+  # (the combined JSON is written to disk by jq --slurpfile, itself a
+  # pure data operation reading each file's own bytes, never by shell
+  # string interpolation or a CLI argument), so they are always inert
+  # data, never program text. `current_version` / `allow_major` are
+  # our own trusted values and still arrive via argv directly. The
+  # Python source itself is a quoted heredoc (<<'PY'), so no shell
+  # expansion happens inside it at all.
+  local combined_json_file
+  combined_json_file="$(mktemp)"
+  jq -n --slurpfile releases "$releases_file" --slurpfile advisories "$advisories_file" \
+    '{releases: $releases[0], advisories: $advisories[0]}' > "$combined_json_file"
+  rm -f "$releases_file" "$advisories_file"
+
+  python3 - "$current_version" "$is_codeql_action" "$combined_json_file" <<'PY'
 import json, re, sys
 from datetime import datetime, timezone, timedelta
 
 current_version = sys.argv[1]
 allow_major = sys.argv[2] == "true"
+payload_path = sys.argv[3]
 
-releases = json.loads(r'''${releases}''')
-advisories = json.loads(r'''${advisories}''')
+with open(payload_path) as f:
+    payload = json.load(f)
+releases = payload["releases"]
+advisories = payload["advisories"]
 
 SEMVER_RE = re.compile(r'^v?(\d+)\.(\d+)\.(\d+)')
 
@@ -216,6 +259,23 @@ for adv in advisories:
             if pv:
                 first_patched.append(pv)
 
+# Security-eligibility is relative to the PIN IN HAND: an advisory only
+# makes a candidate release security-eligible when the CURRENTLY
+# PINNED version is itself affected by that same advisory (current <
+# first_patched_version). Without this guard, any action that has ever
+# had ANY historical advisory would have every later release --
+# forever -- treated as a security fix, permanently defeating the
+# 7-day soak for that action (and, for github/codeql-action, also
+# bypassing the semver-major gate).
+if current is not None:
+    applicable_first_patched = [fp for fp in first_patched if current < fp]
+else:
+    # No version comment to compare against -- treat every advisory as
+    # potentially applicable rather than silently disabling the
+    # security path; bump_class() below still refuses anything but a
+    # major-eligible action in this case.
+    applicable_first_patched = first_patched
+
 now = datetime.now(timezone.utc)
 soak_cutoff = now - timedelta(days=7)
 
@@ -230,11 +290,13 @@ def bump_class(cur, cand):
 
 # Two disjoint candidate pools, gathered separately:
 #   security_candidates -- newer than current, passes the major-bump
-#     gate, and its version is >= at least one advisory's
-#     first_patched_version. Eligible IMMEDIATELY regardless of age
-#     (mirrors Dependabot: security updates bypass cooldown entirely
-#     and target the MINIMUM patched version, not necessarily the
-#     latest release -- so the smallest such candidate wins).
+#     gate, and its version is >= at least one APPLICABLE advisory's
+#     first_patched_version (i.e. the current pin is actually affected
+#     by that advisory -- see the guard above). Eligible IMMEDIATELY
+#     regardless of age (mirrors Dependabot: security updates bypass
+#     cooldown entirely and target the MINIMUM patched version, not
+#     necessarily the latest release -- so the smallest such candidate
+#     wins).
 #   soak_candidates -- newer than current, passes the major-bump gate,
 #     and is at least 7 days old. The LARGEST such candidate wins (the
 #     most current release that has finished soaking).
@@ -258,7 +320,7 @@ for rel in releases:
     if cls == "major" and not allow_major:
         continue
 
-    if any(cand >= fp for fp in first_patched):
+    if any(cand >= fp for fp in applicable_first_patched):
         security_candidates.append((cand, tag))
         continue
 
@@ -271,6 +333,11 @@ for rel in releases:
     soak_candidates.append((cand, tag))
 
 if security_candidates:
+    # The smallest candidate that is itself >= some applicable
+    # first_patched_version -- i.e. the minimum security-eligible fix,
+    # not the newest release overall. Selecting the newest would creep
+    # straight to head on the first vulnerable pin found, which is more
+    # change than the security fix requires.
     best = min(security_candidates, key=lambda t: t[0])
 elif soak_candidates:
     best = max(soak_candidates, key=lambda t: t[0])
@@ -280,6 +347,9 @@ else:
 if best is not None:
     print(f"{best[1]}")
 PY
+  local resolve_status=$?
+  rm -f "$combined_json_file"
+  return "$resolve_status"
 }
 
 # ---------------------------------------------------------------------
@@ -297,14 +367,13 @@ resolve_tag_ref() {
     return 0
   }
 
-  python3 - <<PY
-import json
-
-ref = json.loads(r'''${ref_json}''')
-obj = ref.get("object", {})
-print(obj.get("sha", ""))
-print(obj.get("type", ""))
-PY
+  python3 -c "
+import json, sys
+ref = json.loads(sys.argv[1])
+obj = ref.get('object', {})
+print(obj.get('sha', ''))
+print(obj.get('type', ''))
+" "$ref_json"
 }
 
 resolve_annotated_tag_commit() {
@@ -333,6 +402,11 @@ while IFS=$'\t' read -r owner repo subpath sha version; do
   [ "$version" = "-" ] && version=""
   pins_seen=$((pins_seen + 1))
   echo "Checking ${owner}/${repo} (current: ${version:-unknown} @ ${sha})..."
+
+  if [ -z "$version" ]; then
+    echo "  warn: no trailing # vX.Y.Z comment -- cannot determine bump class (every candidate looks like a major bump), skipping" >&2
+    continue
+  fi
 
   bump_tag="$(resolve_bump "$owner" "$repo" "$subpath" "$version")"
   if [ -z "$bump_tag" ]; then

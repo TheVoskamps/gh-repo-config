@@ -60,18 +60,19 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      # Each assets/test-*.sh is a hermetic self-test of its sibling
-      # assets/*.sh script (no GitHub runner state or network needed).
-      # Looping over the discovered set (rather than hardcoding five
-      # names) means a new test-*.sh added alongside a future script is
-      # picked up automatically.
+      # Each assets/test-*.sh and scripts/test-*.sh is a hermetic
+      # self-test of its sibling *.sh script (no GitHub runner state or
+      # network needed). Looping over the discovered set (rather than
+      # hardcoding names) means a new test-*.sh added alongside a
+      # future script -- in either directory -- is picked up
+      # automatically.
       - name: Run payload self-tests
         run: |
           set -euo pipefail
           shopt -s nullglob
-          tests=(assets/test-*.sh)
+          tests=(assets/test-*.sh scripts/test-*.sh)
           if [ "${#tests[@]}" -eq 0 ]; then
-            echo "No assets/test-*.sh self-tests found." >&2
+            echo "No assets/test-*.sh or scripts/test-*.sh self-tests found." >&2
             exit 1
           fi
           for t in "${tests[@]}"; do
@@ -112,7 +113,7 @@ jobs:
 
       # Preinstalled on ubuntu-latest — no install step needed.
       - name: shellcheck
-        run: shellcheck assets/*.sh
+        run: shellcheck assets/*.sh scripts/*.sh
 
       - name: markdownlint-cli2
         run: npm run lint:md

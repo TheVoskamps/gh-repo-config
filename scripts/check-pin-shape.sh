@@ -80,9 +80,14 @@ overall_status=0
 # is_workflow_or_action_shaped <file> -> exit 0 when the file has a
 # top-level `on:` key (workflow) or a top-level `runs:` key (composite
 # action). Top-level means column 0 -- a nested `on:`/`runs:` under a
-# job/step does not count, so the check is grep -E '^(on|runs):'.
+# job/step does not count, so the check is
+# grep -E '^"?(on|runs)"?:'. The optional quotes accept the common
+# `"on":` spelling (used to sidestep YAML 1.1's `on` -> `true` boolean
+# coercion) as well as the bare form -- a file using that spelling
+# would otherwise be silently SKIPped, leaving its pins entirely
+# unchecked.
 is_workflow_or_action_shaped() {
-  grep -qE '^(on|runs):' "$1"
+  grep -qE '^"?(on|runs)"?:' "$1"
 }
 
 for manifest in "${manifests[@]}"; do

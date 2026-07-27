@@ -19,6 +19,8 @@
 #     carrying a `uses:`-shaped key that is NOT a GitHub Actions
 #     reference (mirrors assets/codeql-config.yml's
 #     `queries: - uses: security-extended`) is skipped, not flagged.
+#   - A workflow written with the quoted `"on":` spelling is still
+#     recognized as workflow-shaped and scanned (not silently skipped).
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -165,6 +167,20 @@ runs:
     - uses: aws-actions/configure-aws-credentials@v6
 YAML
 assert_exit "composite-action-shaped file (runs:, no on:) is scanned" 1 "$CASE8B"
+
+# Case 9: a workflow written with the quoted `"on":` spelling (a common
+# way to sidestep YAML 1.1's `on` -> `true` boolean coercion) is still
+# recognized as workflow-shaped and scanned -- not silently SKIPped,
+# which would leave a violation inside it entirely unchecked.
+CASE9="$TMP_ROOT/case9"
+mkdir -p "$CASE9"
+cat > "$CASE9/workflow.yml" <<'YAML'
+"on":
+  pull_request:
+steps:
+  - uses: actions/checkout@v4
+YAML
+assert_exit "quoted \"on\": spelling is still recognized as workflow-shaped and scanned" 1 "$CASE9"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-check-pin-shape: ${failures} case(s) failed." >&2

@@ -310,13 +310,15 @@ npm run lint:md
 - `.github/workflows/ci.yml` — REPO-OWN workflow, not part of the
   sweep's rendered payload (it has no `assets/` counterpart and is
   hand-maintained here only). Runs on every PR against `main`: build +
-  `npm test`, the `assets/test-*.sh` payload self-tests (looped over
-  the discovered set, so a new self-test is picked up automatically),
-  and lint (`actionlint` over `.github/workflows/*.yml`, `shellcheck`
-  over `assets/*.sh`, `npm run lint:md`). A `ci-required` aggregator
-  job depends on all three and is the single status context registered
-  as required, via the repo-level `repo-required-checks` ruleset — not
-  `protect-main`, which is converged by `src/converge/ruleset.ts`
+  `npm test`, the `assets/test-*.sh` AND `scripts/test-*.sh` payload
+  self-tests (looped over the discovered set from both directories, so
+  a new self-test in either is picked up automatically), and lint
+  (`actionlint` over `.github/workflows/*.yml`, `shellcheck` over
+  `assets/*.sh` AND `scripts/*.sh`, `npm run lint:md`). A `ci-required`
+  aggregator job depends on all three and is the single status context
+  registered as required, via the repo-level `repo-required-checks`
+  ruleset — not `protect-main`, which is converged by
+  `src/converge/ruleset.ts`
   against `assets/protect-main-ruleset.json` and would revert a
   hand-added context as drift.
 - `.github/rulesets/` — checked-in source-of-record copies of
@@ -353,9 +355,18 @@ npm run lint:md
   part of the sweep's rendered payload (no `assets/` counterpart,
   hand-maintained here only). Scheduled daily plus `workflow_dispatch`;
   runs `scripts/bump-asset-pins.sh` and, only if it actually changed a
-  file, commits, pushes a branch, and opens a PR against `main` via the
-  default `GITHUB_TOKEN` (no org-level scopes needed — unlike
-  `sweep.yml`'s dedicated converger App).
+  file, commits, pushes a branch, and opens a PR against `main`. Mints
+  a short-lived GitHub App installation token from the
+  `AUTOMERGE_APP_ID` / `AUTOMERGE_APP_PRIVATE_KEY` repo secrets (the
+  same PR-operations App `auto-rebase-prs.yml` /
+  `auto-enable-automerge.yml` use) rather than the default
+  `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not trigger
+  `pull_request` workflows, so `ci.yml` and `pin-shape.yml` would never
+  run on its own PRs and they could never satisfy the
+  `ci-required` / `pin-shape-required` required checks. Never uses
+  `CONVERGER_APP_*` — that App's Administration/Org administration
+  scope must not be held by a job parsing untrusted upstream release
+  notes and advisory text.
 - `.github/workflows/pin-shape.yml` — REPO-OWN workflow, not part of
   the sweep's rendered payload (no `assets/` counterpart, hand-
   maintained here only). Runs `scripts/check-pin-shape.sh` on every PR

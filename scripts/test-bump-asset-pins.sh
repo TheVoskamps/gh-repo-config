@@ -332,6 +332,165 @@ else
   cat "$TMP_ROOT/case7.log"
 fi
 
+# ---------------------------------------------------------------------
+# Case 8: a release body containing the embedded language's own string
+# delimiters (a Python triple-quote) must be handled as INERT DATA, not
+# executed. This is the regression test for the arbitrary-code-
+# execution finding: releases/advisories JSON is fed to python3 via a
+# file path on argv, never interpolated into Python source text, so a
+# `'''` anywhere in the payload can never terminate a string literal
+# early. Plant a marker-file side effect in the body exactly the way a
+# real attack would, and assert it never appears -- plus assert the
+# bumper still runs to completion and reaches its normal "up to date"
+# outcome (no crash, no misparse) for this benign-shaped-but-hostile
+# release.
+# ---------------------------------------------------------------------
+CASE8="$TMP_ROOT/case8"
+mkdir -p "$CASE8/assets" "$CASE8/fixtures"
+make_fake_gh "$CASE8/fixtures"
+MARKER_FILE="$TMP_ROOT/case8-marker"
+rm -f "$MARKER_FILE"
+
+cat > "$CASE8/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: evil-owner/evil-action@1111111111111111111111111111111111111111 # v1.0.0
+YAML
+
+python3 - "$CASE8/fixtures/repos_evil-owner_evil-action_releases.json" "$MARKER_FILE" "$(iso_days_ago 30)" <<'PY'
+import json, sys
+
+out_path, marker_path, published = sys.argv[1:4]
+body = (
+    "release notes ''' + str(__import__('os').system("
+    + repr("touch " + marker_path)
+    + ")) + r''' end"
+)
+releases = [{
+    "tag_name": "v1.1.0",
+    "published_at": published,
+    "draft": False,
+    "prerelease": False,
+    "body": body,
+}]
+with open(out_path, "w") as f:
+    json.dump(releases, f)
+PY
+echo '[]' > "$CASE8/fixtures/advisories_ecosystem_actions_affects_evil-owner_evil-action.json"
+cat > "$CASE8/fixtures/repos_evil-owner_evil-action_git_ref_tags_v1.1.0.json" <<'JSON'
+{"object": {"sha": "6666666666666666666666666666666666666666", "type": "commit"}}
+JSON
+
+run_bumper "$CASE8/assets" "$CASE8/fixtures" > "$TMP_ROOT/case8.log" 2>&1
+case8_status=$?
+
+if [ -f "$MARKER_FILE" ]; then
+  fail "malicious release body EXECUTED -- marker file was created (arbitrary code execution)"
+  cat "$TMP_ROOT/case8.log"
+else
+  pass "malicious release body ('''  in its text) is treated as inert data, not executed"
+fi
+
+if [ "$case8_status" -eq 0 ] && grep -q "v1.1.0" "$CASE8/assets/workflow.yml"; then
+  pass "bumper still parses and applies the eligible release despite hostile delimiters in its body"
+else
+  fail "bumper did not complete normally on a release body containing embedded delimiters"
+  cat "$TMP_ROOT/case8.log"
+fi
+
+# ---------------------------------------------------------------------
+# Case 9: the 7-day soak must still apply when the action has a
+# HISTORICAL advisory but the CURRENTLY PINNED version is not itself
+# affected by it (first_patched_version is BELOW the current pin).
+# Without the current-pin-is-vulnerable guard, every release of an
+# action that ever had any advisory would be treated as a security fix
+# forever, bypassing the soak unconditionally. Here current is v2.0.0,
+# the advisory's first_patched_version is v0.9.1 (long since surpassed
+# by the current pin), and a same-day v2.1.0 release exists with no
+# applicable advisory -- it must NOT be taken; the soak must still
+# apply and the file must be unchanged.
+# ---------------------------------------------------------------------
+CASE9="$TMP_ROOT/case9"
+mkdir -p "$CASE9/assets" "$CASE9/fixtures"
+make_fake_gh "$CASE9/fixtures"
+
+cat > "$CASE9/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: patched-owner/patched-action@7777777777777777777777777777777777777777 # v2.0.0
+YAML
+
+cat > "$CASE9/fixtures/repos_patched-owner_patched-action_releases.json" <<JSON
+[
+  {"tag_name": "v2.1.0", "published_at": "$(iso_now)", "draft": false, "prerelease": false}
+]
+JSON
+
+cat > "$CASE9/fixtures/advisories_ecosystem_actions_affects_patched-owner_patched-action.json" <<'JSON'
+[
+  {"vulnerabilities": [{"first_patched_version": {"identifier": "v0.9.1"}}]}
+]
+JSON
+
+# Fixture for the downstream tag-resolution step too, so a would-be
+# regression that reintroduces the soak bypass is caught by the
+# CONTENT check below, not masked by an unrelated failure further down
+# the pipeline (e.g. a missing tag-ref fixture) that happens to also
+# leave the file unchanged.
+cat > "$CASE9/fixtures/repos_patched-owner_patched-action_git_ref_tags_v2.1.0.json" <<'JSON'
+{"object": {"sha": "9999999999999999999999999999999999999999", "type": "commit"}}
+JSON
+
+before_hash="$(python3 -c "import hashlib; print(hashlib.sha256(open('$CASE9/assets/workflow.yml','rb').read()).hexdigest())")"
+run_bumper "$CASE9/assets" "$CASE9/fixtures" > "$TMP_ROOT/case9.log" 2>&1
+after_hash="$(python3 -c "import hashlib; print(hashlib.sha256(open('$CASE9/assets/workflow.yml','rb').read()).hexdigest())")"
+
+if [ "$before_hash" = "$after_hash" ] && ! grep -q "bumping" "$TMP_ROOT/case9.log"; then
+  pass "historical advisory whose first_patched_version is already below the current pin does NOT bypass the soak"
+else
+  fail "expected soak to still apply (current pin already patched) but file was rewritten"
+  cat "$TMP_ROOT/case9.log"
+  cat "$CASE9/assets/workflow.yml"
+fi
+
+# ---------------------------------------------------------------------
+# Case 10: a workflow written with the quoted `"on":` spelling (a
+# common way to sidestep YAML 1.1's `on` -> `true` boolean coercion) is
+# still recognized as workflow-shaped and its pins are bumped -- not
+# silently skipped, which would leave the pin unbumped forever.
+# ---------------------------------------------------------------------
+CASE10="$TMP_ROOT/case10"
+mkdir -p "$CASE10/assets" "$CASE10/fixtures"
+make_fake_gh "$CASE10/fixtures"
+
+cat > "$CASE10/assets/workflow.yml" <<'YAML'
+"on":
+  pull_request:
+steps:
+  - uses: quoted-owner/quoted-action@1010101010101010101010101010101010101010 # v1.0.0
+YAML
+
+cat > "$CASE10/fixtures/repos_quoted-owner_quoted-action_releases.json" <<JSON
+[
+  {"tag_name": "v1.1.0", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+echo '[]' > "$CASE10/fixtures/advisories_ecosystem_actions_affects_quoted-owner_quoted-action.json"
+cat > "$CASE10/fixtures/repos_quoted-owner_quoted-action_git_ref_tags_v1.1.0.json" <<'JSON'
+{"object": {"sha": "1212121212121212121212121212121212121212", "type": "commit"}}
+JSON
+
+run_bumper "$CASE10/assets" "$CASE10/fixtures" > "$TMP_ROOT/case10.log" 2>&1
+if grep -q "v1.1.0" "$CASE10/assets/workflow.yml"; then
+  pass "quoted \"on\": spelling is still recognized as workflow-shaped and its pins are bumped"
+else
+  fail "expected quoted \"on\": workflow to be scanned and bumped to v1.1.0"
+  cat "$TMP_ROOT/case10.log"
+  cat "$CASE10/assets/workflow.yml"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-bump-asset-pins: ${failures} case(s) failed." >&2
   exit 1
