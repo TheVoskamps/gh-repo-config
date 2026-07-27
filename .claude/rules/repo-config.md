@@ -8,6 +8,8 @@ default-pr-target-branch: main
 issue-branch-naming-prefix: none
 ---
 
+# Repo Config
+
 github-project:
   project-id: PVT_kwDODgIBic4BW6zL
   fields:
@@ -49,7 +51,7 @@ github-project:
     Feature: IT_kwDODgIBic4BvGY0
     Tech Debt: IT_kwDODgIBic4CA7tN
 
-# Repo Config
+## About this file
 
 Read by `/issue-address` and by the `issue-developer`, `issue-fixer`,
 `doc-updater`, and `pr-reviewer` subagents at the start of every run.

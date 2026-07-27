@@ -5,6 +5,8 @@ metadata:
   type: feedback
 ---
 
+# Don't anchor a recommendation to an AC
+
 When a review finding proves that an issue's stated design (or one of
 its acceptance criteria) is itself wrong, recommend fixing the design
 and updating the issue body. Do **not** recommend keeping the old

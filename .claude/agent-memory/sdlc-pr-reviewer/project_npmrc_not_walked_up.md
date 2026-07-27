@@ -5,6 +5,8 @@ metadata:
   type: project
 ---
 
+# .npmrc is not walked up
+
 Neither npm nor pnpm walks up to the git root for a project `.npmrc`.
 Both resolve it relative to the nearest package directory, so a
 repo-root `.npmrc` is invisible to an install run from
