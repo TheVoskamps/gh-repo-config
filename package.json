@@ -14,10 +14,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test test/**/*.test.js",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#dist\"",
     "prepack": "npm run build"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
+    "markdownlint-cli2": "0.23.1",
     "typescript": "5.9.3"
   }
 }
