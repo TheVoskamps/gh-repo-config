@@ -80,7 +80,7 @@ test("npm block gets the rich tier (versioning-strategy + semver cooldown tiers)
   assert.match(npm, /default-days: 7/);
 });
 
-test("github-actions block: singular directory, weekly, no versioning-strategy, default-days only", () => {
+test("github-actions block: singular directory, daily, no versioning-strategy, default-days only", () => {
   const out = renderDependabotYml(
     readAssetText("dependabot.yml"),
     readAssetText("ecosystem-block.yml"),
@@ -89,7 +89,7 @@ test("github-actions block: singular directory, weekly, no versioning-strategy, 
   const gha = blockFor(out, "github-actions");
   assert.match(gha, /directory: "\/"/);
   assert.doesNotMatch(gha, /directories:/);
-  assert.match(gha, /interval: "weekly"/);
+  assert.match(gha, /interval: "daily"/);
   assert.doesNotMatch(gha, /versioning-strategy/);
   assert.doesNotMatch(gha, /semver-major-days/);
   assert.match(gha, /default-days: 7/);

@@ -299,7 +299,11 @@ function renderEcosystemBlock(
 ): string {
   const cls = ecosystemClass(ecosystem);
 
-  const scheduleInterval = cls === "github-actions" ? "weekly" : "daily";
+  // __SCHEDULE_INTERVAL__: every ecosystem class runs daily. The
+  // cooldown (`__COOLDOWN_BLOCK__`) is what governs which versions are
+  // eligible; the schedule interval only governs how often Dependabot
+  // looks, so there is no reason for github-actions to look less often.
+  const scheduleInterval = "daily";
 
   // __DIRECTORY_BLOCK__: github-actions uses a singular fixed directory;
   // every other ecosystem uses a recursing root globstar.

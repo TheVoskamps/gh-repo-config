@@ -37,7 +37,7 @@
 #                                recursing path). Note: bare `**` under
 #                                `directories` does NOT recurse; `**/*` is
 #                                the verified pattern.
-#   __SCHEDULE_INTERVAL__        "daily" for npm/pip/docker, "weekly" for
+#   __SCHEDULE_INTERVAL__        "daily" for every ecosystem, including
 #                                github-actions.
 #   __VERSIONING_STRATEGY_BLOCK__  `versioning-strategy: increase` on
 #                                npm/pip ONLY (the only two ecosystems that
