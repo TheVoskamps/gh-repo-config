@@ -364,14 +364,20 @@ npm run lint:md
   duplicated. Before that force-push, a bot-authorship guard reads the
   branch's LIVE remote tip via `git ls-remote` (not the possibly-stale
   ref `actions/checkout` already fetched) and, if the branch exists,
-  refuses to push unless that tip's committer email is this workflow's
-  own bot identity — a bare `--force-with-lease` is not sufficient
-  since checkout's own fetch would have already refreshed the lease's
+  refuses to push unless that tip's commit AUTHOR email is this
+  workflow's own bot identity — keyed on author, not committer,
+  because both `auto-rebase-prs.yml` and `auto-enable-automerge.yml`
+  rebase-and-force-push any open, non-draft, same-owner PR that has
+  fallen behind `main` (including the bumper's own PR), and `git
+  rebase` rewrites the committer while leaving the author untouched; a
+  bare `--force-with-lease` is not sufficient on its own since
+  checkout's own fetch would have already refreshed the lease's
   remote-tracking ref, so a maintainer's own new commit on the branch
-  would silently be clobbered otherwise. `--force-with-lease=<ref>:
-  <expected>` (or `<ref>:` with an empty expected value when the
-  branch doesn't yet exist) is layered on top as defense-in-depth
-  against the narrower race between that check and the push itself.
+  would silently be clobbered otherwise.
+  `--force-with-lease=<ref>:<expected>` (or `<ref>:` with an empty
+  expected value when the branch doesn't yet exist) is layered on top
+  as defense-in-depth against the narrower race between that check and
+  the push itself.
   The commit/push/PR step mints a short-lived GitHub App
   installation token from the `AUTOMERGE_APP_ID` /
   `AUTOMERGE_APP_PRIVATE_KEY` repo secrets (the same PR-operations App
