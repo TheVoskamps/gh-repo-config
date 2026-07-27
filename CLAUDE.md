@@ -324,10 +324,46 @@ npm run lint:md
   and maintained by a human via the rules API or web UI), never
   touched by the converger. Holds `repo-required-checks.json`, the
   create-input body for the `repo-required-checks` ruleset described
-  above, plus a README explaining the recreate-from-source command.
-  Distinct from `protect-main`, whose canonical source is
-  `assets/protect-main-ruleset.json` and is converger-managed — it is
-  deliberately not tracked here.
+  above (requires both the `ci-required` and `pin-shape-required`
+  status checks on the default branch), plus a README explaining the
+  recreate-from-source command. Distinct from `protect-main`, whose
+  canonical source is `assets/protect-main-ruleset.json` and is
+  converger-managed — it is deliberately not tracked here. Editing
+  this checked-in copy does not itself change the live ruleset;
+  applying a change is a separate, manual, post-merge operator step
+  (the README's recreate-from-source command).
+- `scripts/` — repo-own scripts, distinct from `.github/scripts/`
+  (sweep-rendered payload territory the converger overwrites from
+  `assets/` on every tick — a repo-own script placed there would be
+  destroyed on the next sweep). Holds `bump-asset-pins.sh` (rewrites
+  `assets/*.yml`'s `uses:` pins to the current eligible upstream
+  release, applying the same policy the rendered `github-actions`
+  Dependabot ecosystem applies: security fixes immediately, everything
+  else after a 7-day soak, semver-major bumps limited to the
+  `github/codeql-action/*` named group — see the script's own header
+  for the full policy and why `assets/*.yml` needs its own bumper
+  instead of relying on Dependabot, which can't reach templates
+  outside `.github/workflows/`) and `check-pin-shape.sh` (an offline,
+  purely syntactic gate asserting every `uses:` in `assets/*.yml` is
+  either a local ref or an exact 40-hex-SHA pin; staleness is
+  explicitly out of scope — that's the bumper's job, on its own
+  schedule), plus their self-tests `test-bump-asset-pins.sh` /
+  `test-check-pin-shape.sh` (both fully offline, no network access).
+- `.github/workflows/assets-pin-bump.yml` — REPO-OWN workflow, not
+  part of the sweep's rendered payload (no `assets/` counterpart,
+  hand-maintained here only). Scheduled daily plus `workflow_dispatch`;
+  runs `scripts/bump-asset-pins.sh` and, only if it actually changed a
+  file, commits, pushes a branch, and opens a PR against `main` via the
+  default `GITHUB_TOKEN` (no org-level scopes needed — unlike
+  `sweep.yml`'s dedicated converger App).
+- `.github/workflows/pin-shape.yml` — REPO-OWN workflow, not part of
+  the sweep's rendered payload (no `assets/` counterpart, hand-
+  maintained here only). Runs `scripts/check-pin-shape.sh` on every PR
+  against `main`. Its `pin-shape-required` aggregator is registered as
+  a required status check via the repo-level `repo-required-checks`
+  ruleset, not `protect-main`, for the same reason `ci-required` is —
+  a hand-added context on `protect-main` would be reverted as drift by
+  `src/converge/ruleset.ts`.
 - `.github/workflows/release.yml` — publishes a tagged (`v*`) GitHub
   Release with a build-provenance attestation. Bumping the release
   version means editing `package.json`'s `version` and pushing a
