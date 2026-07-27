@@ -319,6 +319,15 @@ npm run lint:md
   `protect-main`, which is converged by `src/converge/ruleset.ts`
   against `assets/protect-main-ruleset.json` and would revert a
   hand-added context as drift.
+- `.github/rulesets/` — checked-in source-of-record copies of
+  repo-level GitHub rulesets that are **operator-managed** (created
+  and maintained by a human via the rules API or web UI), never
+  touched by the converger. Holds `repo-required-checks.json`, the
+  create-input body for the `repo-required-checks` ruleset described
+  above, plus a README explaining the recreate-from-source command.
+  Distinct from `protect-main`, whose canonical source is
+  `assets/protect-main-ruleset.json` and is converger-managed — it is
+  deliberately not tracked here.
 - `.github/workflows/release.yml` — publishes a tagged (`v*`) GitHub
   Release with a build-provenance attestation. Bumping the release
   version means editing `package.json`'s `version` and pushing a
