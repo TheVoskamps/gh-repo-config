@@ -9,7 +9,8 @@ something any code in this repo asserts or reverts.
 ## `repo-required-checks.json`
 
 Requires the `ci-required` status check (produced by
-`.github/workflows/ci.yml`) on the default branch.
+`.github/workflows/ci.yml`) and the `pin-shape-required` status check
+(produced by `.github/workflows/pin-shape.yml`) on the default branch.
 
 This is deliberately a separate ruleset from `protect-main` rather
 than a context added to `protect-main` — `protect-main` is converged
@@ -18,7 +19,10 @@ by this repo's own sweep code (`src/converge/ruleset.ts`) against
 required-check contexts, so a hand-added context there would be
 reverted as drift. GitHub aggregates all active rulesets on a branch,
 so a check required by `repo-required-checks` is required even though
-`protect-main` doesn't list it.
+`protect-main` doesn't list it. `pin-shape-required` guards
+`assets/*.yml`'s `uses:` pin shape — a directory only this repo has,
+so it belongs here rather than in the fanned-out `protect-main`
+payload (see issue #60).
 
 Note that `protect-main` is intentionally **not** tracked in this
 directory — it has its own canonical source under `assets/` and is

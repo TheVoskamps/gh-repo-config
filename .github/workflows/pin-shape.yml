@@ -1,0 +1,79 @@
+# REPO-OWN workflow — NOT part of the sweep's rendered payload set.
+# Everything else under .github/workflows/ in this repo is a converged
+# copy of assets/*.yml, rewritten every time the fanout sweep runs over
+# this repo (see the "Structure" section of CLAUDE.md). This file is
+# hand-maintained here and only here: it has no assets/ counterpart and
+# the sweep never reads, renders, or overwrites it.
+#
+# Offline, purely syntactic gate (issue #60) over every `uses:` action
+# reference in assets/*.yml -- the fanout's authoritative payload
+# templates, which Dependabot's github-actions ecosystem cannot reach
+# (it only scans .github/workflows/ plus a root action.yml). Fails a
+# PR when a pin is a bare `uses:` with no @ref, or a floating tag/
+# branch/short-SHA ref instead of an exact 40-hex commit SHA.
+#
+# CURRENCY IS EXPLICITLY OUT OF SCOPE for this gate -- an old-but-well-
+# formed pin passes. Keeping pins CURRENT is
+# scripts/bump-asset-pins.sh's job, on its own schedule
+# (assets-pin-bump.yml). A gate that failed on staleness would turn
+# red on unrelated PRs the moment an upstream release crossed its soak
+# threshold, and would fail the bumper's own PRs (which by
+# construction change pins).
+#
+# Logic lives in scripts/check-pin-shape.sh (repo-own, installed at
+# scripts/ rather than .github/scripts/ -- see that script's header for
+# why). Self-tested by scripts/test-check-pin-shape.sh.
+name: pin-shape
+
+on:
+  pull_request:
+    branches: [main]
+
+# Least-privilege: the gate only reads the tree to classify assets/
+# uses: references. No write scopes are needed.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check assets/ pin shape
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Check pin shape
+        run: bash scripts/check-pin-shape.sh
+
+  # The single required status check. `needs:` the check job above and
+  # fails when it failed, was cancelled, or was skipped. Registered as
+  # a required status check via the repo-level `repo-required-checks`
+  # ruleset, NOT via `protect-main`: `protect-main` is converged by
+  # this repo's own sweep code (src/converge/ruleset.ts) against the
+  # canonical assets/protect-main-ruleset.json using an exact-set
+  # compare on required-check contexts, so a hand-added context there
+  # would be treated as drift and reverted on the next sweep tick.
+  # GitHub aggregates required checks across every active ruleset on a
+  # branch, so a check required by either ruleset is required.
+  pin-shape-required:
+    name: pin-shape-required
+    needs: check
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Conclude on the check job's result
+        run: |
+          result="${{ needs.check.result }}"
+          echo "check: ${result}"
+          if [ "${result}" != "success" ]; then
+            echo "pin-shape-required aggregator: FAIL — the check job did not succeed." >&2
+            exit 1
+          fi
+          echo "pin-shape-required aggregator: PASS."
