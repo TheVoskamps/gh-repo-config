@@ -364,16 +364,25 @@ npm run lint:md
   duplicated. Before that force-push, a bot-authorship guard reads the
   branch's LIVE remote tip via `git ls-remote` (not the possibly-stale
   ref `actions/checkout` already fetched) and, if the branch exists,
-  refuses to push unless that tip's commit AUTHOR email is this
-  workflow's own bot identity — keyed on author, not committer,
-  because both `auto-rebase-prs.yml` and `auto-enable-automerge.yml`
-  rebase-and-force-push any open, non-draft, same-owner PR that has
-  fallen behind `main` (including the bumper's own PR), and `git
-  rebase` rewrites the committer while leaving the author untouched; a
-  bare `--force-with-lease` is not sufficient on its own since
-  checkout's own fetch would have already refreshed the lease's
-  remote-tracking ref, so a maintainer's own new commit on the branch
-  would silently be clobbered otherwise.
+  refuses to push unless that tip's commit was produced entirely by
+  this workflow's own automation: AUTHOR is this workflow's bot
+  identity AND COMMITTER is either that same bot identity (a fresh
+  bumper push) or the `auto-rebase-prs.yml` / `auto-enable-
+  automerge.yml` bot identity (a rebase of the bumper's own PR). Author
+  alone is keyed first because both `auto-rebase-prs.yml` and
+  `auto-enable-automerge.yml` rebase-and-force-push any open,
+  non-draft, same-owner PR that has fallen behind `main` (including the
+  bumper's own PR), and `git rebase` rewrites the committer while
+  leaving the author untouched. But author alone is not sufficient: a
+  maintainer who *amends* the bot's commit keeps the bot as author
+  while replacing its content, so the committer is checked too — any
+  committer other than the bot itself or the auto-rebase bot means the
+  commit was amended by someone else, and the push is refused exactly
+  like a non-bot-authored commit is. A bare `--force-with-lease` is not
+  sufficient on its own since checkout's own fetch would have already
+  refreshed the lease's remote-tracking ref, so a maintainer's own new
+  commit (or amendment) on the branch would silently be clobbered
+  otherwise.
   `--force-with-lease=<ref>:<expected>` (or `<ref>:` with an empty
   expected value when the branch doesn't yet exist) is layered on top
   as defense-in-depth against the narrower race between that check and

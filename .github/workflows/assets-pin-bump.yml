@@ -90,6 +90,14 @@ jobs:
       # comment for why AUTHOR (not committer) is the correct property
       # to key on.
       BOT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+      # The identity `git rebase` rewrites the COMMITTER to when
+      # auto-rebase-prs.yml or auto-enable-automerge.yml rebase this
+      # bumper's own PR. Declared once here (not a second bare literal
+      # in the guard step) for the same drift-prevention reason as
+      # BOT_AUTHOR_EMAIL above. Confirmed against a real rebase commit
+      # in this repo's history (1ebd8233a40c85b42828aa3ca989c9df6189397):
+      # author_email is the Dependabot author, committer_email is this.
+      AUTO_REBASE_COMMITTER_EMAIL: "gh-repo-config-auto-rebase[bot]@users.noreply.github.com"
     steps:
       - name: Mint App installation token
         id: app-token
@@ -157,37 +165,47 @@ jobs:
 
           # Bot-authorship guard: this branch is force-pushed every run
           # (see the fixed-branch contract above), which is only safe
-          # when the branch's current tip is our own prior run's commit.
-          # A bare --force-with-lease is NOT sufficient here: the
-          # "Checkout" step above already ran actions/checkout, which
-          # fetches and refreshes the local remote-tracking ref for
-          # origin/${BRANCH} (when the branch exists) as a side effect of
-          # its own fetch -- so a lease captured from that ref would
-          # match a maintainer's own new commit and the push would
-          # proceed anyway, silently discarding it. Guard against that by
-          # asking for the LIVE tip of the remote branch and its
-          # AUTHOR identity, right before pushing: if the branch exists
-          # and its tip was not authored by this workflow's own bot
-          # identity, refuse to push at all rather than risk clobbering
-          # a human's work. If the branch does not exist yet, there is
-          # nothing to clobber and the guard passes.
+          # when the branch's current tip is our own prior run's commit
+          # (optionally rebased by our own PR-automation, never amended
+          # or replaced by a human). A bare --force-with-lease is NOT
+          # sufficient here: the "Checkout" step above already ran
+          # actions/checkout, which fetches and refreshes the local
+          # remote-tracking ref for origin/${BRANCH} (when the branch
+          # exists) as a side effect of its own fetch -- so a lease
+          # captured from that ref would match a maintainer's own new
+          # commit and the push would proceed anyway, silently
+          # discarding it. Guard against that by asking for the LIVE tip
+          # of the remote branch and its AUTHOR and COMMITTER identity,
+          # right before pushing.
           #
-          # This keys on the commit AUTHOR, not the committer. The
-          # committer is NOT stable across this branch's lifetime: both
+          # This keys on AUTHOR primarily, because the committer is NOT
+          # stable across this branch's lifetime: both
           # auto-rebase-prs.yml and auto-enable-automerge.yml
           # rebase-and-force-push any open, non-draft, same-owner PR
           # that has fallen behind main -- including this bumper's own
           # PR, which passes every one of those filters -- and `git
           # rebase` rewrites the COMMITTER to
-          # gh-repo-config-auto-rebase[bot]@users.noreply.github.com
-          # while leaving the AUTHOR untouched. Keying on committer.email
-          # would therefore only match on the bumper's very first push;
-          # the first auto-rebase of the bumper's own PR would flip the
-          # committer identity and permanently deadlock every subsequent
-          # scheduled run. The author survives a rebase, which is why
+          # AUTO_REBASE_COMMITTER_EMAIL while leaving the AUTHOR
+          # untouched. Keying on committer.email alone would therefore
+          # only match on the bumper's very first push; the first
+          # auto-rebase of the bumper's own PR would flip the committer
+          # identity and permanently deadlock every subsequent scheduled
+          # run. The author survives a rebase, which is why
           # assets/auto-rebase-prs.yml already relies on that same
-          # property (see its own Dependabot-author-exclusion comments)
-          # rather than the committer.
+          # property (see its own Dependabot-author-exclusion comments).
+          #
+          # Author alone is not sufficient either, though: a maintainer
+          # who AMENDS the bot's commit (rather than adding a new one)
+          # keeps the bot as the commit's author while replacing its
+          # content -- author-only keying would silently admit that
+          # amendment and the next scheduled run would force-push it
+          # away. So the tip is admitted only when the author is the bot
+          # AND the committer is one of the two identities that can
+          # legitimately produce that combination: the bot itself (a
+          # fresh bumper push) or the auto-rebase bot (a rebase of the
+          # bumper's own PR). Any other committer alongside a bot author
+          # means the commit was amended by someone else, and is
+          # refused exactly like a non-bot author is.
           #
           # `git ls-remote` (not the REST "commits/{ref}" endpoint) reads
           # the live tip SHA: BRANCH contains a literal "/"
@@ -200,11 +218,13 @@ jobs:
           REMOTE_TIP_SHA="$(git ls-remote origin "refs/heads/${BRANCH}" | cut -f1)"
           if [ -n "$REMOTE_TIP_SHA" ]; then
             REMOTE_TIP_AUTHOR_EMAIL="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REMOTE_TIP_SHA}" --jq '.commit.author.email // empty')"
-            if [ "$REMOTE_TIP_AUTHOR_EMAIL" != "$BOT_EMAIL" ]; then
-              echo "::error::Refusing to force-push ${BRANCH}: its current tip ${REMOTE_TIP_SHA} was authored by '${REMOTE_TIP_AUTHOR_EMAIL}', not this workflow's bot identity (${BOT_EMAIL}). A maintainer commit is on this branch; force-pushing would silently discard it. Resolve manually (e.g. merge or close the existing bumper PR) before the next scheduled run."
+            REMOTE_TIP_COMMITTER_EMAIL="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REMOTE_TIP_SHA}" --jq '.commit.committer.email // empty')"
+            if [ "$REMOTE_TIP_AUTHOR_EMAIL" = "$BOT_EMAIL" ] && { [ "$REMOTE_TIP_COMMITTER_EMAIL" = "$BOT_EMAIL" ] || [ "$REMOTE_TIP_COMMITTER_EMAIL" = "$AUTO_REBASE_COMMITTER_EMAIL" ]; }; then
+              echo "Remote tip of ${BRANCH} (${REMOTE_TIP_SHA}) is our own prior commit (author=${REMOTE_TIP_AUTHOR_EMAIL}, committer=${REMOTE_TIP_COMMITTER_EMAIL}); safe to force-push."
+            else
+              echo "::error::Refusing to force-push ${BRANCH}: its current tip ${REMOTE_TIP_SHA} has author '${REMOTE_TIP_AUTHOR_EMAIL}' and committer '${REMOTE_TIP_COMMITTER_EMAIL}', which is not this workflow's own bot identity (author=${BOT_EMAIL}, committer=${BOT_EMAIL} or ${AUTO_REBASE_COMMITTER_EMAIL}). A maintainer commit -- or a maintainer amendment of our commit -- is on this branch; force-pushing would silently discard it. Resolve manually (e.g. merge or close the existing bumper PR) before the next scheduled run."
               exit 1
             fi
-            echo "Remote tip of ${BRANCH} (${REMOTE_TIP_SHA}) is our own prior commit; safe to force-push."
           else
             echo "Branch ${BRANCH} does not exist yet on the remote; safe to push."
           fi
