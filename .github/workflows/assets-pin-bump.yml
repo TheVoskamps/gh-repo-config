@@ -87,15 +87,16 @@ jobs:
       # final step (which compares it against the branch's live tip).
       # Two independent literals here would let one drift from the
       # other and silently defeat the guard -- see the guard's own
-      # comment for why AUTHOR (not committer) is the correct property
-      # to key on.
+      # comment for why the tip is admitted only when AUTHOR is this
+      # bot identity AND COMMITTER is one of the two identities that
+      # can legitimately produce that combination.
       BOT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
       # The identity `git rebase` rewrites the COMMITTER to when
       # auto-rebase-prs.yml or auto-enable-automerge.yml rebase this
       # bumper's own PR. Declared once here (not a second bare literal
       # in the guard step) for the same drift-prevention reason as
       # BOT_AUTHOR_EMAIL above. Confirmed against a real rebase commit
-      # in this repo's history (1ebd8233a40c85b42828aa3ca989c9df6189397):
+      # in this repo's history (1ebd8233a40c85b42828aa3ca989c9df61893973):
       # author_email is the Dependabot author, committer_email is this.
       AUTO_REBASE_COMMITTER_EMAIL: "gh-repo-config-auto-rebase[bot]@users.noreply.github.com"
     steps:
@@ -217,8 +218,11 @@ jobs:
           # the encoding question entirely.
           REMOTE_TIP_SHA="$(git ls-remote origin "refs/heads/${BRANCH}" | cut -f1)"
           if [ -n "$REMOTE_TIP_SHA" ]; then
-            REMOTE_TIP_AUTHOR_EMAIL="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REMOTE_TIP_SHA}" --jq '.commit.author.email // empty')"
-            REMOTE_TIP_COMMITTER_EMAIL="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REMOTE_TIP_SHA}" --jq '.commit.committer.email // empty')"
+            # One API call for both fields: the commit is immutable
+            # once named by SHA, so a single --jq emitting a
+            # tab-separated (author, committer) pair is equivalent to
+            # two separate calls and halves the request count.
+            IFS=$'\t' read -r REMOTE_TIP_AUTHOR_EMAIL REMOTE_TIP_COMMITTER_EMAIL <<< "$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REMOTE_TIP_SHA}" --jq '[.commit.author.email // "", .commit.committer.email // ""] | @tsv')"
             if [ "$REMOTE_TIP_AUTHOR_EMAIL" = "$BOT_EMAIL" ] && { [ "$REMOTE_TIP_COMMITTER_EMAIL" = "$BOT_EMAIL" ] || [ "$REMOTE_TIP_COMMITTER_EMAIL" = "$AUTO_REBASE_COMMITTER_EMAIL" ]; }; then
               echo "Remote tip of ${BRANCH} (${REMOTE_TIP_SHA}) is our own prior commit (author=${REMOTE_TIP_AUTHOR_EMAIL}, committer=${REMOTE_TIP_COMMITTER_EMAIL}); safe to force-push."
             else
