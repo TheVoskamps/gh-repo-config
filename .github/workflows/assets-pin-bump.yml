@@ -1,0 +1,318 @@
+# REPO-OWN workflow — NOT part of the sweep's rendered payload set.
+# Everything else under .github/workflows/ in this repo is a converged
+# copy of assets/*.yml, rewritten every time the fanout sweep runs over
+# this repo (see the "Structure" section of CLAUDE.md). This file is
+# hand-maintained here and only here: it has no assets/ counterpart and
+# the sweep never reads, renders, or overwrites it.
+#
+# Scheduled + manual bumper (issue #60) for the `uses:` action pins in
+# assets/*.yml -- the fanout's authoritative payload templates.
+# Dependabot's github-actions ecosystem can only scan .github/workflows/
+# (plus a root action.yml), so it has no way to reach these templates;
+# this workflow is what keeps them current instead. See the "Problem"
+# section of issue #60.
+#
+# All of the update-policy DECISION logic (security-bypass, 7-day soak,
+# semver-major gate) lives in scripts/bump-asset-pins.sh, which only
+# rewrites files -- it never touches git or opens a PR. This workflow
+# owns that plumbing: it runs the script, and only if it actually
+# changed something (`git status --porcelain` is non-empty) does it
+# commit, push a branch, and open a PR. No eligible bumps -> no diff ->
+# no branch, no PR.
+#
+# Auth: this workflow MUST mint a short-lived GitHub App installation
+# token (from the AUTOMERGE_APP_ID / AUTOMERGE_APP_PRIVATE_KEY repo
+# secrets -- the same PR-operations App auto-rebase-prs.yml and
+# auto-enable-automerge.yml already use, and the same mint-step shape)
+# and use it to open the PR. Do NOT fall back to the default
+# GITHUB_TOKEN: a PR opened with GITHUB_TOKEN does not trigger
+# `pull_request` workflows (GitHub design, to prevent infinite
+# recursion), so neither ci.yml nor pin-shape.yml would ever run on
+# this workflow's own PRs, and those PRs could never satisfy the
+# ci-required / pin-shape-required checks the repo-required-checks
+# ruleset requires -- see assets/auto-rebase-prs.yml's own Auth
+# section for the identical constraint on pushes.
+#
+# Do NOT use CONVERGER_APP_ID / CONVERGER_APP_PRIVATE_KEY. That App
+# carries Administration and Org administration scope for the sweep;
+# this job parses untrusted upstream release notes and advisory text
+# and must not hold org-level authority.
+#
+# Token-scoping (defense-in-depth): the App token is minted up front
+# (create-github-app-token has no per-step scoping), but it is kept
+# OUT of the checkout and the bump-asset-pins step, which parse
+# attacker-controlled upstream release/advisory text. The checkout
+# uses the ambient github.token (read-only, contents: read is all a
+# plain checkout needs) with persist-credentials: false, and the
+# bump script itself only ever makes read-only GitHub API calls (see
+# its own header). The App token is introduced for the first time in
+# the commit/push/PR step below, which is trusted, non-parsing
+# plumbing.
+#
+# Branch/PR strategy: this mirrors src/converge/writer.ts's own
+# fixed-branch, open-or-update contract rather than inventing a
+# second pattern. A FIXED branch (BRANCH below) is force-reset onto
+# the current main every run; the workflow looks for an already-open
+# PR on that branch before creating a new one, so a lingering
+# not-yet-merged bump is updated in place instead of accumulating a
+# fresh duplicate PR every day.
+name: assets-pin-bump
+
+on:
+  schedule:
+    # Daily at 09:00 UTC. Idempotent (no eligible bump -> no PR), so
+    # over-running is harmless.
+    - cron: "0 9 * * *"
+  workflow_dispatch: {}
+
+# The ambient github.token is used for the checkout and the bump
+# script's own read-only API calls (contents: read covers both). The
+# App installation token minted below carries its own permissions and
+# is used explicitly for the commit/push/PR step instead of widening
+# this block.
+permissions:
+  contents: read
+
+concurrency:
+  group: assets-pin-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    env:
+      # Single definition of the bumper's own commit-author email, read
+      # by both the "Configure git identity" step (which sets it as
+      # user.email for the commit) and the bot-authorship guard in the
+      # final step (which compares it against the branch's live tip).
+      # Two independent literals here would let one drift from the
+      # other and silently defeat the guard -- see the guard's own
+      # comment for why the tip is admitted only when AUTHOR is this
+      # bot identity AND COMMITTER is one of the two identities that
+      # can legitimately produce that combination.
+      BOT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+      # The identity `git rebase` rewrites the COMMITTER to when
+      # auto-rebase-prs.yml or auto-enable-automerge.yml rebase this
+      # bumper's own PR. Declared once here (not a second bare literal
+      # in the guard step) for the same drift-prevention reason as
+      # BOT_AUTHOR_EMAIL above. Confirmed against a real rebase commit
+      # in this repo's history (1ebd8233a40c85b42828aa3ca989c9df61893973):
+      # author_email is the Dependabot author, committer_email is this.
+      AUTO_REBASE_COMMITTER_EMAIL: "gh-repo-config-auto-rebase[bot]@users.noreply.github.com"
+    steps:
+      - name: Mint App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run bump-asset-pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/bump-asset-pins.sh
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git status --porcelain assets/ | grep -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No eligible pin bumps found -- nothing to do."
+          fi
+
+      - name: Configure git identity
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "$BOT_AUTHOR_EMAIL"
+
+      - name: Commit, push, and open-or-update PR
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Fixed branch (mirrors src/converge/writer.ts's CONVERGE_BRANCH
+          # contract): every run force-resets this SAME branch onto the
+          # current main plus today's eligible bumps, rather than opening
+          # a new timestamped branch/PR each time. A prior run's
+          # still-open PR is updated in place (the push below force-
+          # updates its head), never duplicated.
+          BASE_SHA="$(git rev-parse HEAD)"
+          BRANCH="assets-pin-bump/main"
+          BOT_EMAIL="$BOT_AUTHOR_EMAIL"
+
+          # The App token is introduced here for the first time -- the
+          # checkout and the bump script above ran with only the ambient
+          # read-only github.token, so the App token was absent from disk
+          # for both the checkout and the untrusted-release-parsing step.
+          # `git remote set-url` DOES write the token into .git/config
+          # (confirmed by grepping .git/config after this runs) -- it is
+          # not avoiding that. The actual narrowing is *when* and *where*
+          # that happens: the token only lands in .git/config here, on
+          # this ephemeral runner, for this final push/PR step, after the
+          # steps that handle attacker-controlled upstream text have
+          # already finished.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # Bot-authorship guard: this branch is force-pushed every run
+          # (see the fixed-branch contract above), which is only safe
+          # when the branch's current tip is our own prior run's commit
+          # (optionally rebased by our own PR-automation, never amended
+          # or replaced by a human). A bare --force-with-lease is NOT
+          # sufficient here: the "Checkout" step above already ran
+          # actions/checkout, which fetches and refreshes the local
+          # remote-tracking ref for origin/${BRANCH} (when the branch
+          # exists) as a side effect of its own fetch -- so a lease
+          # captured from that ref would match a maintainer's own new
+          # commit and the push would proceed anyway, silently
+          # discarding it. Guard against that by asking for the LIVE tip
+          # of the remote branch and its AUTHOR and COMMITTER identity,
+          # right before pushing.
+          #
+          # This keys on AUTHOR primarily, because the committer is NOT
+          # stable across this branch's lifetime: both
+          # auto-rebase-prs.yml and auto-enable-automerge.yml
+          # rebase-and-force-push any open, non-draft, same-owner PR
+          # that has fallen behind main -- including this bumper's own
+          # PR, which passes every one of those filters -- and `git
+          # rebase` rewrites the COMMITTER to
+          # AUTO_REBASE_COMMITTER_EMAIL while leaving the AUTHOR
+          # untouched. Keying on committer.email alone would therefore
+          # only match on the bumper's very first push; the first
+          # auto-rebase of the bumper's own PR would flip the committer
+          # identity and permanently deadlock every subsequent scheduled
+          # run. The author survives a rebase, which is why
+          # assets/auto-rebase-prs.yml already relies on that same
+          # property (see its own Dependabot-author-exclusion comments).
+          #
+          # Author alone is not sufficient either, though: a maintainer
+          # who AMENDS the bot's commit (rather than adding a new one)
+          # keeps the bot as the commit's author while replacing its
+          # content -- author-only keying would silently admit that
+          # amendment and the next scheduled run would force-push it
+          # away. So the tip is admitted only when the author is the bot
+          # AND the committer is one of the two identities that can
+          # legitimately produce that combination: the bot itself (a
+          # fresh bumper push) or the auto-rebase bot (a rebase of the
+          # bumper's own PR). Any other committer alongside a bot author
+          # means the commit was amended by someone else, and is
+          # refused exactly like a non-bot author is.
+          #
+          # `git ls-remote` (not the REST "commits/{ref}" endpoint) reads
+          # the live tip SHA: BRANCH contains a literal "/"
+          # (assets-pin-bump/main), and the REST ref path parameter does
+          # not reliably handle an un-namespaced, unencoded slash in a
+          # branch name. ls-remote takes a plain refname and has no such
+          # ambiguity. The commit-details lookup that follows is then
+          # queried by bare SHA (never contains a slash), sidestepping
+          # the encoding question entirely.
+          REMOTE_TIP_SHA="$(git ls-remote origin "refs/heads/${BRANCH}" | cut -f1)"
+          if [ -n "$REMOTE_TIP_SHA" ]; then
+            # One API call for both fields: the commit is immutable
+            # once named by SHA, so a single --jq emitting a
+            # tab-separated (author, committer) pair is equivalent to
+            # two separate calls and halves the request count.
+            IFS=$'\t' read -r REMOTE_TIP_AUTHOR_EMAIL REMOTE_TIP_COMMITTER_EMAIL <<< "$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REMOTE_TIP_SHA}" --jq '[.commit.author.email // "", .commit.committer.email // ""] | @tsv')"
+            if [ "$REMOTE_TIP_AUTHOR_EMAIL" = "$BOT_EMAIL" ] && { [ "$REMOTE_TIP_COMMITTER_EMAIL" = "$BOT_EMAIL" ] || [ "$REMOTE_TIP_COMMITTER_EMAIL" = "$AUTO_REBASE_COMMITTER_EMAIL" ]; }; then
+              echo "Remote tip of ${BRANCH} (${REMOTE_TIP_SHA}) is our own prior commit (author=${REMOTE_TIP_AUTHOR_EMAIL}, committer=${REMOTE_TIP_COMMITTER_EMAIL}); safe to force-push."
+            else
+              echo "::error::Refusing to force-push ${BRANCH}: its current tip ${REMOTE_TIP_SHA} has author '${REMOTE_TIP_AUTHOR_EMAIL}' and committer '${REMOTE_TIP_COMMITTER_EMAIL}', which is not this workflow's own bot identity (author=${BOT_EMAIL}, committer=${BOT_EMAIL} or ${AUTO_REBASE_COMMITTER_EMAIL}). A maintainer commit -- or a maintainer amendment of our commit -- is on this branch; force-pushing would silently discard it. Resolve manually (e.g. merge or close the existing bumper PR) before the next scheduled run."
+              exit 1
+            fi
+          else
+            echo "Branch ${BRANCH} does not exist yet on the remote; safe to push."
+          fi
+
+          git checkout -b "$BRANCH"
+          git add assets/
+          git commit -m "Bump assets/ action pins to current eligible releases"
+
+          # --force-with-lease=<ref>:<expected> narrows the race between
+          # the authorship check above and this push (e.g. a push landing
+          # in that window): it rejects the push outright if the remote
+          # has moved since REMOTE_TIP_SHA was read, rather than
+          # overwriting whatever is there. This is defense-in-depth on
+          # top of the authorship check above, not a replacement for it
+          # -- see the comment there for why a lease alone (sourced from
+          # actions/checkout's own remote-tracking ref) does not catch a
+          # maintainer commit.
+          if [ -n "${REMOTE_TIP_SHA:-}" ]; then
+            git push --force-with-lease="${BRANCH}:${REMOTE_TIP_SHA}" origin "HEAD:refs/heads/${BRANCH}"
+          else
+            # Branch does not exist remotely yet: <ref>:<expect> with an
+            # EMPTY <expect> is git's documented form for "the named ref
+            # must not already exist" (git-push(1)), which is what we
+            # want here -- reject the push if anyone has created the
+            # branch since the authorship check above ran. This is NOT
+            # the same as --force-with-lease=<ref> with no colon at all,
+            # which falls back to the local remote-tracking branch (the
+            # exact stale-ref problem the authorship check above exists
+            # to route around) and would defeat this guard.
+            git push --force-with-lease="${BRANCH}:" origin "HEAD:refs/heads/${BRANCH}"
+          fi
+
+          # Diff against the checked-out HEAD's own SHA, not a local
+          # `main` ref name -- actions/checkout only creates a local
+          # branch for the ref it checks out, so on a workflow_dispatch
+          # run from any branch other than main, `main` would not
+          # resolve as a rev and this step (under set -euo pipefail)
+          # would fail AFTER the branch and PR-worthy commit have
+          # already been pushed.
+          CHANGED_FILES="$(git diff --name-only "$BASE_SHA".."$BRANCH" -- assets/ | sed 's/^/- `/; s/$/`/')"
+
+          # Open-or-update: skip gh pr create entirely when a bumper PR
+          # is already open on this branch -- the force-push above
+          # already carried today's rewrite into it. Creating a second
+          # PR on the same head branch would fail anyway, but checking
+          # first keeps the intent explicit and avoids depending on that
+          # failure mode.
+          EXISTING_PR="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Bumper PR #${EXISTING_PR} is already open on ${BRANCH} -- updated in place, not opening a new one."
+            exit 0
+          fi
+
+          # Build the PR body with printf (one call per line) rather
+          # than a heredoc: a heredoc's closing delimiter must start at
+          # column 0 for a plain `<<WORD` form, but a column-0 line here
+          # would terminate this step's `run: |` YAML block scalar early
+          # (see actionlint failure on an earlier revision of this
+          # file). `<<-WORD` avoids that by stripping leading TABS from
+          # the delimiter, but embedding literal tabs inside a YAML
+          # block scalar is itself invalid YAML ("found a tab character
+          # where an indentation space is expected"). printf sidesteps
+          # both constraints: every line stays a normal, space-indented
+          # statement inside the block scalar, and nothing needs to be
+          # stripped back out of the rendered PR body.
+          PR_BODY_FILE="$(mktemp)"
+          {
+            printf '%s\n' '## Summary'
+            printf '\n'
+            printf '%s\n' 'Scheduled bump of `uses:` action pins in `assets/*.yml` (the'
+            printf '%s\n' "fan-out's authoritative payload templates) to the current eligible"
+            printf '%s\n' 'upstream release, per the policy in `scripts/bump-asset-pins.sh`:'
+            printf '%s\n' 'security fixes are taken immediately, everything else soaks 7 days,'
+            printf '%s\n' 'and semver-major bumps are limited to the `github/codeql-action/*`'
+            printf '%s\n' 'named group.'
+            printf '\n'
+            printf '%s\n' 'Files changed:'
+            printf '%s\n' "${CHANGED_FILES}"
+            printf '\n'
+            printf '%s\n' 'Generated by `.github/workflows/assets-pin-bump.yml`.'
+          } > "$PR_BODY_FILE"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Bump assets/ action pins to current eligible releases" \
+            --body-file "$PR_BODY_FILE"

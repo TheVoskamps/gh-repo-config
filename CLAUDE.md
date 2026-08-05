@@ -310,13 +310,15 @@ npm run lint:md
 - `.github/workflows/ci.yml` — REPO-OWN workflow, not part of the
   sweep's rendered payload (it has no `assets/` counterpart and is
   hand-maintained here only). Runs on every PR against `main`: build +
-  `npm test`, the `assets/test-*.sh` payload self-tests (looped over
-  the discovered set, so a new self-test is picked up automatically),
-  and lint (`actionlint` over `.github/workflows/*.yml`, `shellcheck`
-  over `assets/*.sh`, `npm run lint:md`). A `ci-required` aggregator
-  job depends on all three and is the single status context registered
-  as required, via the repo-level `repo-required-checks` ruleset — not
-  `protect-main`, which is converged by `src/converge/ruleset.ts`
+  `npm test`, the `assets/test-*.sh` AND `scripts/test-*.sh` payload
+  self-tests (looped over the discovered set from both directories, so
+  a new self-test in either is picked up automatically), and lint
+  (`actionlint` over `.github/workflows/*.yml`, `shellcheck` over
+  `assets/*.sh` AND `scripts/*.sh`, `npm run lint:md`). A `ci-required`
+  aggregator job depends on all three and is the status context this
+  workflow registers as required — alongside `pin-shape-required` — via
+  the repo-level `repo-required-checks` ruleset, not `protect-main`,
+  which is converged by `src/converge/ruleset.ts`
   against `assets/protect-main-ruleset.json` and would revert a
   hand-added context as drift.
 - `.github/rulesets/` — checked-in source-of-record copies of
@@ -324,10 +326,90 @@ npm run lint:md
   and maintained by a human via the rules API or web UI), never
   touched by the converger. Holds `repo-required-checks.json`, the
   create-input body for the `repo-required-checks` ruleset described
-  above, plus a README explaining the recreate-from-source command.
-  Distinct from `protect-main`, whose canonical source is
-  `assets/protect-main-ruleset.json` and is converger-managed — it is
-  deliberately not tracked here.
+  above (requires both the `ci-required` and `pin-shape-required`
+  status checks on the default branch), plus a README explaining the
+  recreate-from-source command. Distinct from `protect-main`, whose
+  canonical source is `assets/protect-main-ruleset.json` and is
+  converger-managed — it is deliberately not tracked here. Editing
+  this checked-in copy does not itself change the live ruleset;
+  applying a change is a separate, manual, post-merge operator step
+  (the README's recreate-from-source command).
+- `scripts/` — repo-own scripts, distinct from `.github/scripts/`
+  (sweep-rendered payload territory the converger overwrites from
+  `assets/` on every tick — a repo-own script placed there would be
+  destroyed on the next sweep). Holds `bump-asset-pins.sh` (rewrites
+  `assets/*.yml`'s `uses:` pins to the current eligible upstream
+  release, applying the same policy the rendered `github-actions`
+  Dependabot ecosystem applies: security fixes immediately, everything
+  else after a 7-day soak, semver-major bumps limited to the
+  `github/codeql-action/*` named group — see the script's own header
+  for the full policy and why `assets/*.yml` needs its own bumper
+  instead of relying on Dependabot, which can't reach templates
+  outside `.github/workflows/`) and `check-pin-shape.sh` (an offline,
+  purely syntactic gate asserting every `uses:` in `assets/*.yml` is
+  either a local ref or an exact 40-hex-SHA pin; staleness is
+  explicitly out of scope — that's the bumper's job, on its own
+  schedule), plus their self-tests `test-bump-asset-pins.sh` /
+  `test-check-pin-shape.sh` (both fully offline, no network access).
+- `.github/workflows/assets-pin-bump.yml` — REPO-OWN workflow, not
+  part of the sweep's rendered payload (no `assets/` counterpart,
+  hand-maintained here only). Scheduled daily plus `workflow_dispatch`;
+  runs `scripts/bump-asset-pins.sh` under the ambient read-only
+  `github.token` (the script itself only ever makes read-only GitHub
+  API calls) and, only if it actually changed a file, force-pushes the
+  fixed `assets-pin-bump/main` branch and opens **or updates** a single
+  PR against `main` — mirroring `src/converge/writer.ts`'s own
+  fixed-branch, open-or-update contract rather than a timestamped
+  branch per run, so a lingering unmerged bump is amended instead of
+  duplicated. Before that force-push, a bot-authorship guard reads the
+  branch's LIVE remote tip via `git ls-remote` (not the possibly-stale
+  ref `actions/checkout` already fetched) and, if the branch exists,
+  refuses to push unless that tip's commit was produced entirely by
+  this workflow's own automation: AUTHOR is this workflow's bot
+  identity AND COMMITTER is either that same bot identity (a fresh
+  bumper push) or the `auto-rebase-prs.yml` / `auto-enable-
+  automerge.yml` bot identity (a rebase of the bumper's own PR). Author
+  alone is keyed first because both `auto-rebase-prs.yml` and
+  `auto-enable-automerge.yml` rebase-and-force-push any open,
+  non-draft, same-owner PR that has fallen behind `main` (including the
+  bumper's own PR), and `git rebase` rewrites the committer while
+  leaving the author untouched. But author alone is not sufficient: a
+  maintainer who *amends* the bot's commit keeps the bot as author
+  while replacing its content, so the committer is checked too — any
+  committer other than the bot itself or the auto-rebase bot means the
+  commit was amended by someone else, and the push is refused exactly
+  like a non-bot-authored commit is. A bare `--force-with-lease` is not
+  sufficient on its own since checkout's own fetch would have already
+  refreshed the lease's remote-tracking ref, so a maintainer's own new
+  commit (or amendment) on the branch would silently be clobbered
+  otherwise.
+  `--force-with-lease=<ref>:<expected>` (or `<ref>:` with an empty
+  expected value when the branch doesn't yet exist) is layered on top
+  as defense-in-depth against the narrower race between that check and
+  the push itself.
+  The commit/push/PR step mints a short-lived GitHub App
+  installation token from the `AUTOMERGE_APP_ID` /
+  `AUTOMERGE_APP_PRIVATE_KEY` repo secrets (the same PR-operations App
+  `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use) rather than
+  the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
+  trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`
+  would never run on its own PRs and they could never satisfy the
+  `ci-required` / `pin-shape-required` required checks. That App token
+  is scoped to only this last step, kept out of the checkout and the
+  bump script that parse untrusted upstream release/advisory text —
+  `git remote set-url` does write it into `.git/config`, but only here,
+  on the ephemeral runner, after the untrusted-text-parsing steps have
+  already finished. Never uses `CONVERGER_APP_*` — that App's
+  Administration/Org administration scope must not be held by a job
+  parsing untrusted upstream release notes and advisory text.
+- `.github/workflows/pin-shape.yml` — REPO-OWN workflow, not part of
+  the sweep's rendered payload (no `assets/` counterpart, hand-
+  maintained here only). Runs `scripts/check-pin-shape.sh` on every PR
+  against `main`. Its `pin-shape-required` aggregator is registered as
+  a required status check via the repo-level `repo-required-checks`
+  ruleset, not `protect-main`, for the same reason `ci-required` is —
+  a hand-added context on `protect-main` would be reverted as drift by
+  `src/converge/ruleset.ts`.
 - `.github/workflows/release.yml` — publishes a tagged (`v*`) GitHub
   Release with a build-provenance attestation. Bumping the release
   version means editing `package.json`'s `version` and pushing a
