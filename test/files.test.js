@@ -82,7 +82,7 @@ test("every rendered .yml file has zero unresolved tokens", () => {
   }
 });
 
-test("PR-automation workflows reference the AUTOMERGE secrets, no-back-merging-guard, and the REST-merge job", () => {
+test("PR-automation workflows reference the AUTOMERGE secrets, and the REST-merge pass sits on the workflow_run side", () => {
   const files = buildDesiredFiles(CTX);
   const automerge = files.find(
     (f) => f.path === ".github/workflows/auto-enable-automerge.yml",
@@ -96,9 +96,18 @@ test("PR-automation workflows reference the AUTOMERGE secrets, no-back-merging-g
   for (const f of [automerge, rebase]) {
     assert.match(f.content, /secrets\.AUTOMERGE_APP_ID/);
     assert.match(f.content, /secrets\.AUTOMERGE_APP_PRIVATE_KEY/);
-    assert.match(f.content, /workflows: \[no-back-merging-guard\]/);
   }
-  assert.match(automerge.content, /dependabot-rest-merge:/);
+
+  // Issue #77 moved the Dependabot REST-merge sweep out of
+  // auto-enable-automerge.yml (where it was a second job firing on the
+  // same workflow_run event as the rebase sweep, so one logical sweep
+  // cost two billable jobs) and into auto-rebase-prs.yml's single job.
+  // auto-enable-automerge.yml is now pull_request-only, which is why it
+  // no longer carries the workflow_run trigger.
+  assert.match(rebase.content, /workflows: \[no-back-merging-guard\]/);
+  assert.doesNotMatch(automerge.content, /workflow_run:/);
+  assert.doesNotMatch(automerge.content, /^ {2}dependabot-rest-merge:$/m);
+  assert.match(rebase.content, /- name: REST-merge green Dependabot PRs/);
 });
 
 test("gate/guard workflows carry the per-repo default branch", () => {
@@ -150,18 +159,29 @@ test("the install gate calls the codeartifact-auth action at the path it ships t
   // The variable name is static because a composite action cannot read
   // the `vars` context; the value must therefore be passed in.
   assert.match(gate.content, /role: \$\{\{ vars\.CODEARTIFACT_ROLE \}\}/);
-  // The auth step is skipped on the `pip` leg, mirroring `Set up Node`:
-  // the action configures npm/pnpm/yarn only, and without the guard a
-  // `pip` leg would still perform a real role assumption and a real
-  // token mint, so an AWS-side failure would redden a leg with no
-  // CodeArtifact dependency at all.
+  // The auth step is skipped when no Node package manager is present.
+  // Issue #77 collapsed the per-PM matrix into one job, so the guard is
+  // no longer `matrix.pm != 'pip'` but a step-level condition off the
+  // detect step's output. The guard itself is load-bearing either way:
+  // the action configures npm/pnpm/yarn only, and without it a pip-only
+  // repo would still perform a real role assumption and a real token
+  // mint, so an AWS-side failure would redden a REQUIRED check on a repo
+  // with no CodeArtifact dependency at all.
   assert.match(
     gate.content,
-    /- name: Authenticate against CodeArtifact\n\s+if: \$\{\{ matrix\.pm != 'pip' \}\}\n/,
+    /- name: Authenticate against CodeArtifact\n\s+if: \$\{\{ steps\.detect\.outputs\.node == 'true' \}\}\n/,
   );
+  // And it must still run BEFORE the installs that consume the
+  // credential it writes.
+  const authAt = gate.content.indexOf("- name: Authenticate against CodeArtifact");
+  const installAt = gate.content.indexOf(
+    "- name: Strict install over every present package manager",
+  );
+  assert.ok(authAt > 0 && installAt > 0);
+  assert.ok(authAt < installAt, "codeartifact-auth must precede the install loop");
 });
 
-test("the install gate grants id-token: write on the gate job only", () => {
+test("the install gate grants id-token: write on its single job only", () => {
   const files = buildDesiredFiles(CTX);
   const gate = files.find(
     (f) => f.path === ".github/workflows/dependency-install-gate.yml",
@@ -169,13 +189,17 @@ test("the install gate grants id-token: write on the gate job only", () => {
   const idTokenGrants = gate.content.match(/^\s*id-token: write$/gm) ?? [];
   assert.equal(idTokenGrants.length, 1, "exactly one id-token: write grant");
 
-  // Locate the grant relative to the three job headers: it must fall
-  // inside `gate:`, i.e. after it and before `install-gate-required:`.
+  // Issue #77 collapsed detect/gate/aggregator into the one
+  // `install-gate-required` job, so the grant now sits on the job that
+  // is also the required check. It must still be a JOB-level grant on
+  // that job — never the workflow-level `permissions:` block, which
+  // would extend it to any job added later.
   const at = (needle) => gate.content.indexOf(needle);
   const grantAt = gate.content.search(/^\s*id-token: write$/m);
-  assert.ok(at("\n  detect:") < at("\n  gate:"));
-  assert.ok(at("\n  gate:") < grantAt);
-  assert.ok(grantAt < at("\n  install-gate-required:"));
+  assert.equal(gate.content.match(/^ {2}[a-z][a-z0-9-]*:$/gm)?.length, 1,
+    "exactly one job");
+  assert.ok(at("\n  install-gate-required:") < grantAt);
+  assert.ok(grantAt < at("\n    steps:"), "grant is inside the job's permissions block");
 
   // The latent-grant rationale must travel with the grant: an auditor
   // seeing `id-token: write` on a repo with no CodeArtifact needs to

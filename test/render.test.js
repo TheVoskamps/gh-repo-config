@@ -305,16 +305,28 @@ test("renderPrAutomationTemplate resolves all fixed constants, per-repo tokens, 
 });
 
 test("renderPrAutomationTemplate substitutes each fixed constant to its pinned value", () => {
-  // auto-rebase-prs.yml carries every one of the 9 fixed constants (it is
-  // the only template with __INSTALL_GATE_WORKFLOW__ /
-  // __INSTALL_GATE_NPM_CHECK__); auto-enable-automerge.yml carries a
-  // subset. Assert against the template that carries the full set.
-  const template = readAssetText("auto-rebase-prs.yml");
-  const out = renderPrAutomationTemplate(template, CTX);
-  for (const [token, value] of Object.entries(PR_AUTOMATION_CONSTANTS)) {
-    if (!template.includes(token)) continue;
-    assert.equal(out.includes(token), false, `${token} left unresolved`);
-    assert.equal(out.includes(value), true, `${value} not found in output`);
+  // No single template carries every fixed constant: auto-rebase-prs.yml
+  // owns the sweep-side ones (__REQUIRED_CHECK_WORKFLOW__,
+  // __INSTALL_GATE_WORKFLOW__, __INSTALL_GATE_CHECK__,
+  // __REST_MERGE_METHOD__) and auto-enable-automerge.yml owns the
+  // native-auto-merge one (__MERGE_METHOD__). Assert over the UNION so
+  // every constant is exercised by whichever template uses it, and
+  // assert the union is complete so a constant that falls out of BOTH
+  // templates cannot go unnoticed.
+  const names = ["auto-rebase-prs.yml", "auto-enable-automerge.yml"];
+  const covered = new Set();
+  for (const name of names) {
+    const template = readAssetText(name);
+    const out = renderPrAutomationTemplate(template, CTX);
+    for (const [token, value] of Object.entries(PR_AUTOMATION_CONSTANTS)) {
+      if (!template.includes(token)) continue;
+      covered.add(token);
+      assert.equal(out.includes(token), false, `${token} left unresolved in ${name}`);
+      assert.equal(out.includes(value), true, `${value} not found in ${name} output`);
+    }
+  }
+  for (const token of Object.keys(PR_AUTOMATION_CONSTANTS)) {
+    assert.ok(covered.has(token), `${token} is used by neither PR-automation template`);
   }
 });
 

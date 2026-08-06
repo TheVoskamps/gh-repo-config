@@ -7,18 +7,18 @@
 # ARMED WITH THE FULL SUPPORTED SET — runtime-gated, fails OPEN. This
 # workflow is armed with EVERY supported package manager (`npm`, `pnpm`,
 # `yarn`, `pip`) at install time, and decides WHICH to gate at RUNTIME,
-# per PR. A `detect` job runs `dependency-install-gate.sh --present`
+# per PR. A detect STEP runs `dependency-install-gate.sh --present`
 # (the SAME `git ls-files` discovery the gate itself uses) and emits a
-# JSON array of the PMs whose manifest is actually present; the `gate`
-# job builds its matrix from that array, so a leg exists for a PM IFF
-# that PM's lockfile/manifest is in the tree right now:
-#   - present + clean  -> the leg is green,
-#   - present + drifted -> the leg is red (blocking),
-#   - absent           -> NO leg at all (fails OPEN — no phantom check,
-#                         no empty-green noise).
+# JSON array of the PMs whose manifest is actually present; the run loop
+# then checks exactly those, so a PM is checked IFF that PM's
+# lockfile/manifest is in the tree right now:
+#   - present + clean   -> that PM passes,
+#   - present + drifted -> that PM fails (blocking),
+#   - absent            -> NOT checked at all (fails OPEN — no phantom
+#                          check, no empty-green noise).
 # A PM whose manifest lands AFTER setup (e.g. the repo's first
-# `package-lock.json`) lights its leg up automatically on the next PR,
-# with NO skill re-run.
+# `package-lock.json`) is picked up automatically on the next PR, with
+# NO skill re-run.
 #
 # Each Node package manager keys off its OWN lockfile (npm ->
 # package-lock.json, pnpm -> pnpm-lock.yaml, yarn -> yarn.lock), so a
@@ -26,13 +26,44 @@
 # an npm-only check (the dead-check / false-assurance bug this rendering
 # fixes, issue #111).
 #
-# THE AGGREGATOR IS THE REQUIRED CHECK. GitHub `required_status_checks`
-# is a static list of names and cannot express "require npm only if it
-# runs". So the per-PM legs are VISIBLE but NOT individually required;
-# the always-running `install-gate-required` aggregator is the single
-# required check. It concludes success iff every spawned leg succeeded
-# AND success when the matrix was empty (no PM present) — so a
-# manifest-less repo is mergeable, not hung.
+# ONE JOB, NOT THREE (issue #77). This workflow used to be a `detect`
+# job, a `gate` matrix with one leg per present PM, and an
+# `if: always()` `install-gate-required` aggregator. GitHub bills a
+# whole minute per JOB, rounded up, and each of those jobs did seconds
+# of real work: across a measured 3.7-day window the two dependency
+# gates spent 324 billable minutes on their `detect` + `*-required`
+# wrapper jobs alone. A check NAME is free on GitHub; a JOB is the
+# billing unit. So detection is a STEP, the per-PM legs are a LOOP, and
+# the single remaining job KEEPS the name `install-gate-required` — the
+# name `protect-main-ruleset.json` lists as the required status check,
+# which is therefore unchanged by the collapse. Collapsing also removes
+# real work, not just round-up: ONE checkout and ONE `setup-node`
+# instead of one per leg.
+#
+# Every invariant of the previous three-job shape survives: still
+# runtime-armed per PR, still fails open when no manifest is present,
+# still no phantom check (the job always runs and always concludes, so
+# a required check is never left pending — the #91/#230 hang this
+# shape's `if: always()` aggregator originally fixed cannot return).
+#
+# PER-PM VISIBILITY — the trade-off this collapse makes, and how it is
+# paid for. The three-job shape gave each PM its own check NAME, so a
+# red `Install gate (pnpm)` named the failing PM in the PR's checks
+# list. Collapsed, there is one red `install-gate-required` and the PM
+# is one click away in the log. That regression is deliberately bought
+# back INSIDE the job rather than with extra jobs:
+#   - a JOB SUMMARY table lists every checked PM with PASS/FAIL,
+#     rendered on the run page with no log-diving at all, and
+#   - a `::error title=install-gate (<pm>)::` ANNOTATION is emitted per
+#     failing PM, which surfaces on the PR's Files changed / Checks tabs
+#     naming the PM.
+# Both are free — annotations and summaries are step output, not jobs.
+#
+# RUN-ALL-THEN-FAIL. The loop never short-circuits: every present PM is
+# checked even after one fails, and the job exits non-zero at the end.
+# This preserves the `fail-fast: false` behaviour of the matrix it
+# replaces, so one PR iteration surfaces every drifted PM rather than
+# one per push.
 #
 # Purpose: block a drifted package.json/<lockfile> (or an unresolvable
 # requirements pin) from auto-merging into the default branch.
@@ -46,25 +77,44 @@
 # run-all-then-fail logic lives in the sibling script
 # .github/scripts/dependency-install-gate.sh.
 #
+# TOOLCHAIN SETUP IS CONDITIONAL, OFF THE DETECT STEP. In the matrix
+# shape each leg knew its own PM, so `Set up Node` and the
+# CodeArtifact auth step were guarded per leg with
+# `if: matrix.pm != 'pip'`. There is no `matrix.pm` in a single job, so
+# those guards are now STEP-LEVEL conditions computed by the detect
+# step: `node` is true when any of npm/pnpm/yarn is present, `pip` when
+# pip is. This is load-bearing, not tidiness — see the CodeArtifact note
+# below.
+#
 # CODEARTIFACT-BACKED REGISTRIES. The installs are real, so they resolve
 # against whatever registry the repo declares. When that is an AWS
 # CodeArtifact repository the install needs an authorization token, which
-# needs AWS credentials, which in GitHub Actions means OIDC. The `gate`
-# job therefore calls the fanned-out `./.github/actions/codeartifact-auth`
-# composite action between checkout and install; it no-ops on a repo
-# where the `CODEARTIFACT_ROLE` variable is unset.
+# needs AWS credentials, which in GitHub Actions means OIDC. The job
+# therefore calls the fanned-out `./.github/actions/codeartifact-auth`
+# composite action AFTER checkout and BEFORE the install loop (that
+# ordering is required: the loop's npm/pnpm/yarn installs read the
+# credential the action writes); it no-ops on a repo where the
+# `CODEARTIFACT_ROLE` variable is unset. The step is skipped entirely on
+# a repo with no Node PM present: without that guard a pip-only repo
+# would still perform a real `AssumeRoleWithWebIdentity` and a real
+# `get-authorization-token`, so an AWS-side failure would redden a
+# REQUIRED check on a repo with no CodeArtifact dependency at all. (A
+# CodeArtifact-backed PyPI registry is out of scope -- see
+# docs/codeartifact-auth.md.)
 #
 # Hardening invariants (do not regress these — see issue #222 item 9):
 #   - Every action is SHA-pinned (a floating @v4/@v5 tag is a supply-
 #     chain risk; the trailing comment records the human-readable tag).
 #   - Least privilege: `contents: read` workflow-wide, and the ONLY
-#     elevation is `id-token: write` on the `gate` job (see the comment
-#     there). `detect` and `install-gate-required` keep `contents: read`
-#     alone.
-#   - Each job checks out github.event.pull_request.head.sha so the
+#     elevation is `id-token: write` on this job (see the comment
+#     there). Note that the collapse moves that grant ONTO the job that
+#     is the required check, because they are now the same job; the
+#     grant's scope is unchanged (one job, this workflow only) and the
+#     latency-vs-latency reasoning below is unaffected.
+#   - The job checks out github.event.pull_request.head.sha so the
 #     gate validates the PR head, not a merge commit.
-#   - Every package-manager job blocks install/build lifecycle scripts
-#     (an arbitrary-code-execution vector from a malicious/compromised
+#   - Every install blocks install/build lifecycle scripts (an
+#     arbitrary-code-execution vector from a malicious/compromised
 #     lockfile entry): npm `--ignore-scripts`, pnpm `--ignore-scripts`,
 #     yarn `--ignore-scripts` (v1) / `--mode=skip-build` (Berry). The
 #     integrity check never needs scripts to run, so none are allowed.
@@ -75,7 +125,7 @@
 #
 # There is intentionally NO per-job delimiter-comment rendering: the
 # armed set is the full supported set, fixed in this template, and
-# narrowed to the present set at RUNTIME by the detect job — never at
+# narrowed to the present set at RUNTIME by the detect step — never at
 # install time.
 name: dependency-install-gate
 
@@ -89,34 +139,13 @@ permissions:
   contents: read
 
 jobs:
-  # Stage 1: decide WHICH package managers to gate, at runtime, per PR.
-  # Emits a JSON array (e.g. ["npm","pip"]) of the PMs whose manifest is
-  # present in the tracked tree, reusing the gate script's own discovery.
-  detect:
-    name: Detect present package managers
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      pms: ${{ steps.detect.outputs.pms }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-
-      - name: Detect present package managers
-        id: detect
-        run: bash .github/scripts/dependency-install-gate.sh --present
-
-  # Stage 2: one strict-install leg per present PM. Fed by the detect
-  # job's JSON array via fromJSON; an empty array spawns ZERO legs
-  # cleanly (fail-open — no phantom check, no empty-green noise).
-  gate:
-    name: Install gate (${{ matrix.pm }})
-    needs: detect
-    if: ${{ needs.detect.outputs.pms != '[]' }}
+  # THE SINGLE JOB, and the single required status check. Detection,
+  # toolchain setup, CodeArtifact auth, every per-PM strict install, and
+  # the verdict all happen here; see the "ONE JOB, NOT THREE" note in
+  # the header for why. The `protect-main` ruleset lists THIS job's name
+  # (`install-gate-required`) as the required check.
+  install-gate-required:
+    name: install-gate-required
     runs-on: ubuntu-latest
     # `id-token: write` lets THIS job mint an OIDC token for
     # ./.github/actions/codeartifact-auth, which exchanges it for an AWS
@@ -136,7 +165,10 @@ jobs:
     # this gate is a REQUIRED check -- a repo that adopted CodeArtifact
     # between sweeps would have every PR blocked until a scheduled run
     # corrected it. Arming broadly and deciding at runtime is the
-    # precedent `dependency-pinned-gate` already documents.
+    # precedent `dependency-pinned-gate` already documents. What IS
+    # conditional at runtime is the auth STEP itself (see its `if:`
+    # below), which is what keeps a pip-only repo from ever exercising
+    # the grant.
     #
     # OPERATOR REQUIREMENT: IAM trust policies must name concrete
     # repositories in their `sub` condition, never wildcards. A wildcard
@@ -145,10 +177,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        pm: ${{ fromJSON(needs.detect.outputs.pms) }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -156,64 +184,128 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
+      # Runs BEFORE the toolchain setup steps because they are gated on
+      # its outputs. `--present` itself needs no toolchain beyond what
+      # the runner image already ships (it is `git ls-files` discovery
+      # plus stdlib python3 for pyproject parsing) — the same
+      # arrangement the `detect` job this step replaces relied on.
+      - name: Detect present package managers
+        id: detect
+        run: |
+          set -euo pipefail
+
+          # `--present` emits a JSON array of the PMs whose manifest is
+          # in the tracked tree, e.g. ["npm","pip"], or `[]` when none
+          # are.
+          present="$(bash .github/scripts/dependency-install-gate.sh --present)"
+          csv="$(printf '%s' "${present}" | tr -d '[]" ')"
+          echo "Present package managers: ${present}"
+
+          # `node` arms `Set up Node` AND the CodeArtifact auth step;
+          # `pip` arms `Set up Python`. Computed here rather than in the
+          # steps' own `if:` expressions because only a shell can split
+          # the array.
+          node=false
+          pip=false
+          if [ -n "${csv}" ]; then
+            IFS=',' read -r -a pms <<< "${csv}"
+            for pm in "${pms[@]}"; do
+              if [ "${pm}" = "pip" ]; then
+                pip=true
+              else
+                node=true
+              fi
+            done
+          fi
+
+          {
+            echo "pm_csv=${csv}"
+            echo "node=${node}"
+            echo "pip=${pip}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Set up Node
-        if: ${{ matrix.pm != 'pip' }}
+        if: ${{ steps.detect.outputs.node == 'true' }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
       - name: Set up Python
-        if: ${{ matrix.pm == 'pip' }}
+        if: ${{ steps.detect.outputs.pip == 'true' }}
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
 
-      # Skipped on the `pip` leg, mirroring `Set up Node` above: the
+      # Skipped when no Node package manager is present, mirroring
+      # `Set up Node` above and preserving the per-leg
+      # `if: matrix.pm != 'pip'` guard the matrix shape carried: the
       # action configures npm, pnpm, and yarn Berry, none of which pip
-      # reads. Without the guard a `pip` leg would still perform a real
-      # `AssumeRoleWithWebIdentity` and a real `get-authorization-token`,
-      # so an AWS-side failure would redden a leg with no CodeArtifact
-      # dependency at all. (A CodeArtifact-backed PyPI registry is out of
-      # scope -- see docs/codeartifact-auth.md.)
+      # reads, and an unguarded run would perform a real
+      # `AssumeRoleWithWebIdentity` on a repo with no role for it. Must
+      # run BEFORE the install loop below, which is what consumes the
+      # credential it writes.
       - name: Authenticate against CodeArtifact
-        if: ${{ matrix.pm != 'pip' }}
+        if: ${{ steps.detect.outputs.node == 'true' }}
         uses: ./.github/actions/codeartifact-auth
         with:
           role: ${{ vars.CODEARTIFACT_ROLE }}
 
-      - name: Strict install over discovered manifests
-        run: bash .github/scripts/dependency-install-gate.sh ${{ matrix.pm }}
-
-  # Stage 3: the SINGLE required status check. Always runs (even when the
-  # matrix was empty), and concludes success on an empty matrix (no PM
-  # present -> mergeable, NOT hung) or when every gate leg succeeded, and
-  # failure when any leg failed or was cancelled. `if: always()` is
-  # MANDATORY: without it the job is SKIPPED on an empty matrix, and a
-  # required check treats "skipped" as not-passed, reintroducing the
-  # #91/#230 phantom-check hang. The `protect-main` ruleset lists THIS
-  # job's name (`install-gate-required`) as the required check, never the
-  # per-leg `Install gate (<pm>)` names.
-  install-gate-required:
-    name: install-gate-required
-    needs: gate
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Conclude on the gate matrix result
+      - name: Strict install over every present package manager
+        env:
+          # Passed through the environment rather than interpolated into
+          # the script body, so the detect step's output is data to the
+          # shell and never shell syntax.
+          PM_CSV: ${{ steps.detect.outputs.pm_csv }}
         run: |
-          result="${{ needs.gate.result }}"
-          echo "gate job result: ${result}"
-          # An empty matrix leaves the gate job 'skipped' — the fail-OPEN
-          # case (no PM present), so it is a PASS. 'success' is also a
-          # pass. Anything else (failure, cancelled) blocks the PR.
-          case "${result}" in
-            success|skipped)
-              echo "install-gate aggregator: PASS (${result})."
-              ;;
-            *)
-              echo "install-gate aggregator: FAIL — at least one gate leg did not succeed (${result})." >&2
-              exit 1
-              ;;
-          esac
+          set -euo pipefail
+
+          {
+            echo "## install-gate-required"
+            echo
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          # Fail OPEN, and do it BEFORE splitting: a manifest-less repo
+          # is mergeable, not hung, and the empty case never reaches the
+          # loop (which also keeps `"${pms[@]}"` off an unset array
+          # under `set -u`).
+          if [ -z "${PM_CSV}" ]; then
+            echo "PASS — no supported package manager present in the tracked tree (fail-open)."
+            echo "No supported package manager is present in the tracked tree; nothing to check (fail-open)." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          # Split EXPLICITLY into an array. Relying on the shell's
+          # default word splitting of an unquoted expansion works under
+          # bash but not under every shell this block might be pasted
+          # into, and the failure mode is silent: the loop would run
+          # ONCE with "npm pip" as a single word, the script would hit
+          # its usage branch, and the required check would go red for a
+          # reason that has nothing to do with the repo's lockfiles.
+          IFS=',' read -r -a pms <<< "${PM_CSV}"
+
+          {
+            echo "| package manager | result |"
+            echo "| --- | --- |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          # Run-all-then-fail: never short-circuit, so one PR iteration
+          # surfaces every drifted package manager.
+          rc=0
+          for pm in "${pms[@]}"; do
+            echo "=== install-gate: ${pm} ==="
+            if bash .github/scripts/dependency-install-gate.sh "${pm}"; then
+              echo "| \`${pm}\` | PASS |" >> "${GITHUB_STEP_SUMMARY}"
+            else
+              rc=1
+              echo "| \`${pm}\` | **FAIL** |" >> "${GITHUB_STEP_SUMMARY}"
+              echo "::error title=install-gate (${pm})::The ${pm} strict install did not replay cleanly — a lockfile is desynced from its manifest, or a pin set is unresolvable. See the \"install-gate: ${pm}\" section of this job's log."
+            fi
+          done
+
+          if [ "${rc}" -ne 0 ]; then
+            echo "install-gate: FAIL — at least one present package manager did not replay cleanly." >&2
+          else
+            echo "install-gate: PASS — every present package manager replayed cleanly."
+          fi
+          exit "${rc}"

@@ -102,9 +102,15 @@ npm run lint:md
       `PR_AUTOMATION_CONSTANTS` render the PR-automation
       workflows' extra placeholders: nine fixed org-level constants
       (App identity, merge method, do-not-merge label, required-check/
-      install-gate workflow names) plus the per-repo-but-derived
+      install-gate workflow names, and `__INSTALL_GATE_CHECK__` — the
+      install gate's single required-check job name, which the
+      lockfile-regen pass keys off) plus the per-repo-but-derived
       `__BOT_SLUG__` (`<repo>-auto-rebase[bot]`), layered on top of the
-      same three per-repo tokens `renderTemplate` already resolves. The
+      same three per-repo tokens `renderTemplate` already resolves. No
+      single template uses every constant — `auto-rebase-prs.yml` owns
+      the sweep-side ones and `auto-enable-automerge.yml` the
+      native-auto-merge one — so `test/render.test.js` asserts coverage
+      over their union. The
       full surface always renders unconditionally (no conditional-drop
       logic like the interactive `gh-repo-setup-pr-automation` skill has
       for repos lacking certain workflows) — on a managed repo the gates
@@ -246,9 +252,40 @@ npm run lint:md
   - `ecosystem-block.yml` carries `__NAMED_GROUPS_BLOCK__` (the named
     Dependabot groups — see `render.ts`'s `NAMED_DEPENDABOT_GROUPS`
     description above). `no-back-merging-guard.yml` runs with
-    least-privilege permissions. `auto-enable-automerge.yml` truncates
-    an oversized PR body before merging, refuses to merge an
-    unverified rebased head, and documents its cron schedule inline.
+    least-privilege permissions. Both PR-automation workflows truncate
+    an oversized PR body before merging.
+  - **Job count is a first-class constraint on every fanned-out
+    workflow.** GitHub bills a whole minute per JOB, rounded up, so a
+    wrapper job doing three seconds of work costs the same as a real
+    one, and a check NAME is free while a JOB is not. Issue #77
+    collapsed the shapes that violated this and they must not be
+    re-split:
+    - `dependency-pinned-gate.yml` and `dependency-install-gate.yml`
+      are each ONE job — detection is a step, the per-ecosystem/per-PM
+      legs are a `run`-block loop — carrying the same
+      `pinned-gate-required` / `install-gate-required` names
+      `protect-main-ruleset.json` requires. The per-leg check names they
+      gave up are bought back with a job-summary table and a
+      per-failure `::error title=...::` annotation, not with jobs. Both
+      loops split the script's `--present` JSON array EXPLICITLY into a
+      bash array and take the fail-open branch BEFORE splitting; relying
+      on unquoted word splitting silently degrades to one iteration with
+      the whole string as a single argument, which reddens the required
+      check for a reason unrelated to the repo.
+    - `dependency-install-gate.yml`'s detect step emits `node` / `pip`
+      flags because a single job has no `matrix.pm` to guard
+      `Set up Node` and the CodeArtifact auth step with. That guard is
+      load-bearing: unguarded, a pip-only repo performs a real
+      `AssumeRoleWithWebIdentity` it has no role for.
+    - `codeql.yml` analyzes every ubuntu-runner language in ONE
+      `init` + `analyze` pair (the action takes a comma-separated
+      language list) named `codeql-required`, with a second
+      `analyze-swift` job that exists only when a non-ubuntu language is
+      present. Neither analyze step passes `category:` — with the matrix
+      gone, a literal category would be shared by both jobs and the two
+      uploads would displace each other, whereas the action's derived
+      `<workflow path>:<job id>` category is distinct per job. Do not
+      reinstate it.
   - `codeartifact-auth.sh` is the whole of the `codeartifact-auth`
     composite action's logic; `codeartifact-auth-action.yml` is thin
     glue (parse → OIDC role assumption → configure) and reaches the
@@ -274,11 +311,12 @@ npm run lint:md
     rejected as a cross-repo credential pool. Only the `registry=` line
     and the configured endpoint's own `//<host><path>:` namespace are
     replaced in that file, so another registry's credential survives.
-    `dependency-install-gate.yml` calls it between checkout and install
-    on every non-`pip` matrix leg (mirroring its `Set up Node` guard)
-    and is the only fanned-out workflow carrying an `id-token: write`
-    grant — on its `gate` job only, latent (and documented inline as
-    such) on repos without CodeArtifact. Operator prerequisites live in
+    `dependency-install-gate.yml` calls it between checkout and the
+    install loop, guarded by the same detect-step `node` output that
+    guards `Set up Node`, and is the only fanned-out workflow carrying
+    an `id-token: write` grant — on its single `install-gate-required`
+    job only, latent (and documented inline as such) on repos without
+    CodeArtifact. Operator prerequisites live in
     `docs/codeartifact-auth.md`, including the hard requirement that an
     org-level `CODEARTIFACT_ROLE` be scoped to exactly the repositories
     the IAM trust policy names.
@@ -367,13 +405,13 @@ npm run lint:md
   refuses to push unless that tip's commit was produced entirely by
   this workflow's own automation: AUTHOR is this workflow's bot
   identity AND COMMITTER is either that same bot identity (a fresh
-  bumper push) or the `auto-rebase-prs.yml` / `auto-enable-
-  automerge.yml` bot identity (a rebase of the bumper's own PR). Author
-  alone is keyed first because both `auto-rebase-prs.yml` and
-  `auto-enable-automerge.yml` rebase-and-force-push any open,
-  non-draft, same-owner PR that has fallen behind `main` (including the
-  bumper's own PR), and `git rebase` rewrites the committer while
-  leaving the author untouched. But author alone is not sufficient: a
+  bumper push) or the PR-automation bot identity (a rebase of the
+  bumper's own PR). Author alone is keyed first because
+  `auto-rebase-prs.yml` rebase-and-force-pushes any open, non-draft,
+  same-owner PR that has fallen behind `main` (including the bumper's
+  own PR — both its rebase sweep and, since issue #77 moved that pass
+  in, its Dependabot REST-merge sweep), and `git rebase` rewrites the
+  committer while leaving the author untouched. But author alone is not sufficient: a
   maintainer who *amends* the bot's commit keeps the bot as author
   while replacing its content, so the committer is checked too — any
   committer other than the bot itself or the auto-rebase bot means the

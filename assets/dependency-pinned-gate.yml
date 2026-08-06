@@ -7,20 +7,58 @@
 # ARMED WITH THE FULL SUPPORTED SET — runtime-gated, fails OPEN. This
 # workflow is armed with EVERY supported ecosystem (`npm`, `pip`,
 # `actions`, `docker`, `go`) at install time, and decides WHICH to gate
-# at RUNTIME, per PR. A `detect` job runs
+# at RUNTIME, per PR. A detect STEP runs
 # `dependency-pinned-gate.sh --present` (the SAME `git ls-files`
 # discovery the gate itself uses) and emits a JSON array of the
-# ecosystems whose manifest is actually present; the `gate` job builds
-# its matrix from that array, so a leg exists for an ecosystem IFF its
-# manifest is in the tree right now:
-#   - present + clean          -> the leg is green,
-#   - present + floating spec  -> the leg is red (blocking),
-#   - absent                   -> NO leg at all (fails OPEN — no phantom
-#                                 check, no empty-green noise).
+# ecosystems whose manifest is actually present; the run loop then
+# checks exactly those, so an ecosystem is checked IFF its manifest is
+# in the tree right now:
+#   - present + clean          -> that ecosystem passes,
+#   - present + floating spec  -> that ecosystem fails (blocking),
+#   - absent                   -> NOT checked at all (fails OPEN — no
+#                                 phantom check, no empty-green noise).
 # `actions` is effectively an always-present floor because the skill
 # always installs workflow files. An ecosystem whose manifest lands
-# AFTER setup (e.g. the repo's first `go.mod`) lights its leg up on the
-# next PR, with NO skill re-run.
+# AFTER setup (e.g. the repo's first `go.mod`) is picked up on the next
+# PR, with NO skill re-run.
+#
+# ONE JOB, NOT THREE (issue #77). This workflow used to be a `detect`
+# job, a `gate` matrix with one leg per present ecosystem, and an
+# `if: always()` `pinned-gate-required` aggregator. GitHub bills a whole
+# minute per JOB, rounded up, and each of those jobs did seconds of real
+# work: across a measured 3.7-day window the two dependency gates spent
+# 324 billable minutes on their `detect` + `*-required` wrapper jobs
+# alone. A check NAME is free on GitHub; a JOB is the billing unit. So
+# detection is a STEP, the per-ecosystem legs are a LOOP, and the single
+# remaining job KEEPS the name `pinned-gate-required` — the name
+# `protect-main-ruleset.json` lists as the required status check, which
+# is therefore unchanged by the collapse.
+#
+# Every invariant of the previous three-job shape survives: still
+# runtime-armed per PR, still fails open when no manifest is present,
+# still no phantom check (the job always runs and always concludes, so
+# a required check is never left pending — the #91/#230 hang this
+# shape's `if: always()` aggregator originally fixed cannot return),
+# still no skill re-run when a repo's first `go.mod` lands.
+#
+# PER-ECOSYSTEM VISIBILITY — the trade-off this collapse makes, and how
+# it is paid for. The three-job shape gave each ecosystem its own check
+# NAME, so a red `Pinned gate (npm)` named the failing ecosystem in the
+# PR's checks list. Collapsed, there is one red `pinned-gate-required`
+# and the ecosystem is one click away in the log. That regression is
+# deliberately bought back INSIDE the job rather than with extra jobs:
+#   - a JOB SUMMARY table lists every checked ecosystem with PASS/FAIL,
+#     rendered on the run page with no log-diving at all, and
+#   - a `::error title=pinned-gate (<ecosystem>)::` ANNOTATION is
+#     emitted per failing ecosystem, which surfaces on the PR's Files
+#     changed / Checks tabs naming the ecosystem.
+# Both are free — annotations and summaries are step output, not jobs.
+#
+# RUN-ALL-THEN-FAIL. The loop never short-circuits: every present
+# ecosystem is checked even after one fails, and the job exits non-zero
+# at the end. This preserves the `fail-fast: false` behaviour of the
+# matrix it replaces, so one PR iteration surfaces every offending
+# ecosystem rather than one per push.
 #
 # This is the SIBLING of the dependency-install-gate: the install-gate
 # protects the lockfile<->manifest *lock* relationship; THIS gate
@@ -29,16 +67,9 @@
 # `uses: actions/checkout@v4`, or a `FROM node:22` resolves to a
 # DIFFERENT concrete version over time even when the lockfile is in
 # sync -- the "works on main, breaks on rebase" supply-chain drift that
-# slips past a green install-gate. Each leg fails the PR when any
-# DECLARED dependency in its ecosystem is not pinned to an exact version.
-#
-# THE AGGREGATOR IS THE REQUIRED CHECK. GitHub `required_status_checks`
-# is a static list of names and cannot express "require go only if it
-# runs". So the per-ecosystem legs are VISIBLE but NOT individually
-# required; the always-running `pinned-gate-required` aggregator is the
-# single required check. It concludes success iff every spawned leg
-# succeeded AND success when the matrix was empty — so a manifest-less
-# repo is mergeable, not hung.
+# slips past a green install-gate. The gate fails the PR when any
+# DECLARED dependency in any present ecosystem is not pinned to an exact
+# version.
 #
 # Categorical exemptions (legitimately not exact-pinnable) live in the
 # sibling script's classifier, NOT a maintained allowlist file:
@@ -64,7 +95,7 @@
 #     The gate would flag its own workflow otherwise.
 #   - `permissions: contents: read` (least privilege; the gate only
 #     reads the tree).
-#   - Each job checks out github.event.pull_request.head.sha so the
+#   - The job checks out github.event.pull_request.head.sha so the
 #     gate validates the PR head, not a merge commit.
 #
 # Placeholders:
@@ -73,7 +104,7 @@
 #
 # There is intentionally NO per-job delimiter-comment rendering: the
 # armed set is the full supported set, fixed in this template, and
-# narrowed to the present set at RUNTIME by the detect job — never at
+# narrowed to the present set at RUNTIME by the detect step — never at
 # install time.
 name: dependency-pinned-gate
 
@@ -87,16 +118,16 @@ permissions:
   contents: read
 
 jobs:
-  # Stage 1: decide WHICH ecosystems to gate, at runtime, per PR. Emits a
-  # JSON array (e.g. ["actions","go"]) of the ecosystems whose manifest
-  # is present in the tracked tree, reusing the gate script's discovery.
-  detect:
-    name: Detect present ecosystems
+  # THE SINGLE JOB, and the single required status check. Detection,
+  # every per-ecosystem pin check, and the verdict all happen here; see
+  # the "ONE JOB, NOT THREE" note in the header for why. The
+  # `protect-main` ruleset lists THIS job's name
+  # (`pinned-gate-required`) as the required check.
+  pinned-gate-required:
+    name: pinned-gate-required
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    outputs:
-      ecosystems: ${{ steps.detect.outputs.ecosystems }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -104,67 +135,74 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      - name: Detect present ecosystems
-        id: detect
-        run: bash .github/scripts/dependency-pinned-gate.sh --present
-
-  # Stage 2: one pin-check leg per present ecosystem. Fed by the detect
-  # job's JSON array via fromJSON; an empty array spawns ZERO legs
-  # cleanly (fail-open — no phantom check, no empty-green noise).
-  gate:
-    name: Pinned gate (${{ matrix.ecosystem }})
-    needs: detect
-    if: ${{ needs.detect.outputs.ecosystems != '[]' }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        ecosystem: ${{ fromJSON(needs.detect.outputs.ecosystems) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-
+      # The gate script parses manifests with python3 (stdlib json +
+      # tomllib), so a 3.11+ interpreter is needed for every ecosystem,
+      # not just pip. Unconditional and cheap (setup-python is cached on
+      # the runner image); the detect call below deliberately runs after
+      # it for the same reason.
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
 
-      - name: Exact-version pin check over discovered manifests
-        run: bash .github/scripts/dependency-pinned-gate.sh ${{ matrix.ecosystem }}
-
-  # Stage 3: the SINGLE required status check. Always runs (even when the
-  # matrix was empty), and concludes success on an empty matrix (no
-  # ecosystem present -> mergeable, NOT hung) or when every gate leg
-  # succeeded, and failure when any leg failed or was cancelled.
-  # `if: always()` is MANDATORY: without it the job is SKIPPED on an
-  # empty matrix, and a required check treats "skipped" as not-passed,
-  # reintroducing the #91/#230 phantom-check hang. The `protect-main`
-  # ruleset lists THIS job's name (`pinned-gate-required`) as the
-  # required check, never the per-leg `Pinned gate (<ecosystem>)` names.
-  pinned-gate-required:
-    name: pinned-gate-required
-    needs: gate
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Conclude on the gate matrix result
+      - name: Exact-version pin check over every present ecosystem
         run: |
-          result="${{ needs.gate.result }}"
-          echo "gate job result: ${result}"
-          # An empty matrix leaves the gate job 'skipped' — the fail-OPEN
-          # case (no ecosystem present), so it is a PASS. 'success' is
-          # also a pass. Anything else (failure, cancelled) blocks the PR.
-          case "${result}" in
-            success|skipped)
-              echo "pinned-gate aggregator: PASS (${result})."
-              ;;
-            *)
-              echo "pinned-gate aggregator: FAIL — at least one gate leg did not succeed (${result})." >&2
-              exit 1
-              ;;
-          esac
+          set -euo pipefail
+
+          # `--present` emits a JSON array of the ecosystems whose
+          # manifest is in the tracked tree, e.g. ["npm","actions"], or
+          # `[]` when none are.
+          present="$(bash .github/scripts/dependency-pinned-gate.sh --present)"
+          csv="$(printf '%s' "${present}" | tr -d '[]" ')"
+          echo "Present ecosystems: ${present}"
+
+          {
+            echo "## pinned-gate-required"
+            echo
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          # Fail OPEN, and do it BEFORE splitting: a manifest-less repo
+          # is mergeable, not hung, and the empty case never reaches the
+          # loop (which also keeps `"${ecosystems[@]}"` off an unset
+          # array under `set -u`).
+          if [ -z "${csv}" ]; then
+            echo "PASS — no supported ecosystem present in the tracked tree (fail-open)."
+            echo "No supported ecosystem is present in the tracked tree; nothing to check (fail-open)." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          # Split EXPLICITLY into an array. Relying on the shell's
+          # default word splitting of an unquoted expansion works under
+          # bash but not under every shell this block might be pasted
+          # into, and the failure mode is silent: the loop would run
+          # ONCE with "npm actions" as a single word, the script would
+          # hit its usage branch, and the required check would go red
+          # for a reason that has nothing to do with the repo's pins.
+          IFS=',' read -r -a ecosystems <<< "${csv}"
+
+          {
+            echo "| ecosystem | result |"
+            echo "| --- | --- |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          # Run-all-then-fail: never short-circuit, so one PR iteration
+          # surfaces every offending ecosystem.
+          rc=0
+          for ecosystem in "${ecosystems[@]}"; do
+            echo "=== pinned-gate: ${ecosystem} ==="
+            if bash .github/scripts/dependency-pinned-gate.sh "${ecosystem}"; then
+              echo "| \`${ecosystem}\` | PASS |" >> "${GITHUB_STEP_SUMMARY}"
+            else
+              rc=1
+              echo "| \`${ecosystem}\` | **FAIL** |" >> "${GITHUB_STEP_SUMMARY}"
+              echo "::error title=pinned-gate (${ecosystem})::Declared dependencies in the ${ecosystem} ecosystem are not all pinned to exact versions. See the \"pinned-gate: ${ecosystem}\" section of this job's log for the offending declarations."
+            fi
+          done
+
+          if [ "${rc}" -ne 0 ]; then
+            echo "pinned-gate: FAIL — at least one present ecosystem has non-exact declarations." >&2
+          else
+            echo "pinned-gate: PASS — every present ecosystem is exact-pinned."
+          fi
+          exit "${rc}"
