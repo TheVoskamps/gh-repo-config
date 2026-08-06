@@ -82,11 +82,20 @@ export function assertNoUnresolvedTokens(
 }
 
 /**
- * The nine fixed org-level constants the PR-automation templates
+ * The fixed org-level constants the PR-automation templates
  * (`auto-enable-automerge.yml`, `auto-rebase-prs.yml`) substitute,
  * pinned by issue #25's placeholder table. These are the converged
  * standard across every managed repo — nothing here is per-repo or
- * open to interpretation. `__BOT_SLUG__` and `__DEFAULT_BRANCH__` are
+ * open to interpretation.
+ *
+ * No single template carries every constant: `auto-rebase-prs.yml` owns
+ * the sweep-side ones and `auto-enable-automerge.yml` the
+ * native-auto-merge `__MERGE_METHOD__`. `test/render.test.js` therefore
+ * asserts substitution over the UNION of the two templates, and asserts
+ * that union is complete — a constant used by neither template is a
+ * dead entry here, not a silently-skipped assertion.
+ *
+ * `__BOT_SLUG__` and `__DEFAULT_BRANCH__` are
  * NOT in this map: `__DEFAULT_BRANCH__` is per-repo (handled by
  * {@link renderTemplate}'s `RepoContext`) and `__BOT_SLUG__` is
  * per-repo but derived (repo-name interpolated), so both are resolved

@@ -17,9 +17,10 @@ configuration, on every managed repo that does not use CodeArtifact**.
 
 **npm, pnpm, and yarn Berry only.** A CodeArtifact-backed PyPI registry
 is out of scope: the endpoint is validated by host, so a `/pypi/<repo>/`
-path parses, but nothing configures pip and the install gate's `pip` leg
-skips the action entirely. Do not set `CODEARTIFACT_ROLE` to a pypi
-endpoint and expect it to work.
+path parses, but nothing configures pip and the install gate skips the
+action entirely on a repo whose only package manager is pip (its detect
+step's `node` output guards the auth step). Do not set
+`CODEARTIFACT_ROLE` to a pypi endpoint and expect it to work.
 
 Everything below is provisioned by an operator in the target AWS account
 and in GitHub. None of it is built by this repo, in the same way the
@@ -173,7 +174,7 @@ What happens when they drift:
 
 | Drift | Consequence |
 | --- | --- |
-| Repo has the **variable** but is **not** in the trust policy | The action arms, `AssumeRoleWithWebIdentity` is denied, the role-assumption step fails (there is no `continue-on-error`), the `gate` leg fails, and `install-gate-required` — a **required check** — fails. **Every PR on that repo is blocked, with no mechanism by which it could go green.** |
+| Repo has the **variable** but is **not** in the trust policy | The action arms, `AssumeRoleWithWebIdentity` is denied, the role-assumption step fails (there is no `continue-on-error`), and since the auth step runs inside `install-gate-required` itself — a **required check** — that check fails. **Every PR on that repo is blocked, with no mechanism by which it could go green.** |
 | Repo is in the **trust policy** but does **not** have the variable | The action no-ops. Installs resolve from the public registry and fail on any private package. Nothing is blocked spuriously, and nothing is granted that was not already grantable. |
 
 The first row is the failure this whole payload exists to eliminate,

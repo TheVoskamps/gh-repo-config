@@ -100,7 +100,7 @@ npm run lint:md
       in the named group) are org-wide constants covering the org's
       lockstep/stack dependency groupings. `renderPrAutomationTemplate` +
       `PR_AUTOMATION_CONSTANTS` render the PR-automation
-      workflows' extra placeholders: nine fixed org-level constants
+      workflows' extra placeholders: the fixed org-level constants
       (App identity, merge method, do-not-merge label, required-check/
       install-gate workflow names, and `__INSTALL_GATE_CHECK__` — the
       install gate's single required-check job name, which the
@@ -108,9 +108,13 @@ npm run lint:md
       `__BOT_SLUG__` (`<repo>-auto-rebase[bot]`), layered on top of the
       same three per-repo tokens `renderTemplate` already resolves. No
       single template uses every constant — `auto-rebase-prs.yml` owns
-      the sweep-side ones and `auto-enable-automerge.yml` the
-      native-auto-merge one — so `test/render.test.js` asserts coverage
-      over their union. The
+      the sweep-side ones (`__REQUIRED_CHECK_WORKFLOW__`,
+      `__INSTALL_GATE_WORKFLOW__`, `__INSTALL_GATE_CHECK__`,
+      `__REST_MERGE_METHOD__`) and `auto-enable-automerge.yml` the
+      native-auto-merge one (`__MERGE_METHOD__`) — so
+      `test/render.test.js` asserts coverage over their union, and
+      asserts the union is complete so a constant that falls out of
+      both templates cannot go unnoticed. The
       full surface always renders unconditionally (no conditional-drop
       logic like the interactive `gh-repo-setup-pr-automation` skill has
       for repos lacking certain workflows) — on a managed repo the gates
@@ -252,8 +256,24 @@ npm run lint:md
   - `ecosystem-block.yml` carries `__NAMED_GROUPS_BLOCK__` (the named
     Dependabot groups — see `render.ts`'s `NAMED_DEPENDABOT_GROUPS`
     description above). `no-back-merging-guard.yml` runs with
-    least-privilege permissions. Both PR-automation workflows truncate
-    an oversized PR body before merging.
+    least-privilege permissions. The two PR-automation workflows are
+    split by EVENT, not by concern (issue #77): `auto-rebase-prs.yml`
+    owns everything the `workflow_run` / `workflow_dispatch` /
+    `schedule` / `push` / `issue_comment` sweep does — the rebase pass
+    AND the Dependabot REST-merge pass that used to be
+    `auto-enable-automerge.yml`'s own `dependabot-rest-merge` job —
+    while `auto-enable-automerge.yml` is now `pull_request`-only and
+    does nothing but enable native auto-merge. They were not collapsed
+    into one file because the converger has no delete path: retiring a
+    rendered workflow would leave an orphan copy running, and billing,
+    on every managed repo. The REST-merge pass passes the evaluated
+    head SHA to the merge call, so a head that moved since the checks
+    were verified 409s and is left for the next sweep rather than
+    merged unverified. Both workflows truncate an oversized PR body at
+    16000 chars (appending the PR URL) before it becomes a merge-commit
+    message, since GitHub caps commit messages at 16383. Each documents
+    its trigger set — including `auto-rebase-prs.yml`'s cron window —
+    inline.
   - **Job count is a first-class constraint on every fanned-out
     workflow.** GitHub bills a whole minute per JOB, rounded up, so a
     wrapper job doing three seconds of work costs the same as a real
@@ -286,6 +306,15 @@ npm run lint:md
       uploads would displace each other, whereas the action's derived
       `<workflow path>:<job id>` category is distinct per job. Do not
       reinstate it.
+    - `auto-rebase-prs.yml`'s backstop cron is WINDOWED to Pacific
+      weekday business hours (`0 15-23 * * 1-5` + `0 0-2 * * 2-6`, 12
+      ticks a day instead of the old `*/20`'s 72) — it exists only to
+      catch the lazy-`mergeStateStatus` race, which cannot happen while
+      nobody is pushing. The two entries are the UNION of PDT and PST
+      deliberately: GitHub cron is UTC-only, and over-covering by an
+      hour beats clipping a real working hour for four months of the
+      year. Splitting across the UTC date boundary is why the
+      day-of-week fields differ.
   - `codeartifact-auth.sh` is the whole of the `codeartifact-auth`
     composite action's logic; `codeartifact-auth-action.yml` is thin
     glue (parse → OIDC role assumption → configure) and reaches the
@@ -411,7 +440,8 @@ npm run lint:md
   same-owner PR that has fallen behind `main` (including the bumper's
   own PR — both its rebase sweep and, since issue #77 moved that pass
   in, its Dependabot REST-merge sweep), and `git rebase` rewrites the
-  committer while leaving the author untouched. But author alone is not sufficient: a
+  committer while leaving the author untouched. But author alone is not
+  sufficient: a
   maintainer who *amends* the bot's commit keeps the bot as author
   while replacing its content, so the committer is checked too — any
   committer other than the bot itself or the auto-rebase bot means the
