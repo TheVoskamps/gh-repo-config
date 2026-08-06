@@ -124,8 +124,8 @@ condition must name concrete repositories. A wildcard such as
 role.
 
 That matters because the rendered `dependency-install-gate.yml` grants
-`id-token: write` on its `gate` job for **every** managed repo, including
-repos that do not use CodeArtifact. `permissions:` is static YAML and
+`id-token: write` on its single `install-gate-required` job for **every**
+managed repo, including repos that do not use CodeArtifact. `permissions:` is static YAML and
 cannot be made conditional, and converge-time detection was rejected: the
 converger reads the *default branch* while the gate runs against *PR
 head*, and the gate is a required check, so a repo that adopted
