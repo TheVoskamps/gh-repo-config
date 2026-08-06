@@ -272,8 +272,8 @@ npm run lint:md
     merged unverified. Both workflows truncate an oversized PR body at
     16000 chars (appending the PR URL) before it becomes a merge-commit
     message, since GitHub caps commit messages at 16383. Each documents
-    its trigger set — including `auto-rebase-prs.yml`'s cron window —
-    inline.
+    its trigger set — including `auto-rebase-prs.yml`'s two-rationale
+    cron list — inline.
   - **Job count is a first-class constraint on every fanned-out
     workflow.** GitHub bills a whole minute per JOB, rounded up, so a
     wrapper job doing three seconds of work costs the same as a real
@@ -286,7 +286,12 @@ npm run lint:md
       `pinned-gate-required` / `install-gate-required` names
       `protect-main-ruleset.json` requires. The per-leg check names they
       gave up are bought back with a job-summary table and a
-      per-failure `::error title=...::` annotation, not with jobs. Both
+      per-failure `::error title=...::` annotation, not with jobs. That
+      annotation carries no `file=`, so it defaults to `.github` line 1
+      and surfaces on the run page and Checks tab only — the
+      diff-attached annotations are the ones the gate SCRIPTS emit
+      (`::error file=<manifest>::`). Do not write that the workflow's
+      own annotation lands on Files changed. Both
       loops split the script's `--present` JSON array EXPLICITLY into a
       bash array and take the fail-open branch BEFORE splitting; relying
       on unquoted word splitting silently degrades to one iteration with
@@ -306,15 +311,26 @@ npm run lint:md
       uploads would displace each other, whereas the action's derived
       `<workflow path>:<job id>` category is distinct per job. Do not
       reinstate it.
-    - `auto-rebase-prs.yml`'s backstop cron is WINDOWED to Pacific
-      weekday business hours (`0 15-23 * * 1-5` + `0 0-2 * * 2-6`, 12
-      ticks a day instead of the old `*/20`'s 72) — it exists only to
+    - `auto-rebase-prs.yml`'s `schedule:` list serves TWO backstops
+      with different rationales, and the file's comments must keep them
+      apart. The REBASE backstop is WINDOWED to Pacific weekday
+      business hours (`0 15-23 * * 1-5` + `0 0-2 * * 2-6`, 12 ticks a
+      weekday instead of the old `*/20`'s 72 a day) — it exists only to
       catch the lazy-`mergeStateStatus` race, which cannot happen while
-      nobody is pushing. The two entries are the UNION of PDT and PST
+      nobody is pushing. Those two entries are the UNION of PDT and PST
       deliberately: GitHub cron is UTC-only, and over-covering by an
       hour beats clipping a real working hour for four months of the
-      year. Splitting across the UTC date boundary is why the
-      day-of-week fields differ.
+      year. Splitting across the UTC date boundary is why their
+      day-of-week fields differ. The MERGE backstop is the third entry,
+      `0 15 * * 0,6` — the weekend replacement for the `0 12 * * *`
+      daily cron the REST-merge pass had in `auto-enable-automerge.yml`
+      before issue #77 moved it here. It catches a dropped
+      `workflow_run` completion on a PR Dependabot opened on its own
+      schedule, which does not stop for the weekend, so the rebase
+      backstop's weekday reasoning does not cover it. 15:00 UTC is the
+      hour the weekday window opens, which leaves no gap in the week
+      longer than 24 h. Do not fold the weekend entry into the weekday
+      window's justification.
   - `codeartifact-auth.sh` is the whole of the `codeartifact-auth`
     composite action's logic; `codeartifact-auth-action.yml` is thin
     glue (parse → OIDC role assumption → configure) and reaches the

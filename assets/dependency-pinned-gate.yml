@@ -50,8 +50,17 @@
 #   - a JOB SUMMARY table lists every checked ecosystem with PASS/FAIL,
 #     rendered on the run page with no log-diving at all, and
 #   - a `::error title=pinned-gate (<ecosystem>)::` ANNOTATION is
-#     emitted per failing ecosystem, which surfaces on the PR's Files
-#     changed / Checks tabs naming the ecosystem.
+#     emitted per failing ecosystem, which surfaces on the run page
+#     and in the PR's Checks tab naming the ecosystem — but NOT on the
+#     Files changed tab. An annotation with no `file=` parameter
+#     defaults to `file=.github`, `line=1` per GitHub's
+#     workflow-command parameter table, so it is attached to no file in
+#     the diff and the diff view never shows it. The loop cannot do
+#     better: it only ever learns WHICH ecosystem failed, not where.
+#     Diff-attached annotations come from the gate script instead —
+#     dependency-pinned-gate.sh emits its own
+#     `::error file=<manifest>::` per offending manifest, and those DO
+#     land on Files changed when the manifest is part of the diff.
 # Both are free — annotations and summaries are step output, not jobs.
 #
 # RUN-ALL-THEN-FAIL. The loop never short-circuits: every present

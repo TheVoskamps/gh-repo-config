@@ -40,32 +40,60 @@ on:
     types: [completed]
   workflow_dispatch:
   schedule:
-    # Backstop sweep, WINDOWED TO PACIFIC WEEKDAY BUSINESS HOURS.
+    # TWO BACKSTOPS, TWO RATIONALES, ONE CRON LIST. This job runs the
+    # rebase sweep AND the Dependabot REST-merge sweep (see the header),
+    # and the two do not want the same schedule. Keep the reasons
+    # separate: collapsing them is how the merge pass lost its weekend
+    # coverage when issue #77 first moved it in here.
     #
-    # What it is for: mergeStateStatus is computed lazily by GitHub.
-    # Right after a push to __DEFAULT_BRANCH__, open PRs are reported
-    # UNKNOWN until a background recompute settles them to BEHIND, and
-    # the event-driven runs above can drop a genuinely behind PR because
-    # of that race. A cron tick re-enumerates fresh state and catches
-    # any PR the race skipped. That is ALL it is for -- push,
-    # workflow_run, issue_comment and workflow_dispatch do the real
-    # work.
+    # (a) REBASE BACKSTOP -- Pacific WEEKDAY business hours only.
+    #     What it is for: mergeStateStatus is computed lazily by GitHub.
+    #     Right after a push to __DEFAULT_BRANCH__, open PRs are
+    #     reported UNKNOWN until a background recompute settles them to
+    #     BEHIND, and the event-driven runs above can drop a genuinely
+    #     behind PR because of that race. A cron tick re-enumerates
+    #     fresh state and catches any PR the race skipped. That is ALL
+    #     it is for -- push, workflow_run, issue_comment and
+    #     workflow_dispatch do the real work.
+    #     Why it is windowed (issue #77): `*/20 * * * *` is 2,160 ticks
+    #     per repo per month. Each does ~16 seconds of work and is
+    #     billed a whole minute, which came to 406 billable minutes in a
+    #     measured 3.7-day window for 103 minutes of real work. THIS
+    #     race only matters while someone is actually pushing, so
+    #     ticking through the night and the weekend buys nothing FOR
+    #     THIS BACKSTOP. (It buys something for (b) -- hence (b).)
     #
-    # Why it is windowed (issue #77): `*/20 * * * *` is 2,160 ticks per
-    # repo per month. Each does ~16 seconds of work and is billed a
-    # whole minute, which came to 406 billable minutes in a measured
-    # 3.7-day window for 103 minutes of real work. The race this catches
-    # only matters while someone is actually pushing, so ticking through
-    # the night buys nothing.
+    # (b) MERGE BACKSTOP -- a WEEKEND tick, Saturday and Sunday.
+    #     What it is for: the REST-merge pass's own backstop, which was
+    #     `0 12 * * *` in auto-enable-automerge.yml before issue #77
+    #     moved that pass into this job. It catches a dropped
+    #     workflow_run completion event, or a PR that went green with no
+    #     event firing at all. Dependabot opens PRs on ITS schedule, not
+    #     on the team's, and their checks go green whenever they go
+    #     green -- weekends included -- so (a)'s "nobody is pushing"
+    #     reasoning does NOT transfer to the merge pass. On (a)'s
+    #     entries alone the longest gap between ticks is Sat 02:00 UTC
+    #     -> Mon 15:00 UTC, 2 days 13 hours, and a Dependabot PR that
+    #     went green on Friday evening would sit unmerged until Monday.
+    #     Why 15:00 UTC on Sat+Sun specifically: that is the hour (a)'s
+    #     weekday window opens, so the whole week comes out with no gap
+    #     longer than 24 hours (Sat 02:00 -> Sat 15:00 is 13h; Sat 15:00
+    #     -> Sun 15:00 and Sun 15:00 -> Mon 15:00 are 24h each) -- the
+    #     same maximum the old daily `0 12 * * *` guaranteed, for two
+    #     extra ticks a week.
+    #     A weekend tick runs the WHOLE job, so the rebase sweep runs
+    #     then too. That is harmless: every pass here is idempotent and
+    #     a no-op when no PR is behind or gate-red.
     #
-    # DST CHOICE: UNION OF PDT AND PST, i.e. slight over-coverage rather
-    # than a single-offset anchor. GitHub cron is UTC-only with no
-    # timezone support, so a Pacific window drifts an hour across DST and
-    # something has to give. Anchoring on one offset is exact for eight
-    # months and an hour wrong for four -- and wrong in the direction
-    # that clips a real working hour. The union is never wrong in that
-    # direction; it just runs one extra hour, whichever side of DST we
-    # are on. That is 12 ticks a day instead of 72.
+    # DST CHOICE (applies to (a)): UNION OF PDT AND PST, i.e. slight
+    # over-coverage rather than a single-offset anchor. GitHub cron is
+    # UTC-only with no timezone support, so a Pacific window drifts an
+    # hour across DST and something has to give. Anchoring on one offset
+    # is exact for eight months and an hour wrong for four -- and wrong
+    # in the direction that clips a real working hour. The union is
+    # never wrong in that direction; it just runs one extra hour,
+    # whichever side of DST we are on. That is 12 ticks a weekday
+    # instead of 72 a day.
     #
     # The arithmetic, for Pacific 08:00-18:00 local, Mon-Fri:
     #   PDT (UTC-7): 08:00 -> 15:00 UTC, 18:00 -> 01:00 UTC next day
@@ -76,8 +104,9 @@ on:
     # on the local weekday itself (Mon-Fri = 1-5), the 00:00-02:00 hours
     # fall on the following UTC day (Tue-Sat = 2-6). Under PDT the
     # window runs 08:00-19:00 local; under PST, 07:00-18:00 local.
-    - cron: '0 15-23 * * 1-5'
-    - cron: '0 0-2 * * 2-6'
+    - cron: '0 15-23 * * 1-5'  # (a) weekday window, local-day hours
+    - cron: '0 0-2 * * 2-6'    # (a) same window, past the UTC date line
+    - cron: '0 15 * * 0,6'     # (b) merge backstop, Sun (0) + Sat (6)
   issue_comment:
     types: [created]
 
@@ -93,10 +122,12 @@ on:
 #   - workflow_dispatch -- manual "Run workflow" button (or
 #     `gh workflow run auto-rebase-prs.yml`). Recovery path for the
 #     lazy-mergeStateStatus race. Sweeps all eligible PRs.
-#   - schedule -- periodic backstop sweep, windowed to Pacific weekday
-#     business hours (see the `on: schedule:` block for the DST
-#     reasoning), so a PR that was UNKNOWN at push time is rebased on
-#     the next tick. Sweeps all eligible PRs.
+#   - schedule -- periodic backstop sweep, for two distinct reasons the
+#     `on: schedule:` block keeps apart: a window over Pacific weekday
+#     business hours so a PR that was UNKNOWN at push time is rebased on
+#     the next tick, plus a Saturday+Sunday tick so the REST-merge pass
+#     below keeps the weekend dropped-event backstop it had as its own
+#     daily cron before it moved into this job. Sweeps all eligible PRs.
 #   - issue_comment (created) -- a collaborator comments `/rebase` on a
 #     PR to rebase just that PR (the generic equivalent of
 #     `@dependabot rebase`). Gated to PR comments from users with write
@@ -752,6 +783,11 @@ jobs:
       # purpose: `/rebase` is a request to rebase ONE PR, and letting a
       # comment on one PR merge a repo-wide set of others would be a
       # surprising widening of what that command does.
+      # This pass is also why the `on: schedule:` list carries a
+      # weekend entry (its `(b)` cron): the old job's own daily backstop
+      # covered Saturday and Sunday, and Dependabot goes green on its
+      # schedule rather than the team's. The rebase sweep's weekday
+      # window would not have covered that.
       #
       # What it does: for a PR whose authoritative author is Dependabot
       # AND whose required status checks are ALL green, it merges via
