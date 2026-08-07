@@ -281,9 +281,9 @@ npm run lint:md
     collapsed the shapes that violated this and they must not be
     re-split:
     - `dependency-pinned-gate.yml` and `dependency-install-gate.yml`
-      are each ONE job — detection is a step, the per-ecosystem/per-PM
-      legs are a `run`-block loop — carrying the same
-      `pinned-gate-required` / `install-gate-required` names
+      are each ONE job — detection happens in a `run` block, the
+      per-ecosystem/per-PM legs are a `run`-block loop — carrying the
+      same `pinned-gate-required` / `install-gate-required` names
       `protect-main-ruleset.json` requires. The per-leg check names they
       gave up are bought back with a job-summary table and a
       per-failure `::error title=...::` annotation, not with jobs. That
@@ -301,7 +301,29 @@ npm run lint:md
       flags because a single job has no `matrix.pm` to guard
       `Set up Node` and the CodeArtifact auth step with. That guard is
       load-bearing: unguarded, a pip-only repo performs a real
-      `AssumeRoleWithWebIdentity` it has no role for.
+      `AssumeRoleWithWebIdentity` it has no role for. Those guards are
+      also the only reason detection is its own STEP there: a
+      step-level `if:` can read another STEP's outputs but not a
+      mid-step shell variable. `dependency-pinned-gate.yml` has no
+      conditional steps, so its `--present` call stays INLINE at the
+      head of its one check step (that step carries no `id:` at all).
+      The asymmetry is deliberate — do not harmonize the two, and do
+      not describe the pinned gate as having a detect step.
+    - **A detection mode talks to its workflow over STDOUT, never
+      `$GITHUB_OUTPUT`.** This covers `dependency-install-gate.sh
+      --present`, `dependency-pinned-gate.sh --present`, and
+      `codeql-language-present.sh --matrix`. Before issue #77 each also
+      wrote `pms=` / `ecosystems=` / `languages=` into `$GITHUB_OUTPUT`
+      for the retired `detect` job to re-export to its matrix. The
+      collapse removed every consumer, so those writes were removed
+      too; every caller now captures that stdout directly, and the two
+      that need the result in a LATER step (the install gate's and
+      CodeQL's detect steps) derive their own step outputs from it.
+      Re-adding one produces a step output nothing reads (and, in
+      the pinned gate, one that is not even addressable). Each of the
+      three modes carries a comment saying so. This does NOT touch
+      `codeartifact-auth.sh`'s `emit` helper, whose step outputs the
+      composite action really does consume.
     - `codeql.yml` analyzes every ubuntu-runner language in ONE
       `init` + `analyze` pair (the action takes a comma-separated
       language list) named `codeql-required`, with a second

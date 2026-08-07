@@ -7,12 +7,12 @@
 # ARMED WITH THE FULL SUPPORTED SET — runtime-gated, fails OPEN. This
 # workflow is armed with EVERY supported ecosystem (`npm`, `pip`,
 # `actions`, `docker`, `go`) at install time, and decides WHICH to gate
-# at RUNTIME, per PR. A detect STEP runs
-# `dependency-pinned-gate.sh --present` (the SAME `git ls-files`
-# discovery the gate itself uses) and emits a JSON array of the
-# ecosystems whose manifest is actually present; the run loop then
-# checks exactly those, so an ecosystem is checked IFF its manifest is
-# in the tree right now:
+# at RUNTIME, per PR. There is NO detect step here: the single job's one
+# check STEP opens by calling `dependency-pinned-gate.sh --present` (the
+# SAME `git ls-files` discovery the gate itself uses), which emits a JSON
+# array of the ecosystems whose manifest is actually present, and the
+# loop further down that same step then checks exactly those. So an
+# ecosystem is checked IFF its manifest is in the tree right now:
 #   - present + clean          -> that ecosystem passes,
 #   - present + floating spec  -> that ecosystem fails (blocking),
 #   - absent                   -> NOT checked at all (fails OPEN — no
@@ -29,10 +29,21 @@
 # work: across a measured 3.7-day window the two dependency gates spent
 # 324 billable minutes on their `detect` + `*-required` wrapper jobs
 # alone. A check NAME is free on GitHub; a JOB is the billing unit. So
-# detection is a STEP, the per-ecosystem legs are a LOOP, and the single
-# remaining job KEEPS the name `pinned-gate-required` — the name
-# `protect-main-ruleset.json` lists as the required status check, which
-# is therefore unchanged by the collapse.
+# detection is now the head of a run STEP, the per-ecosystem legs are a
+# LOOP below it in that same step, and the single remaining job KEEPS the
+# name `pinned-gate-required` — the name `protect-main-ruleset.json`
+# lists as the required status check, which is therefore unchanged by the
+# collapse.
+#
+# WHY DETECTION IS INLINE HERE BUT ITS OWN STEP IN THE SIBLING GATE. The
+# dependency-install-gate keeps a separate `detect` step because its
+# `node` / `pip` outputs arm LATER steps (`Set up Node`, `Set up Python`,
+# CodeArtifact auth) through step-level `if:` conditions, and an `if:`
+# can only read another STEP's outputs. This gate has no such
+# conditional steps — `Set up Python` below is unconditional — so its
+# `--present` call has nothing to hand across a step boundary and stays
+# inline at the head of the check step. Do not "harmonize" the two into
+# a detect step here; that would add a step boundary for no consumer.
 #
 # Every invariant of the previous three-job shape survives: still
 # runtime-armed per PR, still fails open when no manifest is present,
@@ -113,8 +124,8 @@
 #
 # There is intentionally NO per-job delimiter-comment rendering: the
 # armed set is the full supported set, fixed in this template, and
-# narrowed to the present set at RUNTIME by the detect step — never at
-# install time.
+# narrowed to the present set at RUNTIME by the `--present` call at the
+# head of the check step — never at install time.
 name: dependency-pinned-gate
 
 on:

@@ -56,10 +56,10 @@ diverge. This is the whole point.
 
 The converged standard has no per-repo configuration inputs. Ecosystem
 and CodeQL choices are unconditional; the install/pinned gates
-discover a repo's actual surface at runtime — a detect step feeding a
-loop inside one job, since issue #77 collapsed each gate's per-leg
-matrix for billing reasons — so the same fixed workflow set is correct
-on every repo. The pr-automation
+discover a repo's actual surface at runtime — a `--present` discovery
+call feeding a check loop inside one job, since issue #77 collapsed each
+gate's per-leg matrix for billing reasons — so the same fixed workflow
+set is correct on every repo. The pr-automation
 placeholders that the interactive skill historically detected or
 prompted for (required-check workflow, install-gate presence) are
 therefore invariants of the standard itself, and its conditional-drop

@@ -178,10 +178,14 @@ if [ "$MODE" = "--present" ]; then
     fi
   done
   json="[$entries]"
+  # STDOUT IS THE WHOLE INTERFACE. This mode used to ALSO write
+  # `pms=$json` into `$GITHUB_OUTPUT`, which the retired `detect` job
+  # re-exported as a job output for its `gate` matrix to consume. The
+  # issue-#77 collapse removed that job, and the detect STEP that
+  # replaced it captures this stdout and derives its OWN `pm_csv` /
+  # `node` / `pip` outputs from it. Nothing reads a `pms` output any
+  # more, so writing one back would be dead code. Do not reinstate it.
   echo "$json"
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    echo "pms=$json" >> "$GITHUB_OUTPUT"
-  fi
   exit 0
 fi
 

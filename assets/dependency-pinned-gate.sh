@@ -191,10 +191,15 @@ if [ "$MODE" = "--present" ]; then
     fi
   done
   json="[$entries]"
+  # STDOUT IS THE WHOLE INTERFACE. This mode used to ALSO write
+  # `ecosystems=$json` into `$GITHUB_OUTPUT`, which the retired `detect`
+  # job re-exported as a job output for its `gate` matrix to consume. The
+  # issue-#77 collapse removed that job, and the single
+  # `pinned-gate-required` job calls this mode at the head of its one run
+  # step, which captures this stdout directly. That step carries no `id:`
+  # at all, so a step output would not even be addressable. Do not
+  # reinstate it.
   echo "$json"
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    echo "ecosystems=$json" >> "$GITHUB_OUTPUT"
-  fi
   exit 0
 fi
 

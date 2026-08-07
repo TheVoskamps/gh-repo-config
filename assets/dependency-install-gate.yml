@@ -94,6 +94,13 @@
 # pip is. This is load-bearing, not tidiness — see the CodeArtifact note
 # below.
 #
+# It is also the whole reason detection is its own STEP here while the
+# sibling dependency-pinned-gate keeps its `--present` call inline at the
+# head of its single check step: a step-level `if:` can only read another
+# STEP's outputs, so the guarded steps below force a step boundary the
+# pinned gate has no consumer for. The asymmetry is deliberate; do not
+# "harmonize" it away in either direction.
+#
 # CODEARTIFACT-BACKED REGISTRIES. The installs are real, so they resolve
 # against whatever registry the repo declares. When that is an AWS
 # CodeArtifact repository the install needs an authorization token, which

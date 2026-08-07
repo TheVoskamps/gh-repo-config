@@ -113,7 +113,7 @@ const RENDERED_WORKFLOWS: readonly string[] = [
   "dependency-pinned-gate.yml",
   "no-back-merging-guard.yml",
   // The CodeQL advanced-setup workflow (issue #16). Carries only the
-  // `__DEFAULT_BRANCH__` placeholder; its runtime detect job handles
+  // `__DEFAULT_BRANCH__` placeholder; its runtime detect step handles
   // language-less repos, so it ships unconditionally like the guards.
   "codeql.yml",
 ];

@@ -165,11 +165,15 @@ case "$MODE" in
       fi
     done
     json="[$entries]"
+    # STDOUT IS THE WHOLE INTERFACE. This mode used to ALSO write
+    # `languages=$json` into `$GITHUB_OUTPUT`, which the retired `detect`
+    # job re-exported as a job output for its `analyze` matrix to consume.
+    # The issue-#77 collapse removed that job, and the detect STEP that
+    # replaced it captures this stdout and derives its OWN
+    # `ubuntu_languages` / `swift_languages` / `swift_runner` outputs from
+    # it. Nothing reads a `languages` output any more, so writing one back
+    # would be dead code. Do not reinstate it.
     echo "$json"
-    # Also surface it as a GitHub Actions job output when running in CI.
-    if [ -n "${GITHUB_OUTPUT:-}" ]; then
-      echo "languages=$json" >> "$GITHUB_OUTPUT"
-    fi
     exit 0
     ;;
   --list)
