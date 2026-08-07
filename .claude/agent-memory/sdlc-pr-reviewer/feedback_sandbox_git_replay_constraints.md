@@ -1,16 +1,16 @@
 ---
 name: feedback-sandbox-git-replay-constraints
-description: Two harness walls hit when replaying a workflow's git logic in a throwaway sandbox — `git config user.*` is blocked outright, and long compound Bash with redirects is refused as unverifiable; use env-var identities and a script file instead.
+description: Harness and repo walls hit when doing sandbox work under `.claude/tmp/` — `git config user.*` is blocked, compound Bash with redirects is refused, and `npm run lint:md` lints scratch `.md` files parked there.
 metadata:
   type: feedback
 ---
 
-# Sandbox git-replay constraints
+# Sandbox constraints under `.claude/tmp/`
 
 When reproducing a GitHub Actions workflow's git behaviour in a
 throwaway sandbox (the technique this repo's PR reviews lean on
 heavily — force-push guards, rebase authorship, lease semantics),
-two harness rules will stop the obvious approach:
+these harness and repo rules will stop the obvious approach:
 
 1. **`git config user.name` / `user.email` / `user.signingkey` are
    refused**, even inside a freshly `git init`-ed sandbox repo under
@@ -25,11 +25,21 @@ two harness rules will stop the obvious approach:
    every path is inside it. Write the whole replay to a file (e.g.
    `.claude/tmp/<slug>/repro.sh`) with the Write tool and run
    `bash <file>` as a single plain command.
+3. **`npm run lint:md` lints `.claude/tmp/` too.** Its glob is
+   `**/*.md` excluding only `node_modules` and `dist` — gitignored is
+   not excluded. So any scratch or `curl`-ed `.md` you park under
+   `.claude/tmp/` shows up as lint errors attributed to a path that
+   has nothing to do with the PR, and the run reads as a failure.
+   Delete scratch `.md` files (or keep them under a non-`.md`
+   extension) before running the repo's lint, or you will file a
+   phantom finding.
 
 Also: `.claude/tmp/` is gitignored in this repo, and the scratchpad
 directory the harness advertises lives outside the repo root, so
 sandbox work must go under `.claude/tmp/` — reads from the scratchpad
-path are blocked by the same worktree-isolation rule.
+path are blocked by the same worktree-isolation rule. `mkdir -p` the
+sandbox dir first; a `Write`/redirect into a not-yet-existing
+`.claude/tmp/<slug>/` fails rather than creating it.
 
 **Why:** the harness protects commit attribution and worktree
 isolation. Both refusals are correct; they just make the naive form
