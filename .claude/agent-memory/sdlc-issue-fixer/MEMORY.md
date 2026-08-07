@@ -6,3 +6,4 @@
 - [Sweep past the diff for falsified prose](feedback-sweep-past-the-diff-for-falsified-prose.md) — after a structural change, grep the RETIRED term repo-wide; untouched files can hold prose the diff made false
 - [Prove a replacement assertion bites](feedback-prove-a-replacement-assertion-bites.md) — a green suite says nothing about a fixed test's discriminating power; feed it the pre-change input and watch it fail
 - [js-yaml is an undeclared transitive dep](project-js-yaml-is-an-undeclared-transitive-dep.md) — resolves via markdownlint-cli2 only; fine for scratch, never import from test/ or src/
+- [`cp` refuses to overwrite](project-cp-refuses-to-overwrite.md) — even with `-f`; restore a mutation check's backup with `node -e fs.writeFileSync`, not `cp`
