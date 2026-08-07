@@ -26,13 +26,17 @@ these harness and repo rules will stop the obvious approach:
    `.claude/tmp/<slug>/repro.sh`) with the Write tool and run
    `bash <file>` as a single plain command.
 3. **`npm run lint:md` lints `.claude/tmp/` too.** Its glob is
-   `**/*.md` excluding only `node_modules` and `dist` — gitignored is
-   not excluded. So any scratch or `curl`-ed `.md` you park under
-   `.claude/tmp/` shows up as lint errors attributed to a path that
-   has nothing to do with the PR, and the run reads as a failure.
-   Delete scratch `.md` files (or keep them under a non-`.md`
-   extension) before running the repo's lint, or you will file a
-   phantom finding.
+   `**/*.md` excluding only `node_modules` and `dist`, and those two
+   exclusions are bare names anchored at the repo root — gitignored is
+   not excluded either. So any scratch or `curl`-ed `.md` you park
+   under `.claude/tmp/` shows up as lint errors attributed to a path
+   that has nothing to do with the PR, and the run reads as a failure.
+   The loudest instance: a `node_modules` **symlink** inside a scratch
+   tree under `.claude/tmp/` is not covered by the root-anchored
+   `#node_modules`, so lint walks it and reports hundreds of errors in
+   third-party `README.md` / `SECURITY.md` files. Tear the scratch tree
+   (and its `node_modules` symlink) down before running the repo's
+   lint, or you will file a phantom finding.
 
 4. **A `.md` `Write` under `.claude/tmp/` is refused** ("Edit the
    worktree copy of this file instead of the shared-checkout path"),

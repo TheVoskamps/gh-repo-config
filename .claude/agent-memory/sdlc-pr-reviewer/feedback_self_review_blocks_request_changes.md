@@ -30,3 +30,13 @@ whose body is prefixed with an explicit verdict line
 (`CHANGES REQUESTED`), so the review still carries the verdict. Still
 exactly one call, one notification. Don't retry `--request-changes`
 and don't split into two calls.
+
+**But check the identities first, don't assume they collide.** Since
+this repo adopted the per-user Claude GitHub App identity, the two are
+often *different*: `gh api user -q .login` returned
+`claude-for-evoskamp` while PR #79's author was `evoskamp`, so a plain
+`gh pr review --approve` succeeded and the review shows
+`state=APPROVED`. Compare `gh api user -q .login` against the PR's
+`author.login` and downgrade only on an actual match — pre-emptively
+downgrading throws away a real review state (and the "approved" signal
+a human or a merge queue reads) for no reason.
