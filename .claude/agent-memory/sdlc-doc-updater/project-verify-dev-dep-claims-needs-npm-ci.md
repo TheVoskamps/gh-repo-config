@@ -14,11 +14,12 @@ the package is absent. Run `npm ci` (lockfile-honoring, allowed) before
 concluding anything, and prefer `package-lock.json` as the durable
 citation in prose since it is present regardless of install state.
 
-**Why:** on PR #79 a test docstring justified hand-rolling a YAML
-helper with claims about `js-yaml` being an undeclared transitive dep
-of `markdownlint-cli2` and having no default ESM export. Both were
-true, but neither was checkable until `npm ci` had run — and the
-docstring's own suggested check (`npm ls js-yaml`) reproduced as empty.
+**Why:** a test docstring that justifies hand-rolling a YAML helper
+with claims about `js-yaml` being an undeclared transitive dep of
+`markdownlint-cli2`, and about its ESM export shape, states two true
+things that are nonetheless uncheckable until `npm ci` has run — the
+docstring's own suggested check (`npm ls js-yaml`) reproduces as empty
+in a fresh worktree, which reads as a refutation and is not one.
 
 **How to apply:** when a doc comment or doc file asserts something
 about a package's presence, dependents, version, or export shape,

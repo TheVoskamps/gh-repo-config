@@ -8,15 +8,15 @@ metadata:
 # A meaning-changing rename falsifies prose the rename never touched
 
 The hard case is not a pure rename. It is a rename that also changes
-**what the thing is**. Issue #77's collapse renamed
-`__INSTALL_GATE_NPM_CHECK__` (the npm matrix leg's CheckRun) to
-`__INSTALL_GATE_CHECK__` (the whole gate's single aggregate check). Every
-occurrence of the token itself got updated, and so did the file's
-placeholder-doc header and the pass's rationale header. What survived
-were inline comments a few hundred lines down that never mentioned the
-token at all — they said "the **npm** check", "the dependency-install-gate
-**npm** CheckRun", "a typical dependency-install-gate **npm** job". Those
-were *true on `main`* and were falsified by the rename.
+**what the thing is** — as when `__INSTALL_GATE_NPM_CHECK__` (the npm
+matrix leg's CheckRun) becomes `__INSTALL_GATE_CHECK__` (the whole
+gate's single aggregate check). Every occurrence of the token itself
+gets updated, and so do the file's placeholder-doc header and the
+pass's rationale header. What survives are inline comments a few
+hundred lines down that never mention the token at all — "the **npm**
+check", "the dependency-install-gate **npm** CheckRun", "a typical
+dependency-install-gate **npm** job". Those were true before the
+rename and the rename falsifies them.
 
 Why every ordinary sweep misses them: the fixer greps the new name, the
 reviewer greps the new name, and these sites contain neither name. There
@@ -35,9 +35,9 @@ three-job shape gave each PM its own check NAME, so a red
 longer exists. Comparing the two lists tells you which sites the sweep
 reached and which it skipped.
 
-Pick the semantic word, not the identifier: for this PR it was `npm`
+Pick the semantic word, not the identifier — in the case above, `npm`
 appearing next to `check` / `job` / `CheckRun`. The same move applies to
-any constant whose *scope* widens or narrows — a per-leg name becoming an
+any constant whose *scope* widens or narrows: a per-leg name becoming an
 aggregate one, a per-repo value becoming an org constant.
 
 Grade it **Low** when the file's own header already carries the corrected

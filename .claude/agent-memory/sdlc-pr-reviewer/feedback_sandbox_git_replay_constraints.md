@@ -1,6 +1,6 @@
 ---
 name: feedback-sandbox-git-replay-constraints
-description: Harness and repo walls hit when doing sandbox work under `.claude/tmp/` — `git config user.*` is blocked, compound Bash is refused, `npm run lint:md` lints scratch `.md` parked there, a `.md` Write there is refused, and the harness scratchpad is available (contrary to an earlier note).
+description: Harness and repo walls hit when doing sandbox work under `.claude/tmp/` — `git config user.*` is blocked, compound Bash is refused, `npm run lint:md` lints scratch `.md` parked there, a `.md` Write there is refused, and scratch Markdown belongs in the harness scratchpad, which is writable.
 metadata:
   type: feedback
 ---
@@ -48,18 +48,19 @@ these harness and repo rules will stop the obvious approach:
    docs) in the harness scratchpad instead, which also sidesteps
    point 3 entirely.
 
-Correction to an earlier version of this memory: **the harness
-scratchpad is NOT blocked.** Writing to
-`/private/tmp/claude-501/<repo-slug>/<session>/scratchpad/` works, and
-`gh pr review --body-file <scratchpad path>` reads it fine. The
-worktree-isolation blocker says so itself when it fires: "A cross-repo
-or cross-session handoff file belongs under the harness scratchpad at
-/tmp/claude-501/, which reads and writes are not blocked from." Use
-`.claude/tmp/` for sandbox *git trees* (they must be inside the repo
-for `git ls-files`-based payload scripts to see them) and the
-scratchpad for everything else. `.claude/tmp/` is gitignored here;
-`mkdir -p` the sandbox dir first, since a `Write`/redirect into a
-not-yet-existing `.claude/tmp/<slug>/` fails rather than creating it.
+5. **The harness scratchpad is writable and is where scratch Markdown
+   goes.** Writing to
+   `/private/tmp/claude-501/<repo-slug>/<session>/scratchpad/` works,
+   and `gh pr review --body-file <scratchpad path>` reads it fine. The
+   worktree-isolation blocker says so itself when it fires: "A
+   cross-repo or cross-session handoff file belongs under the harness
+   scratchpad at /tmp/claude-501/, which reads and writes are not
+   blocked from." Use `.claude/tmp/` for sandbox *git trees* (they must
+   be inside the repo for `git ls-files`-based payload scripts to see
+   them) and the scratchpad for everything else. `.claude/tmp/` is
+   gitignored here; `mkdir -p` the sandbox dir first, since a
+   `Write`/redirect into a not-yet-existing `.claude/tmp/<slug>/` fails
+   rather than creating it.
 
 **Why:** the harness protects commit attribution and worktree
 isolation. Both refusals are correct; they just make the naive form

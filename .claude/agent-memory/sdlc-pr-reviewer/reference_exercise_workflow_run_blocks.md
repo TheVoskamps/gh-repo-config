@@ -1,6 +1,6 @@
 ---
 name: exercise-workflow-run-blocks-against-real-trees
-description: How to actually run an assets/*.yml workflow `run:` block locally — no pyyaml on this machine (use js-yaml from node_modules, or yq), build scratch git trees under .claude/tmp and stub the gate script to observe argv.
+description: How to actually run an assets/*.yml workflow `run:` block locally — no pyyaml on this machine (use js-yaml, an undeclared transitive dep, from node_modules, or yq), build scratch git trees under .claude/tmp and stub the gate script to observe argv.
 metadata:
   type: reference
 ---
@@ -15,10 +15,13 @@ Environment facts worth not rediscovering:
 
 - **`pyyaml` is NOT installed** and installing it is out of bounds for a
   subagent. Two substitutes are already here: `yq`
-  (`/opt/homebrew/bin/yq`), and — better, because it is a declared project
-  dep that `npm ci` already brought in — **`js-yaml` in `node_modules`**,
-  reachable from a `.mjs` via `createRequire`. Either answers "does this
-  parse" and "what are the job ids"; `js-yaml` needs no host tool at all.
+  (`/opt/homebrew/bin/yq`), and — better, because it needs no host tool
+  at all — **`js-yaml` in `node_modules`**, reachable from a `.mjs` via
+  `createRequire`. `js-yaml` is NOT a declared project dep: it resolves
+  only as a transitive dep of `markdownlint-cli2`, which makes it fine as
+  a review-only oracle and wrong to import from `test/`, `src/`, or
+  `assets/` (CLAUDE.md's Conventions section carries that rule). Either
+  answers "does this parse" and "what are the job ids".
   Substitute every `__PLACEHOLDER__` with a literal first or the parse is
   meaningless. For pulling a `run:` block out verbatim, a ~25-line Python
   script that finds `- name: <step>`, then `run: |`, then dedents by the
@@ -40,8 +43,7 @@ The method that finds real bugs:
    back; that is how you check summary tables and step outputs.
 4. **To prove an argv-splitting claim, stub the invoked script** with one
    that echoes `argc=$#` / `argv=[$*]`. "Three invocations, each argc=1"
-   is direct evidence; "the loop looks right" is not. This is the
-   difference the #77 issue body called out — the bug it describes passed
-   review by inspection right up until it ran.
+   is direct evidence; "the loop looks right" is not. Argv-splitting bugs
+   in these blocks pass review by inspection right up until they run.
 
 Related: [[verify-github-semantics-from-raw-upstream]].

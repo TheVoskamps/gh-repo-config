@@ -24,13 +24,13 @@ this repo keep conflating them:
    conditions.
 
 `assets/protect-main-ruleset.json` carries **both**. So when a
-refactor drops a CodeQL job out of the required-check list (issue #77
-did exactly this to `analyze-swift`), the coverage actually lost is
-much narrower than it first looks: **alerts** from that job still
-block via gate 2; only a job that *fails to run at all* stops
-blocking. Grade the finding on that narrower consequence, and read
-`assets/protect-main-ruleset.json` before grading — the first-pass
-reading ("Swift security is now unenforced") is wrong.
+refactor drops a CodeQL job out of the required-check list — as
+collapsing the language matrix does to `analyze-swift` — the coverage
+actually lost is much narrower than it first looks: **alerts** from
+that job still block via gate 2; only a job that *fails to run at all*
+stops blocking. Grade the finding on that narrower consequence, and
+read `assets/protect-main-ruleset.json` before grading — the
+first-pass reading ("Swift security is now unenforced") is wrong.
 
 The mirror-image trap, which `assets/codeql.yml`'s own header warns
 about: do **not** propose fixing such a gap by adding the job's name

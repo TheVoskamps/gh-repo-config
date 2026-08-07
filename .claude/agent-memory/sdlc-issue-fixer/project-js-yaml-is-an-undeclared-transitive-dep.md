@@ -29,8 +29,9 @@ subagent either — that is `npm install <pkg>`, forbidden by
 `.claude/tmp/<slug>/` — including as the oracle a hand-rolled parser is
 cross-checked against, which is its best use here (see
 [[feedback-prove-a-replacement-assertion-bites]]). Do not import it from
-`test/`, `src/`, or `assets/`. When a review finding recommends a
+`test/`, `src/`, or `assets/` — CLAUDE.md's Conventions section carries
+that rule for the repo as a whole. When a review finding recommends a
 dependency as "reported to be available", run `npm ls <pkg>` before
-using it and report which kind of available it turned out to be. Note
-that `sdlc-pr-reviewer`'s own memory calls js-yaml "a declared project
-dep" — that part is wrong; verify with `npm ls`, not by recall.
+using it and report which kind of available it turned out to be:
+"resolves from `node_modules`" and "declared" are separate claims, and
+recall is not evidence for either.

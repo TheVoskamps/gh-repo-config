@@ -14,13 +14,13 @@ direction: prose in files the PR never touched can be false
 *because* of the PR. The reliable finder is a repo-wide grep for the
 **retired** term, not for the files in the diff.
 
-**Why:** on PR #79 (issue #77) the review named three dead
-`GITHUB_OUTPUT` writes plus one stale workflow header. Grepping
+**Why:** a review that names dead `GITHUB_OUTPUT` writes and a stale
+workflow header scopes the fixer to the workflow files. Grepping
 `-e "detect job" -e "detect step" -e GITHUB_OUTPUT` across the whole
-repo also turned up `src/converge/files.ts`, which was not in the
-diff at all yet described `codeql.yml`'s "runtime detect job" — a job
-the same PR had deleted. A diff-scoped sweep would have shipped it,
-and the next reviewer would have spent a round trip on it.
+repo instead also reaches TypeScript like `src/converge/files.ts`,
+whose doc comments describe the workflows' job shape and go stale
+without ever appearing in the diff. A diff-scoped sweep ships those,
+and the next reviewer spends a round trip on them.
 
 **How to apply:** name the term the change retires (`detect job`,
 `matrix`, the old symbol name) and grep it across the repo with

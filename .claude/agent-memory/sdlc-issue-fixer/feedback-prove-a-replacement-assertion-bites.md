@@ -18,14 +18,13 @@ what actually close it:
    removed — and watch it fail. If it passes, the replacement is vacuous
    too. Do this in a scratch `.mjs` under `.claude/tmp/<slug>/`, not by
    editing the payload.
-2. **Cross-check any hand-rolled parser against a real one.** On PR #79
-   the replacement counted job ids by slicing the `jobs:` block. The
-   first draft was wrong in exactly the same class as the bug it
-   replaced: `assets/codeql.yml`'s jobs block opens with a
-   two-space-indented COMMENT that ends in a colon, so a loose pattern
-   reported the comment as a job. That surfaced only because the draft was
-   diffed against a real YAML parse across every rendered workflow. It
-   would not have surfaced from a passing suite.
+2. **Cross-check any hand-rolled parser against a real one.** A
+   replacement that counts job ids by slicing the `jobs:` block is prone
+   to exactly the same class of bug it replaces: `assets/codeql.yml`'s
+   jobs block opens with a two-space-indented COMMENT that ends in a
+   colon, so a loose pattern reports the comment as a job. Only diffing
+   the draft against a real YAML parse across every rendered workflow
+   surfaces that. A passing suite never will.
 
 **Why:** the reviewer's complaint is about the assertion's DISCRIMINATING
 power, and a passing test carries no information about that. Shipping a
