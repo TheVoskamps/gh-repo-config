@@ -92,11 +92,13 @@ jobs:
       # can legitimately produce that combination.
       BOT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
       # The identity `git rebase` rewrites the COMMITTER to when
-      # auto-rebase-prs.yml rebases this bumper's own PR (both its
-      # rebase sweep and the Dependabot REST-merge sweep issue #77 moved
-      # into it push under this identity). Declared once here (not a
-      # second bare literal in the guard step) for the same
-      # drift-prevention reason as
+      # auto-rebase-prs.yml's rebase sweep rebases this bumper's own PR.
+      # (The Dependabot REST-merge sweep issue #77 moved into that same
+      # workflow also rebases and force-pushes under this identity, but
+      # its candidate filter requires `author.login == "dependabot"`, so
+      # it never reaches this branch -- the rebase sweep is the only
+      # pass that can.) Declared once here (not a second bare literal in
+      # the guard step) for the same drift-prevention reason as
       # BOT_AUTHOR_EMAIL above. Confirmed against a real rebase commit
       # in this repo's history (1ebd8233a40c85b42828aa3ca989c9df61893973):
       # author_email is the Dependabot author, committer_email is this.

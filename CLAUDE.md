@@ -488,12 +488,14 @@ npm run lint:md
   identity AND COMMITTER is either that same bot identity (a fresh
   bumper push) or the PR-automation bot identity (a rebase of the
   bumper's own PR). Author alone is keyed first because
-  `auto-rebase-prs.yml` rebase-and-force-pushes any open, non-draft,
-  same-owner PR that has fallen behind `main` (including the bumper's
-  own PR — both its rebase sweep and, since issue #77 moved that pass
-  in, its Dependabot REST-merge sweep), and `git rebase` rewrites the
-  committer while leaving the author untouched. But author alone is not
-  sufficient: a
+  `auto-rebase-prs.yml`'s rebase sweep rebase-and-force-pushes any
+  open, non-draft, same-owner PR that has fallen behind `main` —
+  including the bumper's own PR — and `git rebase` rewrites the
+  committer while leaving the author untouched. (The Dependabot
+  REST-merge sweep issue #77 moved into that same workflow also
+  rebases and force-pushes under that identity, but its candidate
+  filter requires `author.login == "dependabot"`, so it never reaches
+  the bumper's branch.) But author alone is not sufficient: a
   maintainer who *amends* the bot's commit keeps the bot as author
   while replacing its content, so the committer is checked too — any
   committer other than the bot itself or the auto-rebase bot means the

@@ -58,8 +58,8 @@ function parseCore(version: string | undefined | null): SemverCore | undefined {
 }
 
 /**
- * Decide whether a repo's applied stamp is *behind* the current release
- * and therefore due for (re-)convergence.
+ * Decide whether a repo's applied stamp is *behind* the converger's
+ * current version and therefore due for (re-)convergence.
  *
  * @param stamp   the repo's `gh-repo-config-version` value, or
  *   `undefined`/empty when the property is unset (never converged).
