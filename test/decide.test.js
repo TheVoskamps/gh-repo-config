@@ -2,7 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decideRepo, decideRepoFromRaw } from "../dist/index.js";
 
-const V = "0.2.0";
+// Fixture "current version" the decision is taken against, 9.9.9 by
+// the same convention test/sweep.test.js's V follows: never equal to
+// the real CURRENT_VERSION, so no assertion here can pass merely
+// because the fixture happens to match package.json. Unlike runSweep,
+// decideRepo/decideRepoFromRaw take the version as a required
+// argument with no CURRENT_VERSION default, so here the distinctness
+// is convention rather than a live hole being closed.
+const V = "9.9.9";
 
 test("ignore is skip-unmanaged even when behind", () => {
   const d = decideRepo({ mode: "ignore", version: "0.1.0" }, "opt-out", V);
@@ -25,7 +32,7 @@ test("process + behind stamp converges", () => {
 });
 
 test("process + current stamp is skip-current", () => {
-  const d = decideRepo({ mode: "process", version: "0.2.0" }, "opt-in", V);
+  const d = decideRepo({ mode: "process", version: V }, "opt-in", V);
   assert.equal(d.action, "skip-current");
 });
 
@@ -35,7 +42,7 @@ test("unset under opt-out + behind converges", () => {
 });
 
 test("unset under opt-out + current is skip-current", () => {
-  const d = decideRepo({ mode: undefined, version: "0.2.0" }, "opt-out", V);
+  const d = decideRepo({ mode: undefined, version: V }, "opt-out", V);
   assert.equal(d.action, "skip-current");
 });
 
