@@ -27,5 +27,18 @@ and the next reviewer spends a round trip on them.
 `--exclude-dir=node_modules --exclude-dir=dist`, then triage each
 hit: historical narration ("this workflow USED TO be…") is fine and
 should stay; a present-tense claim is a defect. Fixing an out-of-diff
-one-line comment is in scope; a refactor is not. Related:
-[[feedback-acceptance-criteria-are-not-load-bearing]].
+one-line comment is in scope; a refactor is not.
+
+**Carve-out: a design record is never a hit to fix.** A file under
+`docs/` whose first lines carry a point-in-time status marker
+(`Status: design, not yet implemented.`,
+`Status: proposed issue breakdown.`) states intent rather than as-built
+behaviour, so a structural change cannot falsify it — it only makes the
+code diverge from it, and that divergence is worth preserving. This
+sweep skips such a file entirely, and a finding claiming its prose is
+"now false" is wrong about the doc's genre: say so and fix nothing.
+Read a `docs/` file's first lines for a marker before editing it.
+CLAUDE.md's opening section carries this constraint for the repo as a
+whole, including where as-built behaviour goes instead.
+
+Related: [[feedback-acceptance-criteria-are-not-load-bearing]].

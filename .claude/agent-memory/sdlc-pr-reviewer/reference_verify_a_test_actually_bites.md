@@ -8,8 +8,8 @@ metadata:
 # Verifying that a new assertion actually bites
 
 A test added to pin an invariant is worthless if it passes against the
-state it was meant to reject. Two checks settle it without re-deriving
-the change, and both are a handful of tool calls.
+state it was meant to reject. The checks below settle it without
+re-deriving the change, and each is a handful of tool calls.
 
 ## 1. Replay the new test against the pre-change payload
 

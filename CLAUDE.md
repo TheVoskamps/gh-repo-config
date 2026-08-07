@@ -5,6 +5,19 @@ Org-wide repo-configuration converger. TypeScript, Node >=22, ESM
 and `docs/org-repo-configuration-fanout-decomposition.md` for the
 overall design and issue breakdown.
 
+Both of those are **point-in-time records**, and each says so in its own
+first lines (`Status: design, not yet implemented.`, `Status: proposed
+issue breakdown.`). They state what was intended, not what is built, so
+code moving away from them never makes their prose false — it makes the
+code *diverge*, and that divergence is information worth keeping. Never
+edit a doc carrying such a marker to match as-built behaviour, and never
+count one among the hits when sweeping the repo for prose a structural
+change falsified; a half-design/half-as-built file is worse than either
+pure form. As-built behaviour belongs in this file, in an asset's own
+inline comments, or in a doc that makes no point-in-time claim
+(`docs/codeartifact-auth.md`, `docs/github-app-converger.md`). Read a
+`docs/` file's first lines for a status marker before editing it.
+
 ## Commands
 
 Install (deterministic, from lockfile):
