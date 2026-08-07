@@ -81,6 +81,29 @@ else means the distinctness is decorative and should be graded as such.
 Restore from the copies and re-run the whole suite before writing the
 review, so the worktree you later commit memory from is clean.
 
+### Inject at the real source, which may not be `dist/`
+
+Before editing a compiled file, check where the value is actually read
+from at runtime. `src/version.ts` does
+`createRequire(import.meta.url)("../package.json")`, so `CURRENT_VERSION`
+is resolved from `package.json` on every import, not baked into
+`dist/version.js`. Injecting there means editing `package.json` alone —
+no `dist/` edit and no rebuild:
+
+```bash
+cp package.json /tmp/pkg.json.orig
+node -e 'const f=require("fs"),p=JSON.parse(f.readFileSync("package.json","utf8"));
+         p.version="0.3.0-rc.1"; f.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")'
+node --test test/version.test.js; echo "exit=$?"      # expect exit=1
+cp /tmp/pkg.json.orig package.json                     # restore, then verify with git status
+```
+
+Worked on PR #79 to settle whether an anchored `/^\d+\.\d+\.\d+$/`
+really rejected a prerelease: `0.3.0-rc.1` and `0.3.0+build5` both
+exit 1, plain `0.2.0`/`0.3.0` exit 0. Run the *whole* matrix including
+the passing cases — a regex that rejects everything would also "bite",
+and only the passing rows rule that out.
+
 **How to apply:** run whichever fits whenever a review round's whole
 subject is a replaced or newly-added assertion — 1 for a payload or
 behaviour change, 3 for a fixture-value change, 2 alongside either when

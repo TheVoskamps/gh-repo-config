@@ -1,6 +1,6 @@
 ---
 name: reference-pr-body-deferrals-go-stale
-description: A PR body's "this acceptance criterion is carried forward by issue #N" is a claim with a shelf life — re-read #N's state AND stateReason every round, because a criterion an earlier round accepted as deferred becomes unmet the moment the owner closes #N as NOT_PLANNED.
+description: A PR body's "this acceptance criterion is carried forward by issue #N" is a claim with a shelf life — re-read #N's state AND stateReason every round, because a criterion an earlier round accepted as deferred becomes unmet the moment the owner closes #N as NOT_PLANNED; and re-read the body itself, because the fix the brief says landed often only half-landed.
 metadata:
   type: reference
 ---
@@ -38,11 +38,44 @@ criterion is handled by other means, where the other means no longer
 exists, IS the unmet criterion and is High. The remedy is usually a body
 edit, which does not lower the severity.
 
+## The remediation half-lands, and the brief will tell you it landed
+
+The round after the one above, the owner fixed it the strongest way
+available: he **deleted** #80 outright (`gh issue view 80` →
+`Could not resolve to an issue or pull request with the number of 80`)
+and removed the measurement criterion from #77's Done-when, leaving four
+boxes. The spawn brief stated as settled fact that "the `## Follow-up`
+section and the `References: #80` trailer are gone."
+
+Only the trailer was gone. The `## Follow-up` heading and its paragraph
+were still in the live body, now asserting a criterion #77 no longer
+had — a claim that had gone from *stale* to *fabricated* while looking
+like it had been cleaned up. A second stale line the brief also
+described as removed (a test count, 201 vs an actual 203) was likewise
+still there.
+
+So a body edit is a two-part change — delete the trailer AND delete the
+prose that depended on it — and partial application is the normal
+outcome, not an unlucky one. The severity drops when the criterion
+itself is deleted (nothing is unmet any more, so it is Low prose
+residue, not High), but the report still matters: the owner is acting on
+a false belief about his own PR's state, and that is the single most
+useful thing the round can tell him.
+
 **How to apply:** in step 2 of the review, after
 `/github-prs:pr-closing-issues`, resolve every issue the body names in a
 deferral or a `References:` trailer and read its live state — not just
 the members of the resolved set. Do it on every round, including rounds
 that only review a small follow-up change, and treat a prior round's
-approval of the deferral as carrying no weight. See
+approval of the deferral as carrying no weight. Then re-fetch the body
+and check each specific claim the brief says was edited, with a
+one-liner rather than by eye:
+
+```bash
+gh pr view <N> --json updatedAt,headRefOid,body \
+  --jq '{updatedAt, headRefOid, hasFollowup: (.body|contains("## Follow-up"))}'
+```
+
+Never report a brief's description of the body as the body's state. See
 [[reference-verify-a-test-actually-bites]] for the same
 don't-take-the-report-on-faith habit applied to assertions.
