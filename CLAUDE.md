@@ -559,6 +559,24 @@ npm run lint:md
   not what's evident from the signature.
 - GitHub Actions steps in `.github/workflows/` pin third-party actions
   by commit SHA (with a version comment), not by tag.
+- Every PR bumps `version` in the root `package.json` to a semver
+  strictly greater than main's current value. The reason is the sweep,
+  not release hygiene: `.github/workflows/sweep.yml` checks out the
+  triggering ref (`main` on its daily schedule) with no `ref:`
+  override, then runs `npm ci`, `npm run build`, and the CLI from that
+  source tree — never from a release tarball — so `CURRENT_VERSION` is
+  whatever that `package.json` says (`src/version.ts`). `isBehind`
+  reports a repo already stamped at that value as not behind, and
+  `decideRepo` returns `skip-current` for it
+  (`src/version-compare.ts`, `src/stamp/decide.ts`). A PR that changes
+  `assets/` without a bump therefore reaches no repo a prior sweep
+  already stamped at that version — it merges and silently delivers
+  nothing.
+  - Bump in the PR itself, and re-check after a rebase: a concurrent
+    merge may have taken the version you picked.
+  - Semver decides which component to bump. The jump to 1.0.0 is a
+    deliberate contract-stability decision, made by a human, never as
+    part of routine work.
 - Tests import nothing this repo does not declare in `package.json`.
   The case that comes up is YAML: tests inspect rendered workflow YAML
   with small hand-rolled string helpers, never `js-yaml`. `js-yaml` is

@@ -5,6 +5,7 @@ import {
   runSweepFromEnv,
   PartialStampError,
   CURRENT_VERSION,
+  isBehind,
 } from "../dist/index.js";
 
 // A minimal fake of OrgPropertiesClient — runSweep only calls
@@ -308,15 +309,26 @@ test("a mid-batch stampVersion failure reports partial progress instead of losin
 });
 
 test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async () => {
-  // Finding 3: prior tests only ever drove the sweep against a
-  // hardcoded "0.2.0" fixture version, never the real package.json
-  // version (0.1.0) the CLI actually uses in production, and never
-  // through runSweepFromEnv's env -> OrgPropertiesClient -> runSweep
-  // path. runSweepFromEnv builds its own client from
-  // GH_REPO_CONFIG_ORG/GH_REPO_CONFIG_TOKEN and defaults to the global
-  // `fetch`, so drive it for real by substituting global.fetch for the
-  // duration of this test.
-  assert.equal(CURRENT_VERSION, "0.1.0");
+  // Finding 3: prior tests only ever drove the sweep against the
+  // hardcoded fixture version V they pass in themselves, never the
+  // real package.json version the CLI actually uses in production,
+  // and never through runSweepFromEnv's env -> OrgPropertiesClient ->
+  // runSweep path (runSweepFromEnv takes no version argument at all —
+  // it reads CURRENT_VERSION itself). runSweepFromEnv builds its own
+  // client from GH_REPO_CONFIG_ORG/GH_REPO_CONFIG_TOKEN and defaults
+  // to the global `fetch`, so drive it for real by substituting
+  // global.fetch for the duration of this test.
+  //
+  // The guard below deliberately does not pin a version literal:
+  // every PR bumps package.json's version (CLAUDE.md > Conventions),
+  // so a literal would need editing in every PR and would conflict
+  // between concurrent ones. What has to hold for the fixture data
+  // below to mean anything is that fixture-behind's "0.0.1" stamp is
+  // genuinely behind the real version — and isBehind throws outright
+  // if CURRENT_VERSION is not parseable X.Y.Z, so an empty or
+  // corrupted package.json version fails here too.
+  // `test/version.test.js` pins CURRENT_VERSION === pkg.version.
+  assert.equal(isBehind("0.0.1", CURRENT_VERSION), true);
 
   const originalFetch = global.fetch;
   const calls = [];
