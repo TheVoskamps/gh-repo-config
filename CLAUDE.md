@@ -355,6 +355,18 @@ npm run lint:md
       hour the weekday window opens, which leaves no gap in the week
       longer than 24 h. Do not fold the weekend entry into the weekday
       window's justification.
+    - The constraint is PINNED, not just documented:
+      `test/files.test.js`'s `EXPECTED_JOBS` table names every rendered
+      workflow's exact job-id list, and the test asserts the table's key
+      set equals the set of rendered `.github/workflows/` paths — so a
+      new workflow cannot escape the constraint by omission, and a
+      re-split fails `npm test`. Adding a job means editing that table,
+      which is the point: the edit is where the billing cost gets
+      argued. Job ids are read with the file's `workflowJobIds` helper,
+      which slices the top-level `jobs:` mapping before matching job-id
+      syntax — counting keys BY INDENT does not work, since `on:`'s own
+      keys sit at the same indent (and `codeql.yml`'s jobs block opens
+      with a two-space-indented comment that ends in a colon).
   - `codeartifact-auth.sh` is the whole of the `codeartifact-auth`
     composite action's logic; `codeartifact-auth-action.yml` is thin
     glue (parse → OIDC role assumption → configure) and reaches the
@@ -547,3 +559,11 @@ npm run lint:md
   not what's evident from the signature.
 - GitHub Actions steps in `.github/workflows/` pin third-party actions
   by commit SHA (with a version comment), not by tag.
+- Tests import nothing this repo does not declare in `package.json`.
+  The case that comes up is YAML: tests inspect rendered workflow YAML
+  with small hand-rolled string helpers, never `js-yaml`. `js-yaml` is
+  in the tree only because `markdownlint-cli2` depends on it
+  (`package-lock.json` lists no other dependent), so importing it would
+  couple `npm test` — and therefore the `ci-required` check — to another
+  package's dependency graph. Declare the dependency first if a real
+  parser is ever warranted.
