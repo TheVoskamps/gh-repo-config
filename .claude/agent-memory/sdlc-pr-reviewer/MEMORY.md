@@ -9,4 +9,5 @@
 - [Shell linters are CI-only](reference_shell_linters_are_ci_only.md) — shellcheck/actionlint are not on the host and not project deps; substitute `bash -n` + self-tests and say plainly the gap is unclosed.
 - [Job-shape changes orphan script outputs](reference_job_shape_changes_orphan_script_outputs.md) — a retired `detect` job leaves `GITHUB_OUTPUT` writes nothing reads; grep the scripts and diff consumers against origin/main.
 - [Renamed constant falsifies distant prose](reference_renamed_constant_falsifies_distant_prose.md) — a rename that changes MEANING falsifies comments carrying neither name; grep `origin/main:<file>` for the OLD semantic word.
-- [Verify a test actually bites](reference_verify_a_test_actually_bites.md) — replay the new assertion against `git archive origin/main`, and cross-check a hand-rolled structural helper against a real parser in node_modules.
+- [Verify a test actually bites](reference_verify_a_test_actually_bites.md) — replay against `git archive origin/main`; cross-check hand-rolled helpers against a real parser; inject the bug into `dist/` when the subject is a fixture constant.
+- [PR-body deferrals go stale](reference_pr_body_deferrals_go_stale.md) — re-read `state` AND `stateReason` on every issue a body defers to, every round; a `NOT_PLANNED` close turns an accepted deferral into an unmet criterion.
