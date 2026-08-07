@@ -6,12 +6,21 @@
  * `gh-repo-config-version` stamp is missing or behind the converger's
  * `CURRENT_VERSION`. That "behind" test is the only comparison this
  * module needs to answer, so it deliberately parses just the
- * `MAJOR.MINOR.PATCH` core and ignores pre-release/build metadata — the
- * value the fan-out stamps with is `CURRENT_VERSION`, i.e. this
- * package's own `package.json` version, which `test/version.test.js`
- * pins to a plain `X.Y.Z` shape. (It need not correspond to any release
- * tag: the version is bumped in every PR, while tags are pushed
- * separately — see CLAUDE.md > Conventions.)
+ * `MAJOR.MINOR.PATCH` core and ignores pre-release/build metadata.
+ *
+ * That is safe only because the value the fan-out stamps with is
+ * `CURRENT_VERSION` — this package's own `package.json` version — and a
+ * prerelease `CURRENT_VERSION` is *rejected*, not tolerated:
+ * `test/version.test.js` asserts it against an anchored
+ * `/^\d+\.\d+\.\d+$/`, so `0.3.0-rc.1` (or `0.3.0+build5`) fails
+ * `npm test` and cannot ship.
+ *
+ * Rejecting is the only option because a prerelease and its release
+ * share an `X.Y.Z` core, which this comparison cannot tell apart: a
+ * repo stamped `0.3.0-rc.1` reads as *not behind* `0.3.0`, so it would
+ * never converge to the release. (`CURRENT_VERSION` need not
+ * correspond to any release tag: the version is bumped in every PR,
+ * while tags are pushed separately — see CLAUDE.md > Conventions.)
  */
 
 interface SemverCore {

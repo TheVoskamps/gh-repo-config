@@ -538,11 +538,11 @@ npm run lint:md
   carries; the workflow verifies the two match before building. The
   sweep does not consume the tarball this produces — it builds from
   `main`'s source tree — so a version bump takes effect on the next
-  sweep whether or not a tag ever follows. Release immutability itself has no REST/`gh` API surface —
-  it is a one-time manual web-UI toggle (repo/org Settings > General >
-  Releases), not something this workflow or any converger slice can
-  enable programmatically; verify current state with
-  `gh release view <tag>`.
+  sweep whether or not a tag ever follows. Release immutability itself
+  has no REST/`gh` API surface — it is a one-time manual web-UI toggle
+  (repo/org Settings > General > Releases), not something this workflow
+  or any converger slice can enable programmatically; verify current
+  state with `gh release view <tag>`.
 - `.github/workflows/sweep.yml` — scheduled (daily) + `workflow_dispatch`
   sweep. Runs as a dedicated converger org GitHub App (org secrets
   `CONVERGER_APP_ID` / `CONVERGER_APP_PRIVATE_KEY`), distinct from the
@@ -563,9 +563,16 @@ npm run lint:md
   not what's evident from the signature.
 - GitHub Actions steps in `.github/workflows/` pin third-party actions
   by commit SHA (with a version comment), not by tag.
-- Every PR bumps `version` in the root `package.json` to a semver
-  strictly greater than main's current value. The reason is the sweep,
-  not release hygiene: `.github/workflows/sweep.yml` checks out the
+- Every PR bumps `version` in the root `package.json`, and the bump
+  must advance the `X.Y.Z` core itself past main's current value.
+  "Strictly greater semver" is not the bar: `0.2.0` → `0.3.0-rc.1` →
+  `0.3.0` is two valid semver steps whose second one delivers nothing,
+  because the compare reads only the `MAJOR.MINOR.PATCH` core and a
+  repo already stamped `0.3.0-rc.1` is therefore not behind `0.3.0`.
+  Prerelease and build identifiers are consequently not usable here at
+  all — `test/version.test.js` fails on a `CURRENT_VERSION` carrying
+  one. The reason for the bump itself is the sweep, not release
+  hygiene: `.github/workflows/sweep.yml` checks out the
   triggering ref (`main` on its daily schedule) with no `ref:`
   override, then runs `npm ci`, `npm run build`, and the CLI from that
   source tree — never from a release tarball — so `CURRENT_VERSION` is

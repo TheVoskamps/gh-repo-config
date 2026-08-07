@@ -4,7 +4,7 @@
  * This module exposes the converger's own "current version" — the
  * value later slices (the selection loop, the stamp comparison) read
  * to decide whether a target repo's `gh-repo-config-version` custom
- * property is behind the release that should be applied.
+ * property is behind the version that should be applied.
  *
  * The version is read from this package's own `package.json`, the one
  * source of truth for both the npm package version and the value the
