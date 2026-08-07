@@ -302,9 +302,11 @@ npm run lint:md
       `Set up Node` and the CodeArtifact auth step with. That guard is
       load-bearing: unguarded, a pip-only repo performs a real
       `AssumeRoleWithWebIdentity` it has no role for. Those guards are
-      also the only reason detection is its own STEP there: a
+      also the only reason detection MUST be its own STEP there: a
       step-level `if:` can read another STEP's outputs but not a
-      mid-step shell variable. `dependency-pinned-gate.yml` has no
+      mid-step shell variable (the install loop then reads the same
+      step's `pm_csv` output, but that alone would not force the
+      split). `dependency-pinned-gate.yml` has no
       conditional steps, so its `--present` call stays INLINE at the
       head of its one check step (that step carries no `id:` at all).
       The asymmetry is deliberate — do not harmonize the two, and do
