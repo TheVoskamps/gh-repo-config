@@ -1,6 +1,6 @@
 ---
 name: exercise-workflow-run-blocks-against-real-trees
-description: How to actually run an assets/*.yml workflow `run:` block locally — no pyyaml on this machine, yq is present, build scratch git trees under .claude/tmp and stub the gate script to observe argv.
+description: How to actually run an assets/*.yml workflow `run:` block locally — no pyyaml on this machine (use js-yaml from node_modules, or yq), build scratch git trees under .claude/tmp and stub the gate script to observe argv.
 metadata:
   type: reference
 ---
@@ -14,11 +14,15 @@ through. They are runnable locally with almost no setup.
 Environment facts worth not rediscovering:
 
 - **`pyyaml` is NOT installed** and installing it is out of bounds for a
-  subagent. `yq` **is** present (`/opt/homebrew/bin/yq`) and is enough for
-  "does this parse" and "what are the job ids / `name:`s". For pulling a
-  `run:` block out verbatim, a ~25-line Python script that finds
-  `- name: <step>`, then `run: |`, then dedents by the block's own indent
-  is simpler than fighting a YAML lib.
+  subagent. Two substitutes are already here: `yq`
+  (`/opt/homebrew/bin/yq`), and — better, because it is a declared project
+  dep that `npm ci` already brought in — **`js-yaml` in `node_modules`**,
+  reachable from a `.mjs` via `createRequire`. Either answers "does this
+  parse" and "what are the job ids"; `js-yaml` needs no host tool at all.
+  Substitute every `__PLACEHOLDER__` with a literal first or the parse is
+  meaningless. For pulling a `run:` block out verbatim, a ~25-line Python
+  script that finds `- name: <step>`, then `run: |`, then dedents by the
+  block's own indent is simpler than fighting a YAML lib.
 - `jq`, `git`, `node`, `npm` are all present. `actionlint` and
   `shellcheck` are **not** — CI covers those, so don't claim you ran them.
 
