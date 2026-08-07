@@ -124,14 +124,15 @@ condition must name concrete repositories. A wildcard such as
 role.
 
 That matters because the rendered `dependency-install-gate.yml` grants
-`id-token: write` on its single `install-gate-required` job for **every**
-managed repo, including repos that do not use CodeArtifact. `permissions:` is static YAML and
-cannot be made conditional, and converge-time detection was rejected: the
-converger reads the *default branch* while the gate runs against *PR
-head*, and the gate is a required check, so a repo that adopted
-CodeArtifact between sweeps would have every PR blocked until the next
-scheduled run. The grant is therefore latent everywhere, and the trust
-policy is the control that keeps it inert.
+`id-token: write` on its single `install-gate-required` job for
+**every** managed repo, including repos that do not use CodeArtifact.
+`permissions:` is static YAML and cannot be made conditional, and
+converge-time detection was rejected: the converger reads the *default
+branch* while the gate runs against *PR head*, and the gate is a
+required check, so a repo that adopted CodeArtifact between sweeps
+would have every PR blocked until the next scheduled run. The grant is
+therefore latent everywhere, and the trust policy is the control that
+keeps it inert.
 
 Adding a consuming repo is an edit to this list **and** an edit to the
 `CODEARTIFACT_ROLE` variable's repository-access list (§4) — two edits

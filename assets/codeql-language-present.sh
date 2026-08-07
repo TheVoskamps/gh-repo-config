@@ -7,29 +7,41 @@
 # /gh-repo-setup-protection, alongside the CodeQL workflow at
 # <repo-root>/.github/workflows/codeql.yml.
 #
-# Runtime language-presence detection for the CodeQL dynamic matrix. The
-# workflow's `detect` job calls this script in `--matrix` mode to build
-# the analyze job's `strategy.matrix.include` array at RUNTIME (per PR),
-# so a CodeQL leg exists for a language IFF that language's source is in
-# the tracked tree at that moment. A language that lands AFTER setup
-# lights its leg up on the next PR with no skill re-run; an absent
-# language produces no leg (fails OPEN — no phantom check, issues
-# #91/#230).
+# Runtime language-presence detection for the CodeQL workflow. The
+# workflow's detect STEP calls this script in `--matrix` mode and splits
+# the emitted entries by RUNNER at RUNTIME (per PR): the ubuntu-latest
+# languages become the comma-separated `languages:` list handed to the
+# single `codeql-required` job's one init+analyze pair, and any
+# non-ubuntu language (today only swift, on macOS) drives the separate
+# `analyze-swift` job, which exists only when that set is non-empty. So
+# a language is analyzed IFF that language's source is in the tracked
+# tree at that moment. A language that lands AFTER setup is analyzed on
+# the next PR with no skill re-run; an absent language is not analyzed
+# at all (fails OPEN — no phantom check, issues #91/#230).
 #
-# Detection is the SAME `git ls-files` predicate the matrix is built
-# from — defined once here — so "what detect thinks is present" cannot
-# drift from what the analyze job runs.
+# Every mode below shares ONE `present()` predicate (a `git ls-files`
+# check per language, plus the unconditional `actions` floor), defined
+# once here, so what a single-language query reports cannot drift from
+# what `--matrix` hands the workflow, and therefore cannot drift from
+# what the analyze steps actually run.
 #
 # Modes:
-#   --matrix          Emit a single-line JSON array of matrix entries for
-#                     every PRESENT language, e.g.
+#   --matrix          Emit a single-line JSON array of {language,runner}
+#                     entries for every PRESENT language, e.g.
 #                     [{"language":"python","runner":"ubuntu-latest"},
 #                      {"language":"actions","runner":"ubuntu-latest"}]
 #                     The empty case emits `[]` (valid JSON — NOT an empty
-#                     string), so `fromJSON` in the workflow spawns zero
-#                     legs cleanly. `actions` is an unconditional floor.
+#                     string): `jq` given an empty string does not fail,
+#                     it prints nothing and exits 0, so the workflow's
+#                     split would silently derive empty language lists
+#                     and trip its "no ubuntu language" invariant guard.
+#                     `actions` is an unconditional floor, so the ubuntu
+#                     list is never empty in practice anyway.
 #                     `swift`, when present, carries runner=macos-latest;
 #                     every other language carries runner=ubuntu-latest.
+#                     The flag name predates the issue-#77 collapse of
+#                     the analyze matrix into one job, and is kept
+#                     because the workflow invokes it by that name.
 #   --list            Emit the present languages one per line (for humans
 #                     / the self-test). Same detection as --matrix.
 #   <language>        Emit `present` / `absent` for one language and exit
@@ -124,8 +136,11 @@ present() {
   esac
 }
 
-# runner_for <language> -> the runs-on value for that language's leg.
-# Swift analysis requires macOS; everything else runs on Ubuntu.
+# runner_for <language> -> the runs-on value for the job that analyzes
+# that language. Swift analysis requires macOS; everything else runs on
+# Ubuntu. This function is the single owner of that rule: the workflow
+# splits the emitted entries on their runner value rather than restating
+# which language needs macOS.
 runner_for() {
   case "$1" in
     swift) echo "macos-latest" ;;
@@ -137,7 +152,7 @@ case "$MODE" in
   --matrix)
     # Build a JSON array of {language,runner} objects for present
     # languages. Emit `[]` (never an empty string) in the no-match case
-    # so the workflow's fromJSON produces a clean empty matrix.
+    # so the workflow's `jq` split parses it cleanly.
     entries=""
     for lang in $ALL_LANGUAGES; do
       if present "$lang"; then
