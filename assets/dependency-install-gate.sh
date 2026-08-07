@@ -23,11 +23,14 @@
 #   $1 -- mode: "npm", "pip", "pnpm", "yarn", or "--present"
 #
 #   --present emits a JSON array of the package managers whose manifest
-#   is actually present in the tracked tree (e.g. ["npm","pip"]), used by
-#   the workflow's `detect` job to build the runtime matrix. It reuses
-#   the SAME discovery predicate the run loop uses, so the matrix cannot
-#   drift from what the gate checks. Emits `[]` (valid JSON, not an empty
-#   string) when none are present.
+#   is actually present in the tracked tree (e.g. ["npm","pip"]), read by
+#   the workflow's detect STEP. Its output decides which PMs the single
+#   `install-gate-required` job's install LOOP runs this script for, and
+#   arms that job's conditional toolchain steps (`Set up Node`, `Set up
+#   Python`, CodeArtifact auth). It reuses the SAME discovery predicate
+#   the run loop uses, so what the detect step reports cannot drift from
+#   what the gate checks. Emits `[]` (valid JSON, not an empty string)
+#   when none are present.
 #
 # Behavior:
 #   - Discovers every relevant manifest via `git ls-files` (tracked
@@ -72,7 +75,7 @@ set -uo pipefail
 MODE="${1:-}"
 
 # The full armed set of package managers this gate supports, in a stable
-# order. Used by --present to build the workflow's runtime matrix.
+# order. Used by --present to report which of them the tree carries.
 ALL_MODES="npm pnpm yarn pip"
 
 case "$MODE" in
@@ -138,10 +141,11 @@ PY
 
 # present_mode <mode> -> exit 0 when the mode has at least one
 # install-relevant manifest in the tracked tree. Reuses the SAME
-# discover() predicate the run loop uses, so the runtime matrix (which
-# jobs to spawn) cannot drift from what the gate actually checks. For
-# pip, a config-only pyproject that declares no dependencies does NOT
-# count as present (matching the run loop's declares_deps filter).
+# discover() predicate the run loop uses, so the detected set (which PMs
+# the workflow's loop iterates over) cannot drift from what the gate
+# actually checks. For pip, a config-only pyproject that declares no
+# dependencies does NOT count as present (matching the run loop's
+# declares_deps filter).
 present_mode() {
   local m="$1" line
   MODE="$m"
@@ -156,11 +160,12 @@ present_mode() {
 }
 
 # --present: emit a JSON array of the package managers actually present
-# in the tracked tree, for the CodeQL-style runtime matrix in
+# in the tracked tree, for the runtime arming decision in
 # dependency-install-gate.yml. Emits `[]` (valid JSON, NOT an empty
-# string) when none are present, so the workflow's fromJSON spawns zero
-# legs cleanly and the aggregator passes (fail-open). A PM whose manifest
-# lands after setup lights its leg up on the next PR with no skill re-run.
+# string) when none are present, so the workflow's detect step yields an
+# empty list and the gate job takes its fail-open branch BEFORE the
+# install loop, passing green. A PM whose manifest lands after setup is
+# picked up on the next PR with no skill re-run.
 if [ "$MODE" = "--present" ]; then
   entries=""
   for m in $ALL_MODES; do
@@ -173,10 +178,14 @@ if [ "$MODE" = "--present" ]; then
     fi
   done
   json="[$entries]"
+  # STDOUT IS THE WHOLE INTERFACE. This mode used to ALSO write
+  # `pms=$json` into `$GITHUB_OUTPUT`, which the retired `detect` job
+  # re-exported as a job output for its `gate` matrix to consume. The
+  # issue-#77 collapse removed that job, and the detect STEP that
+  # replaced it captures this stdout and derives its OWN `pm_csv` /
+  # `node` / `pip` outputs from it. Nothing reads a `pms` output any
+  # more, so writing one back would be dead code. Do not reinstate it.
   echo "$json"
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    echo "pms=$json" >> "$GITHUB_OUTPUT"
-  fi
   exit 0
 fi
 

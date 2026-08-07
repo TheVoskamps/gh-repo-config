@@ -113,13 +113,15 @@ const RENDERED_WORKFLOWS: readonly string[] = [
   "dependency-pinned-gate.yml",
   "no-back-merging-guard.yml",
   // The CodeQL advanced-setup workflow (issue #16). Carries only the
-  // `__DEFAULT_BRANCH__` placeholder; its runtime detect job handles
-  // language-less repos, so it ships unconditionally like the guards.
+  // `__DEFAULT_BRANCH__` placeholder; its runtime detect step narrows
+  // the analyzed set to the languages actually in the tracked tree
+  // (with `actions` as an unconditional floor, so the set is never
+  // empty), so it ships unconditionally like the guards.
   "codeql.yml",
 ];
 
 /**
- * The two PR-automation workflows (issue #25). Rendered separately from
+ * The PR-automation workflows (issue #25). Rendered separately from
  * {@link RENDERED_WORKFLOWS} because they carry the extra
  * {@link PR_AUTOMATION_CONSTANTS} placeholders (via
  * {@link renderPrAutomationTemplate}), not just the three plain

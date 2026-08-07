@@ -90,11 +90,12 @@
 #   $1 -- mode: "npm", "pip", "actions", "docker", "go", or "--present"
 #
 #   --present emits a JSON array of the ecosystems whose manifest is
-#   actually present in the tracked tree (e.g. ["actions","go"]), used by
-#   the workflow's `detect` job to build the runtime matrix. It reuses
-#   the SAME discovery predicate the run loop uses, so the matrix cannot
-#   drift from what the gate checks. `actions` is effectively an
-#   always-present floor (the skill always installs workflow files).
+#   actually present in the tracked tree (e.g. ["actions","go"]), read by
+#   the single `pinned-gate-required` job at the head of its run step to
+#   decide which ecosystems its check LOOP then runs this script for. It
+#   reuses the SAME discovery predicate that loop uses, so the detected
+#   set cannot drift from what the gate checks. `actions` is effectively
+#   an always-present floor (the skill always installs workflow files).
 #   Emits `[]` (valid JSON, not an empty string) when none are present.
 #
 # Behavior:
@@ -122,7 +123,7 @@ set -uo pipefail
 MODE="${1:-}"
 
 # The full armed set of ecosystems this gate supports, in a stable
-# order. Used by --present to build the workflow's runtime matrix.
+# order. Used by --present to report which of them the tree carries.
 ALL_MODES="npm pip actions docker go"
 
 case "$MODE" in
@@ -164,20 +165,20 @@ discover() {
 
 # present_mode <mode> -> exit 0 when the mode has at least one manifest
 # in the tracked tree. Reuses the SAME discover() predicate the run loop
-# uses, so the runtime matrix (which jobs to spawn) cannot drift from
-# what the gate actually checks.
+# uses, so the detected set (which ecosystems the workflow's loop
+# iterates over) cannot drift from what the gate actually checks.
 present_mode() {
   MODE="$1"
   [ -n "$(discover | head -n 1)" ]
 }
 
 # --present: emit a JSON array of the ecosystems actually present in the
-# tracked tree, for the CodeQL-style runtime matrix in
+# tracked tree, for the runtime arming decision in
 # dependency-pinned-gate.yml. Emits `[]` (valid JSON, NOT an empty
-# string) when none are present, so the workflow's fromJSON spawns zero
-# legs cleanly and the aggregator passes (fail-open). An ecosystem whose
-# manifest lands after setup lights its leg up on the next PR with no
-# skill re-run.
+# string) when none are present, so the workflow's run step yields an
+# empty list and takes its fail-open branch BEFORE the check loop,
+# passing green. An ecosystem whose manifest lands after setup is picked
+# up on the next PR with no skill re-run.
 if [ "$MODE" = "--present" ]; then
   entries=""
   for m in $ALL_MODES; do
@@ -190,10 +191,15 @@ if [ "$MODE" = "--present" ]; then
     fi
   done
   json="[$entries]"
+  # STDOUT IS THE WHOLE INTERFACE. This mode used to ALSO write
+  # `ecosystems=$json` into `$GITHUB_OUTPUT`, which the retired `detect`
+  # job re-exported as a job output for its `gate` matrix to consume. The
+  # issue-#77 collapse removed that job, and the single
+  # `pinned-gate-required` job calls this mode at the head of its one run
+  # step, which captures this stdout directly. That step carries no `id:`
+  # at all, so a step output would not even be addressable. Do not
+  # reinstate it.
   echo "$json"
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    echo "ecosystems=$json" >> "$GITHUB_OUTPUT"
-  fi
   exit 0
 fi
 

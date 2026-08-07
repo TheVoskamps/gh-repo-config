@@ -5,6 +5,7 @@ import {
   runSweepFromEnv,
   PartialStampError,
   CURRENT_VERSION,
+  isBehind,
 } from "../dist/index.js";
 
 // A minimal fake of OrgPropertiesClient — runSweep only calls
@@ -23,7 +24,18 @@ function fakeClient({ orgDefault, repos, stampVersionImpl }) {
   };
 }
 
-const V = "0.2.0";
+// The fixture "current version" every runSweep call below is driven
+// with. Deliberately 9.9.9 — far ahead of anything this package will
+// plausibly carry — so it can never coincide with the real
+// CURRENT_VERSION, which package.json moves on every PR (CLAUDE.md >
+// Conventions). That distinctness is load-bearing: runSweep's
+// `version` parameter DEFAULTS to CURRENT_VERSION (src/sweep.ts), so
+// while the fixture equalled the real value, an implementation that
+// ignored the argument and read CURRENT_VERSION instead would have
+// passed these tests unnoticed. Repo stamps written as "0.1.0" below
+// are the behind case against this V; a repo stamped at V itself is
+// the skip-current case.
+const V = "9.9.9";
 
 test("sweep converges behind managed repos, skips others, and stamps them", async () => {
   const client = fakeClient({
@@ -32,7 +44,7 @@ test("sweep converges behind managed repos, skips others, and stamps them", asyn
       { repo: "fixture-process", mode: "process", version: "0.1.0" },
       { repo: "fixture-ignore", mode: "ignore", version: "0.1.0" },
       { repo: "fixture-unset", mode: undefined, version: undefined },
-      { repo: "fixture-current", mode: "process", version: "0.2.0" },
+      { repo: "fixture-current", mode: "process", version: V },
     ],
   });
 
@@ -308,15 +320,33 @@ test("a mid-batch stampVersion failure reports partial progress instead of losin
 });
 
 test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async () => {
-  // Finding 3: prior tests only ever drove the sweep against a
-  // hardcoded "0.2.0" fixture version, never the real package.json
-  // version (0.1.0) the CLI actually uses in production, and never
-  // through runSweepFromEnv's env -> OrgPropertiesClient -> runSweep
-  // path. runSweepFromEnv builds its own client from
-  // GH_REPO_CONFIG_ORG/GH_REPO_CONFIG_TOKEN and defaults to the global
-  // `fetch`, so drive it for real by substituting global.fetch for the
-  // duration of this test.
-  assert.equal(CURRENT_VERSION, "0.1.0");
+  // Finding 3: prior tests only ever drove the sweep against the
+  // hardcoded fixture version V they pass in themselves — which is
+  // 9.9.9, chosen so it can never equal the real package.json version
+  // the CLI uses in production — and never went through
+  // runSweepFromEnv's env -> OrgPropertiesClient -> runSweep path
+  // (runSweepFromEnv takes no version argument at all — it reads
+  // CURRENT_VERSION itself). runSweepFromEnv builds its own client
+  // from GH_REPO_CONFIG_ORG/GH_REPO_CONFIG_TOKEN and defaults to the
+  // global `fetch`, so drive it for real by substituting global.fetch
+  // for the duration of this test. This is therefore the only test in
+  // the file whose outcome tracks package.json at all, and the only
+  // one a version bump can legitimately affect.
+  //
+  // The guard below deliberately does not pin a version literal:
+  // every PR bumps package.json's version (CLAUDE.md > Conventions),
+  // so a literal would need editing in every PR and would conflict
+  // between concurrent ones. What has to hold for the fixture data
+  // below to mean anything is that fixture-behind's "0.0.1" stamp is
+  // genuinely behind the real version — true today and under any
+  // forward bump, since the convention only ever moves the version up
+  // — and isBehind throws outright if CURRENT_VERSION is not
+  // parseable X.Y.Z, so an empty or corrupted package.json version
+  // fails here too. The other side of the pair, fixture-current,
+  // reads CURRENT_VERSION directly rather than a literal, so it
+  // tracks the bump by construction.
+  // `test/version.test.js` pins CURRENT_VERSION === pkg.version.
+  assert.equal(isBehind("0.0.1", CURRENT_VERSION), true);
 
   const originalFetch = global.fetch;
   const calls = [];

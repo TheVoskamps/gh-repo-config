@@ -82,11 +82,20 @@ export function assertNoUnresolvedTokens(
 }
 
 /**
- * The nine fixed org-level constants the PR-automation templates
+ * The fixed org-level constants the PR-automation templates
  * (`auto-enable-automerge.yml`, `auto-rebase-prs.yml`) substitute,
  * pinned by issue #25's placeholder table. These are the converged
  * standard across every managed repo — nothing here is per-repo or
- * open to interpretation. `__BOT_SLUG__` and `__DEFAULT_BRANCH__` are
+ * open to interpretation.
+ *
+ * No single template carries every constant: `auto-rebase-prs.yml` owns
+ * the sweep-side ones and `auto-enable-automerge.yml` the
+ * native-auto-merge `__MERGE_METHOD__`. `test/render.test.js` therefore
+ * asserts substitution over the UNION of the two templates, and asserts
+ * that union is complete — a constant used by neither template is a
+ * dead entry here, not a silently-skipped assertion.
+ *
+ * `__BOT_SLUG__` and `__DEFAULT_BRANCH__` are
  * NOT in this map: `__DEFAULT_BRANCH__` is per-repo (handled by
  * {@link renderTemplate}'s `RepoContext`) and `__BOT_SLUG__` is
  * per-repo but derived (repo-name interpolated), so both are resolved
@@ -101,7 +110,13 @@ export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
   __DO_NOT_MERGE_LABEL__: "do-not-merge",
   __REQUIRED_CHECK_WORKFLOW__: "no-back-merging-guard",
   __INSTALL_GATE_WORKFLOW__: "dependency-install-gate",
-  __INSTALL_GATE_NPM_CHECK__: "npm",
+  // The install gate's single required-check job. It was the per-PM
+  // matrix leg's check until issue #77 collapsed that workflow to one
+  // job, at which point no per-PM check run exists to key on. Widening
+  // the pre-filter is safe: the lockfile-regen script that consumes it
+  // re-confirms the failure is a lockfile-only npm desync before it
+  // changes anything.
+  __INSTALL_GATE_CHECK__: "install-gate-required",
 };
 
 /**

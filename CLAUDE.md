@@ -5,6 +5,19 @@ Org-wide repo-configuration converger. TypeScript, Node >=22, ESM
 and `docs/org-repo-configuration-fanout-decomposition.md` for the
 overall design and issue breakdown.
 
+Both of those are **point-in-time records**, and each says so in its own
+first lines (`Status: design, not yet implemented.`, `Status: proposed
+issue breakdown.`). They state what was intended, not what is built, so
+code moving away from them never makes their prose false — it makes the
+code *diverge*, and that divergence is information worth keeping. Never
+edit a doc carrying such a marker to match as-built behaviour, and never
+count one among the hits when sweeping the repo for prose a structural
+change falsified; a half-design/half-as-built file is worse than either
+pure form. As-built behaviour belongs in this file, in an asset's own
+inline comments, or in a doc that makes no point-in-time claim
+(`docs/codeartifact-auth.md`, `docs/github-app-converger.md`). Read a
+`docs/` file's first lines for a status marker before editing it.
+
 ## Commands
 
 Install (deterministic, from lockfile):
@@ -100,11 +113,21 @@ npm run lint:md
       in the named group) are org-wide constants covering the org's
       lockstep/stack dependency groupings. `renderPrAutomationTemplate` +
       `PR_AUTOMATION_CONSTANTS` render the PR-automation
-      workflows' extra placeholders: nine fixed org-level constants
+      workflows' extra placeholders: the fixed org-level constants
       (App identity, merge method, do-not-merge label, required-check/
-      install-gate workflow names) plus the per-repo-but-derived
+      install-gate workflow names, and `__INSTALL_GATE_CHECK__` — the
+      install gate's single required-check job name, which the
+      lockfile-regen pass keys off) plus the per-repo-but-derived
       `__BOT_SLUG__` (`<repo>-auto-rebase[bot]`), layered on top of the
-      same three per-repo tokens `renderTemplate` already resolves. The
+      same three per-repo tokens `renderTemplate` already resolves. No
+      single template uses every constant — `auto-rebase-prs.yml` owns
+      the sweep-side ones (`__REQUIRED_CHECK_WORKFLOW__`,
+      `__INSTALL_GATE_WORKFLOW__`, `__INSTALL_GATE_CHECK__`,
+      `__REST_MERGE_METHOD__`) and `auto-enable-automerge.yml` the
+      native-auto-merge one (`__MERGE_METHOD__`) — so
+      `test/render.test.js` asserts coverage over their union, and
+      asserts the union is complete so a constant that falls out of
+      both templates cannot go unnoticed. The
       full surface always renders unconditionally (no conditional-drop
       logic like the interactive `gh-repo-setup-pr-automation` skill has
       for repos lacking certain workflows) — on a managed repo the gates
@@ -246,9 +269,117 @@ npm run lint:md
   - `ecosystem-block.yml` carries `__NAMED_GROUPS_BLOCK__` (the named
     Dependabot groups — see `render.ts`'s `NAMED_DEPENDABOT_GROUPS`
     description above). `no-back-merging-guard.yml` runs with
-    least-privilege permissions. `auto-enable-automerge.yml` truncates
-    an oversized PR body before merging, refuses to merge an
-    unverified rebased head, and documents its cron schedule inline.
+    least-privilege permissions. The two PR-automation workflows are
+    split by EVENT, not by concern (issue #77): `auto-rebase-prs.yml`
+    owns everything the `workflow_run` / `workflow_dispatch` /
+    `schedule` / `push` / `issue_comment` sweep does — the rebase pass
+    AND the Dependabot REST-merge pass that used to be
+    `auto-enable-automerge.yml`'s own `dependabot-rest-merge` job —
+    while `auto-enable-automerge.yml` is now `pull_request`-only and
+    does nothing but enable native auto-merge. They were not collapsed
+    into one file because the converger has no delete path: retiring a
+    rendered workflow would leave an orphan copy running, and billing,
+    on every managed repo. The REST-merge pass passes the evaluated
+    head SHA to the merge call, so a head that moved since the checks
+    were verified 409s and is left for the next sweep rather than
+    merged unverified. Both workflows truncate an oversized PR body at
+    16000 chars (appending the PR URL) before it becomes a merge-commit
+    message, since GitHub caps commit messages at 16383. Each documents
+    its trigger set — including `auto-rebase-prs.yml`'s two-rationale
+    cron list — inline.
+  - **Job count is a first-class constraint on every fanned-out
+    workflow.** GitHub bills a whole minute per JOB, rounded up, so a
+    wrapper job doing three seconds of work costs the same as a real
+    one, and a check NAME is free while a JOB is not. Issue #77
+    collapsed the shapes that violated this and they must not be
+    re-split:
+    - `dependency-pinned-gate.yml` and `dependency-install-gate.yml`
+      are each ONE job — detection happens in a `run` block, the
+      per-ecosystem/per-PM legs are a `run`-block loop — carrying the
+      same `pinned-gate-required` / `install-gate-required` names
+      `protect-main-ruleset.json` requires. The per-leg check names they
+      gave up are bought back with a job-summary table and a
+      per-failure `::error title=...::` annotation, not with jobs. That
+      annotation carries no `file=`, so it defaults to `.github` line 1
+      and surfaces on the run page and Checks tab only — the
+      diff-attached annotations are the ones the gate SCRIPTS emit
+      (`::error file=<manifest>::`). Do not write that the workflow's
+      own annotation lands on Files changed. Both
+      loops split the script's `--present` JSON array EXPLICITLY into a
+      bash array and take the fail-open branch BEFORE splitting; relying
+      on unquoted word splitting silently degrades to one iteration with
+      the whole string as a single argument, which reddens the required
+      check for a reason unrelated to the repo.
+    - `dependency-install-gate.yml`'s detect step emits `node` / `pip`
+      flags because a single job has no `matrix.pm` to guard
+      `Set up Node` and the CodeArtifact auth step with. That guard is
+      load-bearing: unguarded, a pip-only repo performs a real
+      `AssumeRoleWithWebIdentity` it has no role for. Those guards are
+      also the only reason detection MUST be its own STEP there: a
+      step-level `if:` can read another STEP's outputs but not a
+      mid-step shell variable (the install loop then reads the same
+      step's `pm_csv` output, but that alone would not force the
+      split). `dependency-pinned-gate.yml` has no
+      conditional steps, so its `--present` call stays INLINE at the
+      head of its one check step (that step carries no `id:` at all).
+      The asymmetry is deliberate — do not harmonize the two, and do
+      not describe the pinned gate as having a detect step.
+    - **A detection mode talks to its workflow over STDOUT, never
+      `$GITHUB_OUTPUT`.** This covers `dependency-install-gate.sh
+      --present`, `dependency-pinned-gate.sh --present`, and
+      `codeql-language-present.sh --matrix`. Before issue #77 each also
+      wrote `pms=` / `ecosystems=` / `languages=` into `$GITHUB_OUTPUT`
+      for the retired `detect` job to re-export to its matrix. The
+      collapse removed every consumer, so those writes were removed
+      too; every caller now captures that stdout directly, and the two
+      that need the result in a LATER step (the install gate's and
+      CodeQL's detect steps) derive their own step outputs from it.
+      Re-adding one produces a step output nothing reads (and, in
+      the pinned gate, one that is not even addressable). Each of the
+      three modes carries a comment saying so. This does NOT touch
+      `codeartifact-auth.sh`'s `emit` helper, whose step outputs the
+      composite action really does consume.
+    - `codeql.yml` analyzes every ubuntu-runner language in ONE
+      `init` + `analyze` pair (the action takes a comma-separated
+      language list) named `codeql-required`, with a second
+      `analyze-swift` job that exists only when a non-ubuntu language is
+      present. Neither analyze step passes `category:` — with the matrix
+      gone, a literal category would be shared by both jobs and the two
+      uploads would displace each other, whereas the action's derived
+      `<workflow path>:<job id>` category is distinct per job. Do not
+      reinstate it.
+    - `auto-rebase-prs.yml`'s `schedule:` list serves TWO backstops
+      with different rationales, and the file's comments must keep them
+      apart. The REBASE backstop is WINDOWED to Pacific weekday
+      business hours (`0 15-23 * * 1-5` + `0 0-2 * * 2-6`, 12 ticks a
+      weekday instead of the old `*/20`'s 72 a day) — it exists only to
+      catch the lazy-`mergeStateStatus` race, which cannot happen while
+      nobody is pushing. Those two entries are the UNION of PDT and PST
+      deliberately: GitHub cron is UTC-only, and over-covering by an
+      hour beats clipping a real working hour for four months of the
+      year. Splitting across the UTC date boundary is why their
+      day-of-week fields differ. The MERGE backstop is the third entry,
+      `0 15 * * 0,6` — the weekend replacement for the `0 12 * * *`
+      daily cron the REST-merge pass had in `auto-enable-automerge.yml`
+      before issue #77 moved it here. It catches a dropped
+      `workflow_run` completion on a PR Dependabot opened on its own
+      schedule, which does not stop for the weekend, so the rebase
+      backstop's weekday reasoning does not cover it. 15:00 UTC is the
+      hour the weekday window opens, which leaves no gap in the week
+      longer than 24 h. Do not fold the weekend entry into the weekday
+      window's justification.
+    - The constraint is PINNED, not just documented:
+      `test/files.test.js`'s `EXPECTED_JOBS` table names every rendered
+      workflow's exact job-id list, and the test asserts the table's key
+      set equals the set of rendered `.github/workflows/` paths — so a
+      new workflow cannot escape the constraint by omission, and a
+      re-split fails `npm test`. Adding a job means editing that table,
+      which is the point: the edit is where the billing cost gets
+      argued. Job ids are read with the file's `workflowJobIds` helper,
+      which slices the top-level `jobs:` mapping before matching job-id
+      syntax — counting keys BY INDENT does not work, since `on:`'s own
+      keys sit at the same indent (and `codeql.yml`'s jobs block opens
+      with a two-space-indented comment that ends in a colon).
   - `codeartifact-auth.sh` is the whole of the `codeartifact-auth`
     composite action's logic; `codeartifact-auth-action.yml` is thin
     glue (parse → OIDC role assumption → configure) and reaches the
@@ -274,11 +405,12 @@ npm run lint:md
     rejected as a cross-repo credential pool. Only the `registry=` line
     and the configured endpoint's own `//<host><path>:` namespace are
     replaced in that file, so another registry's credential survives.
-    `dependency-install-gate.yml` calls it between checkout and install
-    on every non-`pip` matrix leg (mirroring its `Set up Node` guard)
-    and is the only fanned-out workflow carrying an `id-token: write`
-    grant — on its `gate` job only, latent (and documented inline as
-    such) on repos without CodeArtifact. Operator prerequisites live in
+    `dependency-install-gate.yml` calls it between checkout and the
+    install loop, guarded by the same detect-step `node` output that
+    guards `Set up Node`, and is the only fanned-out workflow carrying
+    an `id-token: write` grant — on its single `install-gate-required`
+    job only, latent (and documented inline as such) on repos without
+    CodeArtifact. Operator prerequisites live in
     `docs/codeartifact-auth.md`, including the hard requirement that an
     org-level `CODEARTIFACT_ROLE` be scoped to exactly the repositories
     the IAM trust policy names.
@@ -367,13 +499,16 @@ npm run lint:md
   refuses to push unless that tip's commit was produced entirely by
   this workflow's own automation: AUTHOR is this workflow's bot
   identity AND COMMITTER is either that same bot identity (a fresh
-  bumper push) or the `auto-rebase-prs.yml` / `auto-enable-
-  automerge.yml` bot identity (a rebase of the bumper's own PR). Author
-  alone is keyed first because both `auto-rebase-prs.yml` and
-  `auto-enable-automerge.yml` rebase-and-force-push any open,
-  non-draft, same-owner PR that has fallen behind `main` (including the
-  bumper's own PR), and `git rebase` rewrites the committer while
-  leaving the author untouched. But author alone is not sufficient: a
+  bumper push) or the PR-automation bot identity (a rebase of the
+  bumper's own PR). Author alone is keyed first because
+  `auto-rebase-prs.yml`'s rebase sweep rebase-and-force-pushes any
+  open, non-draft, same-owner PR that has fallen behind `main` —
+  including the bumper's own PR — and `git rebase` rewrites the
+  committer while leaving the author untouched. (The Dependabot
+  REST-merge sweep issue #77 moved into that same workflow also
+  rebases and force-pushes under that identity, but its candidate
+  filter requires `author.login == "dependabot"`, so it never reaches
+  the bumper's branch.) But author alone is not sufficient: a
   maintainer who *amends* the bot's commit keeps the bot as author
   while replacing its content, so the committer is checked too — any
   committer other than the bot itself or the auto-rebase bot means the
@@ -411,20 +546,24 @@ npm run lint:md
   a hand-added context on `protect-main` would be reverted as drift by
   `src/converge/ruleset.ts`.
 - `.github/workflows/release.yml` — publishes a tagged (`v*`) GitHub
-  Release with a build-provenance attestation. Bumping the release
-  version means editing `package.json`'s `version` and pushing a
-  matching `vX.Y.Z` tag; the workflow verifies the two match before
-  building. Release immutability itself has no REST/`gh` API surface —
-  it is a one-time manual web-UI toggle (repo/org Settings > General >
-  Releases), not something this workflow or any converger slice can
-  enable programmatically; verify current state with
-  `gh release view <tag>`.
+  Release with a build-provenance attestation. Cutting a release is
+  only the tag push: `package.json`'s `version` already moved in the
+  PR that changed the code (see Conventions), so a release means
+  pushing a `vX.Y.Z` tag matching whatever version `main` currently
+  carries; the workflow verifies the two match before building. The
+  sweep does not consume the tarball this produces — it builds from
+  `main`'s source tree — so a version bump takes effect on the next
+  sweep whether or not a tag ever follows. Release immutability itself
+  has no REST/`gh` API surface — it is a one-time manual web-UI toggle
+  (repo/org Settings > General > Releases), not something this workflow
+  or any converger slice can enable programmatically; verify current
+  state with `gh release view <tag>`.
 - `.github/workflows/sweep.yml` — scheduled (daily) + `workflow_dispatch`
   sweep. Runs as a dedicated converger org GitHub App (org secrets
   `CONVERGER_APP_ID` / `CONVERGER_APP_PRIVATE_KEY`), distinct from the
   pr-automation App, since it needs Administration / Org administration
-  scope the pr-automation App must never hold. Requires
-  three org-level custom properties to be defined
+  scope the pr-automation App must never hold. Requires the
+  org-level custom properties to be defined
   (`gh-repo-config-mode`, `gh-repo-config-default`,
   `gh-repo-config-version`) — an operator-provisioning step, not
   something the workflow itself creates. Also passes
@@ -439,3 +578,36 @@ npm run lint:md
   not what's evident from the signature.
 - GitHub Actions steps in `.github/workflows/` pin third-party actions
   by commit SHA (with a version comment), not by tag.
+- Every PR bumps `version` in the root `package.json`, and the bump
+  must advance the `X.Y.Z` core itself past main's current value.
+  "Strictly greater semver" is not the bar: `0.2.0` → `0.3.0-rc.1` →
+  `0.3.0` is two valid semver steps whose second one delivers nothing,
+  because the compare reads only the `MAJOR.MINOR.PATCH` core and a
+  repo already stamped `0.3.0-rc.1` is therefore not behind `0.3.0`.
+  Prerelease and build identifiers are consequently not usable here at
+  all — `test/version.test.js` fails on a `CURRENT_VERSION` carrying
+  one. The reason for the bump itself is the sweep, not release
+  hygiene: `.github/workflows/sweep.yml` checks out the
+  triggering ref (`main` on its daily schedule) with no `ref:`
+  override, then runs `npm ci`, `npm run build`, and the CLI from that
+  source tree — never from a release tarball — so `CURRENT_VERSION` is
+  whatever that `package.json` says (`src/version.ts`). `isBehind`
+  reports a repo already stamped at that value as not behind, and
+  `decideRepo` returns `skip-current` for it
+  (`src/version-compare.ts`, `src/stamp/decide.ts`). A PR that changes
+  `assets/` without a bump therefore reaches no repo a prior sweep
+  already stamped at that version — it merges and silently delivers
+  nothing.
+  - Bump in the PR itself, and re-check after a rebase: a concurrent
+    merge may have taken the version you picked.
+  - Semver decides which component to bump. The jump to 1.0.0 is a
+    deliberate contract-stability decision, made by a human, never as
+    part of routine work.
+- Tests import nothing this repo does not declare in `package.json`.
+  The case that comes up is YAML: tests inspect rendered workflow YAML
+  with small hand-rolled string helpers, never `js-yaml`. `js-yaml` is
+  in the tree only because `markdownlint-cli2` depends on it
+  (`package-lock.json` lists no other dependent), so importing it would
+  couple `npm test` — and therefore the `ci-required` check — to another
+  package's dependency graph. Declare the dependency first if a real
+  parser is ever warranted.

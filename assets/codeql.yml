@@ -6,28 +6,105 @@
 #
 # ARMED WITH THE FULL SUPPORTED SET — runtime-gated, fails OPEN. This
 # workflow is armed with EVERY CodeQL-supported language at install time,
-# and decides WHICH to analyze at RUNTIME, per PR. A `detect` job runs
-# cheap `git ls-files` presence checks over the tracked tree and emits a
-# JSON array of the languages actually present at that moment; the
-# `analyze` job builds its matrix from that array, so a leg exists for a
-# language IFF that language is present in the tree right now:
-#   - present + clean  -> the leg is green,
-#   - present + broken -> the leg is red (blocking),
-#   - absent           -> NO leg at all (fails OPEN — no phantom check).
+# and decides WHICH to analyze at RUNTIME, per PR. A detect STEP runs
+# cheap `git ls-files` presence checks over the tracked tree and emits
+# the languages actually present at that moment; only those are handed
+# to CodeQL, so a language is analyzed IFF it is present in the tree
+# right now:
+#   - present + clean  -> it is analyzed and passes,
+#   - present + broken -> the job is red (blocking),
+#   - absent           -> NOT analyzed (fails OPEN — no phantom check).
 # This inverts the old install-time-narrowed model: a language that
-# lands AFTER setup (e.g. the repo's first `.ts` file) lights its leg up
+# lands AFTER setup (e.g. the repo's first `.ts` file) is analyzed
 # automatically on the next PR, with NO skill re-run. See issues #91/#230
 # for the phantom-check hang the runtime-fail-open model avoids.
 #
-# THE AGGREGATOR IS THE REQUIRED CHECK. GitHub `required_status_checks`
-# is a static list of names and cannot express "require Analyze (python)
-# only if it runs". So the per-language legs (`Analyze (<lang>)`) are
-# VISIBLE but NOT individually required; the always-running
-# `codeql-required` aggregator is the single required check. It concludes
-# success iff every spawned leg succeeded AND success when the matrix was
-# empty (no analyzable language) — so a language-less repo is mergeable,
-# not hung. Listing a per-leg name as required on a repo lacking that
-# language is exactly the #91/#230 hang; do not do it.
+# ONE JOB FOR EVERY UBUNTU LANGUAGE (issue #77). This workflow used to
+# be a `detect` job, an `analyze` matrix with one leg per present
+# language, and an `if: always()` `codeql-required` aggregator. GitHub
+# bills a whole minute per JOB, rounded up: across a measured 3.7-day
+# window the `Detect CodeQL languages` + `codeql-required` wrapper jobs
+# alone cost 200 billable minutes for about 18 minutes of real work, and
+# each `Analyze` leg paid for its own checkout and CodeQL bootstrap. A
+# check NAME is free on GitHub; a JOB is the billing unit. So detection
+# is a STEP, every ubuntu-runner language is analyzed by ONE
+# `init` + `analyze` pair, and that single job KEEPS the name
+# `codeql-required` — the name `protect-main-ruleset.json` lists as the
+# required status check, which is therefore unchanged by the collapse.
+#
+# WHY ONE `init` IS SAFE HERE. `github/codeql-action/init` takes a
+# comma-separated language list and `analyze` then runs the queries for
+# each language in turn; GitHub's own `__multi-language-autodetect`
+# integration test in github/codeql-action drives seven languages
+# through a single init+analyze pair exactly this way. Nothing in THIS
+# workflow forced the split either: there is deliberately no build step
+# (see the no-autobuild note below), so there is no per-language build
+# divergence that separate jobs would have been isolating. The one real
+# constraint is the RUNNER — `codeql-language-present.sh`'s `runner_for`
+# gives swift `macos-latest` and every other language `ubuntu-latest`,
+# and one job has one `runs-on`. That is why the split that remains is
+# by runner, not by language.
+#
+# NO EXPLICIT `category:` — DELIBERATE, AND LOAD-BEARING. The matrix
+# shape passed `category: "/language:${{ matrix.language }}"`. Per
+# GitHub's workflow-configuration docs, `category` exists to
+# "distinguish between multiple analyses for the same tool and commit,
+# but performed on different languages or different parts of the code",
+# and when it is omitted GitHub generates one from the workflow file
+# name, the action name, and any matrix variables. With the matrix gone
+# there is no `matrix.language` to interpolate, and a fixed literal
+# would hand the ubuntu job and the swift job below the SAME category
+# on the same commit — precisely the collision `category` exists to
+# prevent. Nothing would flag it, either: the action's own duplicate
+# check (`validateUniqueCategory` in upload-lib) is keyed on a
+# per-JOB env-var sentinel, so it catches two uploads inside one job
+# and cannot see two jobs colliding.
+#
+# Omitting `category:` avoids the collision by construction. The action
+# derives the SARIF `automationDetails.id` from `<workflow file
+# path>:<job id>` (`getAnalysisKey` in the action's api-client) plus any
+# matrix variables, so `codeql-required` and `analyze-swift` get
+# distinct categories automatically, keyed on the job ids below. Within
+# the ubuntu job the per-language SARIF files are merged by the CodeQL
+# CLI into that one analysis, which is what the upstream multi-language
+# test does too. Consequence to expect ONCE, on the first run after this
+# change lands: the old per-language categories
+# (`/language:javascript-typescript`, ...) stop being written, so their
+# previous analyses go stale in the Security tab until GitHub ages them
+# out. Do NOT "fix" that by reinstating a literal `category:`.
+#
+# SWIFT IS ITS OWN JOB, AND ONLY WHEN SWIFT IS PRESENT. Swift analysis
+# needs macOS, which bills at roughly ten times the Linux rate, so a
+# Swift-less repo must never provision it. The detect step emits the
+# non-ubuntu languages and their runner (read straight out of
+# `runner_for`, so this workflow does not restate the
+# swift-means-macOS rule), and the `analyze-swift` job exists only when
+# that set is non-empty. Today `runner_for` yields exactly two runner
+# classes; if it ever grew a third, this job would have to become a
+# matrix over runner classes rather than one extra job.
+#
+# THE COST OF THAT SPLIT, recorded deliberately: `analyze-swift` runs
+# AFTER `codeql-required` (it needs the detect result, which only exists
+# once a runner has looked at the tree) so it cannot be folded INTO the
+# required check without adding back a third aggregator job — the exact
+# job this collapse removes. On a Swift repo the swift leg is therefore
+# a VISIBLE but NOT REQUIRED check: a swift analysis that fails to RUN
+# no longer blocks the merge, though its findings still reach the
+# Security tab under their own category. Reinstating a blocking swift
+# gate means accepting a third job on every repo, which the measured
+# numbers above do not justify for a language no managed repo currently
+# contains.
+#
+# THE JOB NAME IS THE REQUIRED CHECK. GitHub `required_status_checks`
+# is a static list of names and cannot express "require swift only if it
+# runs". `codeql-required` always runs and always concludes, so a
+# required check is never left pending — the #91/#230 phantom-check hang
+# the previous `if: always()` aggregator existed to prevent cannot
+# return. A language-less repo is impossible in practice (`actions` is
+# an unconditional floor in the detect script, and the skill always
+# installs workflow files), so the ubuntu language list is never empty.
+# Do not list `analyze-swift` as a required check on a repo that may
+# lack Swift — that is exactly the #91/#230 hang.
 #
 # Advanced-setup workflow. Committing this workflow AUTOMATICALLY
 # DISABLES GitHub's default CodeQL setup — that is the mechanism that
@@ -43,17 +120,13 @@
 #   - `persist-credentials: false` on checkout (least privilege).
 #   - Job permissions are least-privilege; `packages: read` is present
 #     because CodeQL needs it to fetch query packs.
-#   - Swift analysis requires a macOS runner; the detect job carries a
-#     per-language `runner` in the matrix entry (macos-latest for swift,
-#     ubuntu-latest for the rest) so a Swift-less repo never provisions
-#     macOS (which bills ~10x Linux).
 #
 # Placeholders:
 #   __DEFAULT_BRANCH__   Default branch of the target repo.
 #
 # There is intentionally NO language-list placeholder: the armed set is
 # the full supported set, fixed in this template, and narrowed to the
-# present set at RUNTIME by the detect job — never at install time.
+# present set at RUNTIME by the detect step — never at install time.
 name: codeql
 
 on:
@@ -77,38 +150,14 @@ permissions:
   contents: read
 
 jobs:
-  # Stage 1: decide WHICH languages to analyze, at runtime, per PR.
-  # Emits a JSON array of `{ language, runner }` matrix entries for the
-  # languages actually present in the tracked tree right now. `actions`
-  # is an unconditional floor (the skill always installs workflows).
-  # `swift` is added only when `*.swift` is present, carrying
-  # runner: macos-latest, so a Swift-less repo never provisions macOS.
-  detect:
-    name: Detect CodeQL languages
+  # THE SINGLE REQUIRED CHECK, and the whole of the ubuntu analysis:
+  # detect, init over every present ubuntu-runner language at once, and
+  # one analyze. See the "ONE JOB FOR EVERY UBUNTU LANGUAGE" note in the
+  # header. The `protect-main` ruleset lists THIS job's name
+  # (`codeql-required`) as the required check.
+  codeql-required:
+    name: codeql-required
     runs-on: ubuntu-latest
-    permissions:
-      contents: read # clone the repository to run the presence checks
-    outputs:
-      languages: ${{ steps.detect.outputs.languages }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-
-      - name: Detect present CodeQL languages
-        id: detect
-        run: bash .github/scripts/codeql-language-present.sh --matrix
-
-  # Stage 2: one analysis leg per present language. Fed by the detect
-  # job's JSON array via fromJSON; an empty array spawns ZERO legs
-  # cleanly (fail-open — no phantom check). `runs-on` is carried per
-  # matrix entry so swift lands on macOS and everything else on ubuntu.
-  analyze:
-    name: Analyze (${{ matrix.language }})
-    needs: detect
-    if: ${{ needs.detect.outputs.languages != '[]' }}
-    runs-on: ${{ matrix.runner }}
     permissions:
       # A job-level permissions block replaces the top-level one
       # entirely, so every permission the job needs is listed here.
@@ -116,10 +165,93 @@ jobs:
       packages: read # fetch CodeQL query packs
       actions: read # required for code scanning on a private repo
       contents: read # clone the repository
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.detect.outputs.languages) }}
+    outputs:
+      swift_languages: ${{ steps.detect.outputs.swift_languages }}
+      swift_runner: ${{ steps.detect.outputs.swift_runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Splits the detect script's `{language,runner}` entries by
+      # RUNNER, not by language name: `runner_for` in
+      # codeql-language-present.sh is the single owner of the
+      # swift-needs-macOS rule, so this step reads its verdict rather
+      # than restating it. `swift_runner` falls back to a valid runner
+      # label when there are no non-ubuntu languages, so the (skipped)
+      # job below never carries an empty `runs-on`.
+      - name: Detect present CodeQL languages
+        id: detect
+        run: |
+          set -euo pipefail
+
+          matrix="$(bash .github/scripts/codeql-language-present.sh --matrix)"
+          echo "Present languages: ${matrix}"
+
+          ubuntu_languages="$(printf '%s' "${matrix}" \
+            | jq -r '[.[] | select(.runner == "ubuntu-latest") | .language] | join(",")')"
+          swift_languages="$(printf '%s' "${matrix}" \
+            | jq -r '[.[] | select(.runner != "ubuntu-latest") | .language] | join(",")')"
+          swift_runner="$(printf '%s' "${matrix}" \
+            | jq -r '[.[] | select(.runner != "ubuntu-latest") | .runner][0] // "ubuntu-latest"')"
+
+          # `actions` is an unconditional floor in the detect script, so
+          # this list is never empty. Fail loudly rather than handing
+          # `init` an empty `languages:` if that invariant ever breaks.
+          if [ -z "${ubuntu_languages}" ]; then
+            echo "::error title=codeql-required::codeql-language-present.sh --matrix returned no ubuntu-latest language, which should be impossible (the 'actions' floor is unconditional). Refusing to run an empty analysis." >&2
+            exit 1
+          fi
+
+          {
+            echo "ubuntu_languages=${ubuntu_languages}"
+            echo "swift_languages=${swift_languages}"
+            echo "swift_runner=${swift_runner}"
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "## codeql-required"
+            echo
+            echo "Analyzed on \`ubuntu-latest\`: \`${ubuntu_languages}\`"
+            if [ -n "${swift_languages}" ]; then
+              echo
+              echo "Deferred to the \`analyze-swift\` job on \`${swift_runner}\`: \`${swift_languages}\`"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        with:
+          # A comma-separated list: every present ubuntu-runner language
+          # in one database bootstrap.
+          languages: ${{ steps.detect.outputs.ubuntu_languages }}
+          # Path filters and query packs live in the sibling config file.
+          config-file: ./.github/codeql/codeql-config.yml
+
+      # No manual build step: the analyzed languages are extracted from
+      # source without a compile, so CodeQL's default extraction covers
+      # them without autobuild (which only adds a failure surface).
+      #
+      # No `category:` — see the "NO EXPLICIT `category:`" note in the
+      # header. The action derives one from this job's id.
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+
+  # The non-ubuntu (today: swift, on macOS) analysis, which EXISTS ONLY
+  # when such a language is in the tree — a Swift-less repo never
+  # provisions a macOS runner. Visible but NOT a required check; see
+  # "THE COST OF THAT SPLIT" in the header for why that is deliberate.
+  analyze-swift:
+    name: Analyze (swift)
+    needs: codeql-required
+    if: ${{ needs.codeql-required.outputs.swift_languages != '' }}
+    runs-on: ${{ needs.codeql-required.outputs.swift_runner }}
+    permissions:
+      security-events: write # upload analysis results to the Security tab
+      packages: read # fetch CodeQL query packs
+      actions: read # required for code scanning on a private repo
+      contents: read # clone the repository
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -129,51 +261,11 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
-          languages: ${{ matrix.language }}
-          # Path filters and query packs live in the sibling config file.
+          languages: ${{ needs.codeql-required.outputs.swift_languages }}
           config-file: ./.github/codeql/codeql-config.yml
 
-      # No manual build step: the analyzed languages are extracted from
-      # source without a compile, so CodeQL's default extraction covers
-      # them without autobuild (which only adds a failure surface).
+      # No `category:` here either: this job's id gives it a category
+      # distinct from `codeql-required`'s, which is exactly what keeps
+      # the two uploads from displacing each other.
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
-        with:
-          category: "/language:${{ matrix.language }}"
-
-  # Stage 3: the SINGLE required status check. Always runs (even when the
-  # matrix was empty), and concludes:
-  #   - success when the matrix was empty (no analyzable language present
-  #     -> mergeable, NOT hung),
-  #   - success when every spawned analyze leg succeeded,
-  #   - failure when any analyze leg failed or was cancelled.
-  # `if: always()` is MANDATORY: without it the job is SKIPPED when the
-  # matrix is empty, and a required check treats "skipped" as not-passed,
-  # reintroducing the #91/#230 phantom-check hang. The `protect-main`
-  # ruleset lists THIS job's name (`codeql-required`) as the required
-  # check, never the per-leg `Analyze (<lang>)` names.
-  codeql-required:
-    name: codeql-required
-    needs: analyze
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Conclude on the analyze matrix result
-        run: |
-          result="${{ needs.analyze.result }}"
-          echo "analyze job result: ${result}"
-          # An empty matrix leaves the analyze job 'skipped' — that is
-          # the fail-OPEN case (no analyzable language present), so it is
-          # a PASS. 'success' is also a pass. Anything else (failure,
-          # cancelled) fails the aggregator and blocks the PR.
-          case "${result}" in
-            success|skipped)
-              echo "CodeQL aggregator: PASS (${result})."
-              ;;
-            *)
-              echo "CodeQL aggregator: FAIL — at least one Analyze leg did not succeed (${result})." >&2
-              exit 1
-              ;;
-          esac

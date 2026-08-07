@@ -17,9 +17,10 @@ configuration, on every managed repo that does not use CodeArtifact**.
 
 **npm, pnpm, and yarn Berry only.** A CodeArtifact-backed PyPI registry
 is out of scope: the endpoint is validated by host, so a `/pypi/<repo>/`
-path parses, but nothing configures pip and the install gate's `pip` leg
-skips the action entirely. Do not set `CODEARTIFACT_ROLE` to a pypi
-endpoint and expect it to work.
+path parses, but nothing configures pip and the install gate skips the
+action entirely on a repo whose only package manager is pip (its detect
+step's `node` output guards the auth step). Do not set
+`CODEARTIFACT_ROLE` to a pypi endpoint and expect it to work.
 
 Everything below is provisioned by an operator in the target AWS account
 and in GitHub. None of it is built by this repo, in the same way the
@@ -123,14 +124,15 @@ condition must name concrete repositories. A wildcard such as
 role.
 
 That matters because the rendered `dependency-install-gate.yml` grants
-`id-token: write` on its `gate` job for **every** managed repo, including
-repos that do not use CodeArtifact. `permissions:` is static YAML and
-cannot be made conditional, and converge-time detection was rejected: the
-converger reads the *default branch* while the gate runs against *PR
-head*, and the gate is a required check, so a repo that adopted
-CodeArtifact between sweeps would have every PR blocked until the next
-scheduled run. The grant is therefore latent everywhere, and the trust
-policy is the control that keeps it inert.
+`id-token: write` on its single `install-gate-required` job for
+**every** managed repo, including repos that do not use CodeArtifact.
+`permissions:` is static YAML and cannot be made conditional, and
+converge-time detection was rejected: the converger reads the *default
+branch* while the gate runs against *PR head*, and the gate is a
+required check, so a repo that adopted CodeArtifact between sweeps
+would have every PR blocked until the next scheduled run. The grant is
+therefore latent everywhere, and the trust policy is the control that
+keeps it inert.
 
 Adding a consuming repo is an edit to this list **and** an edit to the
 `CODEARTIFACT_ROLE` variable's repository-access list (§4) — two edits
@@ -173,7 +175,7 @@ What happens when they drift:
 
 | Drift | Consequence |
 | --- | --- |
-| Repo has the **variable** but is **not** in the trust policy | The action arms, `AssumeRoleWithWebIdentity` is denied, the role-assumption step fails (there is no `continue-on-error`), the `gate` leg fails, and `install-gate-required` — a **required check** — fails. **Every PR on that repo is blocked, with no mechanism by which it could go green.** |
+| Repo has the **variable** but is **not** in the trust policy | The action arms, `AssumeRoleWithWebIdentity` is denied, the role-assumption step fails (there is no `continue-on-error`), and since the auth step runs inside `install-gate-required` itself — a **required check** — that check fails. **Every PR on that repo is blocked, with no mechanism by which it could go green.** |
 | Repo is in the **trust policy** but does **not** have the variable | The action no-ops. Installs resolve from the public registry and fail on any private package. Nothing is blocked spuriously, and nothing is granted that was not already grantable. |
 
 The first row is the failure this whole payload exists to eliminate,

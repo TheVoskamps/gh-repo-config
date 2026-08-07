@@ -21,7 +21,12 @@ function fakeClient({ repos }) {
   };
 }
 
-const V = "0.2.0";
+// Fixture "current version", 9.9.9 by the same convention
+// test/sweep.test.js's V follows (see its definition for the full
+// rationale): never equal to the real CURRENT_VERSION that runSweep's
+// `version` parameter defaults to, so no assertion here can pass
+// merely because the fixture happens to match package.json.
+const V = "9.9.9";
 
 function openPr(number, repo) {
   return {
