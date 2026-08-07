@@ -8,3 +8,4 @@
 - [js-yaml is an undeclared transitive dep](project-js-yaml-is-an-undeclared-transitive-dep.md) — resolves via markdownlint-cli2 only; fine for scratch, never import from test/ or src/
 - [`cp` refuses to overwrite](project-cp-refuses-to-overwrite.md) — bare `cp` prompts and stalls the `&&` chain; restore a mutation check's backup with `/bin/cp -f`
 - [Fixtures never equal the real value](feedback-fixtures-never-equal-real-values.md) — a fixture that coincides with the value it stands in for is a defect to fix now, not to flag; pick one the real value can never reach
+- [A cited guarantee has to be read](feedback-a-cited-guarantee-must-be-read.md) — "safe because test Y pins Z" is a claim about Y's assertion, not its name; open it and run the breaking value through it
