@@ -5,6 +5,45 @@ import { readAssetText } from "../dist/index.js";
 
 const CTX = { org: "TheVoskamps", repo: "example", defaultBranch: "main" };
 
+/**
+ * The job ids of a workflow, in file order.
+ *
+ * Counting jobs by "keys indented two spaces" does NOT work: `on:`'s own
+ * keys sit at the same indent, so such a regex reports `push:` and
+ * `schedule:` as jobs. It has to be scoped to the top-level `jobs:`
+ * mapping first, which is what the slice below does — everything after
+ * the `jobs:` line up to the next column-0 key.
+ *
+ * Within that slice, only lines matching GitHub's own job-id syntax
+ * (start with a letter or `_`, then alphanumerics / `-` / `_`) count. The
+ * character class is load-bearing rather than cosmetic: a `#` comment is
+ * excluded by it, and `assets/codeql.yml`'s jobs block opens with a
+ * two-space-indented comment line that happens to END IN A COLON, so a
+ * looser pattern reports the comment as a job.
+ *
+ * Deliberately hand-rolled instead of parsed with `js-yaml`: js-yaml is
+ * present in `node_modules` only as a transitive dependency of
+ * `markdownlint-cli2` (`npm ls js-yaml` shows no other path), not as
+ * anything this repo declares, and `npm test` backs a required check. A
+ * markdownlint-cli2 bump that drops it, or that moves it to a major with
+ * a different export shape, would redden that check for a reason
+ * unrelated to the change under test. The shape is not hypothetical: the
+ * version currently hoisted there is ESM-with-named-exports-only, so even
+ * `import yaml from "js-yaml"` throws against it.
+ */
+const workflowJobIds = (content) => {
+  const lines = content.split("\n");
+  const start = lines.indexOf("jobs:");
+  assert.ok(start >= 0, "workflow has a top-level jobs: mapping");
+  const ids = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^\S/.test(line)) break; // next top-level key closes the mapping
+    const m = /^ {2}([A-Za-z_][A-Za-z0-9_-]*):[ \t]*(#.*)?$/.exec(line);
+    if (m) ids.push(m[1]);
+  }
+  return ids;
+};
+
 test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/config + gate/guard workflows + the codeartifact-auth action + scripts + community files", () => {
   const files = buildDesiredFiles(CTX);
   const paths = files.map((f) => f.path);
@@ -110,6 +149,84 @@ test("PR-automation workflows reference the AUTOMERGE secrets, and the REST-merg
   assert.match(rebase.content, /- name: REST-merge green Dependabot PRs/);
 });
 
+// Every fanned-out workflow's exact job set. Job count is a first-class
+// constraint on this payload: GitHub bills a whole minute per JOB, rounded
+// up, so a wrapper job doing three seconds of work costs a full minute
+// while a check NAME costs nothing. Issue #77 collapsed the shapes that
+// paid jobs for names, and this table is what stops a re-split.
+//
+// The expected lists are the POST-collapse shapes. Against `main` before
+// #77 the payload rendered 13 jobs across these six workflows; it now
+// renders 7. Per workflow, what changed:
+//   - dependency-install-gate: detect + gate + aggregator -> one job that
+//     is also the required check.
+//   - dependency-pinned-gate:  the same three -> one, likewise.
+//   - codeql: detect + matrixed analyze + aggregator -> one ubuntu job
+//     named `codeql-required` (the action takes a comma-separated language
+//     list) plus `analyze-swift`, which runs on whatever non-ubuntu runner
+//     the detect step resolved and so cannot fold into the ubuntu job.
+//     Two is the floor here, not a leftover.
+//   - auto-enable-automerge: lost `dependabot-rest-merge`, which fired on
+//     the same workflow_run event as auto-rebase-prs' sweep and so cost a
+//     second billable job for one logical sweep; it is now a step inside
+//     auto-rebase-prs' existing job.
+//   - no-back-merging-guard and auto-rebase-prs were already single-job
+//     and are unchanged; they are listed so the table covers the whole
+//     payload rather than only the workflows #77 edited.
+const EXPECTED_JOBS = {
+  ".github/workflows/dependency-install-gate.yml": ["install-gate-required"],
+  ".github/workflows/dependency-pinned-gate.yml": ["pinned-gate-required"],
+  ".github/workflows/no-back-merging-guard.yml": ["no-back-merging-guard"],
+  ".github/workflows/codeql.yml": ["codeql-required", "analyze-swift"],
+  ".github/workflows/auto-enable-automerge.yml": ["enable-automerge"],
+  ".github/workflows/auto-rebase-prs.yml": ["rebase"],
+};
+
+test("every fanned-out workflow renders exactly the jobs the collapse left it", () => {
+  const workflows = buildDesiredFiles(CTX).filter((f) =>
+    f.path.startsWith(".github/workflows/"),
+  );
+  // A new workflow must not be able to escape the job-count constraint by
+  // simply not appearing in the table above.
+  assert.deepEqual(
+    workflows.map((f) => f.path).sort(),
+    Object.keys(EXPECTED_JOBS).sort(),
+    "every rendered workflow has an entry in EXPECTED_JOBS",
+  );
+  for (const wf of workflows) {
+    assert.deepEqual(
+      workflowJobIds(wf.content),
+      EXPECTED_JOBS[wf.path],
+      `${wf.path} job set`,
+    );
+  }
+});
+
+test("workflowJobIds counts jobs, not same-indent trigger or comment keys", () => {
+  // Guards the helper itself against both ways an indent-only pattern
+  // misreads a key as a job: `on:`'s own keys share the job indent (the
+  // defect in the original "count two-space-indented keys" assertion this
+  // replaced), and a jobs-block comment line can end in a colon.
+  const sample = [
+    "on:",
+    "  push:",
+    "    branches: [main]",
+    "  schedule:",
+    "    - cron: 0 0 * * *",
+    "jobs:",
+    "  # A COMMENT THAT ENDS IN A COLON:",
+    "  real-job:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: true",
+    "  second_job: # trailing comment",
+    "    runs-on: ubuntu-latest",
+    "permissions:",
+    "  contents: read",
+  ].join("\n");
+  assert.deepEqual(workflowJobIds(sample), ["real-job", "second_job"]);
+});
+
 test("gate/guard workflows carry the per-repo default branch", () => {
   const files = buildDesiredFiles({ org: "O", repo: "r", defaultBranch: "trunk" });
   const workflows = files.filter((f) =>
@@ -196,8 +313,11 @@ test("the install gate grants id-token: write on its single job only", () => {
   // would extend it to any job added later.
   const at = (needle) => gate.content.indexOf(needle);
   const grantAt = gate.content.search(/^\s*id-token: write$/m);
-  assert.equal(gate.content.match(/^ {2}[a-z][a-z0-9-]*:$/gm)?.length, 1,
-    "exactly one job");
+  assert.deepEqual(
+    workflowJobIds(gate.content),
+    ["install-gate-required"],
+    "the grant's job is the workflow's only job",
+  );
   assert.ok(at("\n  install-gate-required:") < grantAt);
   assert.ok(grantAt < at("\n    steps:"), "grant is inside the job's permissions block");
 

@@ -358,9 +358,10 @@ jobs:
           git config user.email "__BOT_SLUG__@users.noreply.github.com"
 
       # Needed by the lockfile-regen pass below (`npm ci` / `npm install
-      # --package-lock-only`). Pinned to node 22 to match a typical
-      # dependency-install-gate npm job, so the regen replays the lockfile
-      # the same way the gate will after the force-push.
+      # --package-lock-only`). Pinned to node 22 to match the
+      # dependency-install-gate job's own `Set up Node`, so the regen
+      # replays the lockfile the same way the gate will after the
+      # force-push.
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -609,13 +610,14 @@ jobs:
           # For the `/rebase` slash command, scope the regen pass to the
           # single commenting PR (same scoping as the rebase pass); every
           # other trigger sweeps all open PRs. We enumerate the candidate
-          # PR(s) with the conclusion of their dependency-install-gate npm
-          # check run (the gate the lockfile desync fails). The regen pass
-          # runs ONLY on PRs whose npm check is FAILURE -- that is the
-          # "gate-red-from-lockfile-desync" trigger. The script itself
-          # re-confirms the desync (and that it is lockfile-ONLY) before
-          # changing anything, so the check-run filter is just a cheap
-          # pre-gate to avoid running `npm ci` on every PR every sweep.
+          # PR(s) with the conclusion of their dependency-install-gate
+          # aggregate check run (the gate the lockfile desync fails). The
+          # regen pass runs ONLY on PRs whose aggregate check is FAILURE
+          # -- that is the "gate-red-from-lockfile-desync" trigger. The
+          # script itself re-confirms the desync (and that it is
+          # lockfile-ONLY) before changing anything, so the check-run
+          # filter is just a cheap pre-gate to avoid running `npm ci` on
+          # every PR every sweep.
           #
           # NOTE: NO Dependabot-author exclusion and NO BEHIND/BLOCKED
           # filter here -- this path is exempt from both (a green-branch
@@ -677,10 +679,10 @@ jobs:
           fi
 
           # Keep PRs that are not draft, not do-not-merge, and whose
-          # dependency-install-gate npm CheckRun concluded FAILURE. The
-          # install-gate workflow name and the npm check name come from the
-          # rendered placeholders so the filter tracks the repo's actual
-          # gate.
+          # dependency-install-gate aggregate CheckRun concluded FAILURE.
+          # The install-gate workflow name and the aggregate check name
+          # come from the rendered placeholders so the filter tracks the
+          # repo's actual gate.
           mapfile -t CANDIDATES < <(echo "$CANDIDATES_RAW" | jq -r \
             --arg gate "$INSTALL_GATE_WORKFLOW" --arg check "$INSTALL_GATE_CHECK" '
             .[]
