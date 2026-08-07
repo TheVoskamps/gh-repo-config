@@ -6,10 +6,12 @@
  * `gh-repo-config-version` stamp is missing or behind the converger's
  * `CURRENT_VERSION`. That "behind" test is the only comparison this
  * module needs to answer, so it deliberately parses just the
- * `MAJOR.MINOR.PATCH` core and ignores pre-release/build metadata — a
- * release the fan-out stamps with is always a plain `X.Y.Z` tag (see the
- * release workflow's tag/version check in
- * `.github/workflows/release.yml`).
+ * `MAJOR.MINOR.PATCH` core and ignores pre-release/build metadata — the
+ * value the fan-out stamps with is `CURRENT_VERSION`, i.e. this
+ * package's own `package.json` version, which `test/version.test.js`
+ * pins to a plain `X.Y.Z` shape. (It need not correspond to any release
+ * tag: the version is bumped in every PR, while tags are pushed
+ * separately — see CLAUDE.md > Conventions.)
  */
 
 interface SemverCore {

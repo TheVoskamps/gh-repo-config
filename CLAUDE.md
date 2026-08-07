@@ -531,10 +531,14 @@ npm run lint:md
   a hand-added context on `protect-main` would be reverted as drift by
   `src/converge/ruleset.ts`.
 - `.github/workflows/release.yml` — publishes a tagged (`v*`) GitHub
-  Release with a build-provenance attestation. Bumping the release
-  version means editing `package.json`'s `version` and pushing a
-  matching `vX.Y.Z` tag; the workflow verifies the two match before
-  building. Release immutability itself has no REST/`gh` API surface —
+  Release with a build-provenance attestation. Cutting a release is
+  only the tag push: `package.json`'s `version` already moved in the
+  PR that changed the code (see Conventions), so a release means
+  pushing a `vX.Y.Z` tag matching whatever version `main` currently
+  carries; the workflow verifies the two match before building. The
+  sweep does not consume the tarball this produces — it builds from
+  `main`'s source tree — so a version bump takes effect on the next
+  sweep whether or not a tag ever follows. Release immutability itself has no REST/`gh` API surface —
   it is a one-time manual web-UI toggle (repo/org Settings > General >
   Releases), not something this workflow or any converger slice can
   enable programmatically; verify current state with
@@ -543,8 +547,8 @@ npm run lint:md
   sweep. Runs as a dedicated converger org GitHub App (org secrets
   `CONVERGER_APP_ID` / `CONVERGER_APP_PRIVATE_KEY`), distinct from the
   pr-automation App, since it needs Administration / Org administration
-  scope the pr-automation App must never hold. Requires
-  three org-level custom properties to be defined
+  scope the pr-automation App must never hold. Requires the
+  org-level custom properties to be defined
   (`gh-repo-config-mode`, `gh-repo-config-default`,
   `gh-repo-config-version`) — an operator-provisioning step, not
   something the workflow itself creates. Also passes
