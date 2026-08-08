@@ -365,6 +365,22 @@ test("rulesetSemanticDiff: a non-empty ref_name.exclude is drift", () => {
 // carry are ungoverned — never compared, never surfaced (issue #82)
 // ---------------------------------------------------------------------
 
+/** The rule types whose parameters the semantic diff compares at all. */
+const COMPARED_RULE_TYPES = [
+  "pull_request",
+  "required_status_checks",
+  "code_scanning",
+  "code_quality",
+];
+
+/**
+ * The one canonical parameter deliberately NOT compared by the
+ * parameter loop: `required_status_checks`'s own list, compared instead
+ * as a context-name set so the server-supplied `integration_id` inside
+ * each entry is ignored.
+ */
+const SKIPPED_PARAM = "required_status_checks.required_status_checks";
+
 test("rulesetSemanticDiff: a server-side param the asset does not model is not drift (the live dismissal_restriction case)", () => {
   const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
   const existing = existingFrom(
@@ -378,7 +394,7 @@ test("rulesetSemanticDiff: a server-side param the asset does not model is not d
 
 test("rulesetSemanticDiff: an unmodelled server-side param on any compared rule is not drift", () => {
   const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
-  for (const type of ["pull_request", "required_status_checks", "code_scanning", "code_quality"]) {
+  for (const type of COMPARED_RULE_TYPES) {
     const existing = existingFrom(withRuleParam(desired, type, "some_new_param", "x"));
     assert.deepEqual(diffChanged(desired, existing, "main"), [], type);
   }
@@ -393,6 +409,81 @@ test("rulesetSemanticDiff: an unmodelled server-side param alongside real drift 
   assert.deepEqual(diffChanged(desired, existing, "main"), [
     "pull_request.required_approving_review_count",
   ]);
+});
+
+// ---------------------------------------------------------------------
+// rulesetSemanticDiff: the parameter compare is a MECHANISM driven by
+// the canonical asset's own keys, not a hardcoded enumeration (issue
+// #82). A regression to hardcoded lists fails the second test below.
+// ---------------------------------------------------------------------
+
+/**
+ * Every `<type>.<key>` the canonical asset carries on a compared rule,
+ * minus the one deliberate skip — derived from the asset (via
+ * `buildDesiredRuleset`) rather than restated here, so a parameter
+ * added to the asset joins this set automatically.
+ */
+function canonicalComparedParams(desired) {
+  const params = [];
+  for (const type of COMPARED_RULE_TYPES) {
+    const rule = desired.rules.find((r) => r.type === type);
+    assert.ok(rule, `canonical asset carries the ${type} rule`);
+    for (const key of Object.keys(rule.parameters ?? {})) {
+      if (`${type}.${key}` !== SKIPPED_PARAM) {
+        params.push({ type, key });
+      }
+    }
+  }
+  return params;
+}
+
+test("rulesetSemanticDiff: every parameter the canonical asset carries is compared", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const params = canonicalComparedParams(desired);
+  assert.ok(params.length > 0, "the asset carries compared parameters");
+  // The skip is only meaningful while the asset actually carries it.
+  const rsc = desired.rules.find((r) => r.type === "required_status_checks");
+  assert.ok(
+    Object.keys(rsc.parameters).includes("required_status_checks"),
+    "the skipped parameter is one the asset really carries",
+  );
+  for (const { type, key } of params) {
+    // A value the canonical side can never hold: every canonical
+    // parameter is a boolean, a number, an array, or a short enum word.
+    const existing = existingFrom(withRuleParam(desired, type, key, "__not-the-canonical-value__"));
+    assert.deepEqual(diffChanged(desired, existing, "main"), [`${type}.${key}`], `${type}.${key}`);
+  }
+});
+
+test("rulesetSemanticDiff: a parameter newly added to any compared rule in the asset is compared with no code edit", () => {
+  const base = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  for (const type of COMPARED_RULE_TYPES) {
+    // Stands in for a key a future edit adds to
+    // assets/protect-main-ruleset.json — a name no hardcoded
+    // enumeration in the diff could possibly carry.
+    const desired = withRuleParam(base, type, "future_canonical_param", "canonical");
+    const existing = existingFrom(
+      withRuleParam(desired, type, "future_canonical_param", "server-side-drift"),
+    );
+    assert.deepEqual(
+      diffChanged(desired, existing, "main"),
+      [`${type}.future_canonical_param`],
+      type,
+    );
+  }
+});
+
+test("rulesetSemanticDiff: the skipped required_status_checks list is not compared directly (integration_id ignored)", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  const existing = existingFrom(
+    withRuleParam(
+      desired,
+      "required_status_checks",
+      "required_status_checks",
+      requiredContexts(desired).map((context) => ({ context, integration_id: 15368 })),
+    ),
+  );
+  assert.deepEqual(diffChanged(desired, existing, "main"), []);
 });
 
 // ---------------------------------------------------------------------

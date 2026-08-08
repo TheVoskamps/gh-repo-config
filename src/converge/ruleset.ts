@@ -235,6 +235,36 @@ function compareRuleParam(
 }
 
 /**
+ * Compare **every** parameter the canonical `desired` rule carries
+ * against the `existing` (server) rule, appending `<type>.<field>` to
+ * `changed` for each that differs.
+ *
+ * This is the single mechanism by which rule parameters are governed:
+ * the canonical asset's own key set *is* the compare set, so adding a
+ * parameter to a rule in `assets/protect-main-ruleset.json` puts it
+ * under comparison with no edit here. The server's keys are never
+ * iterated — a key the asset does not model can never be set by the
+ * canonical PUT, so reporting it would churn forever with no way to
+ * converge.
+ *
+ * `skipKeys` names canonical keys compared elsewhere under different
+ * semantics; there is exactly one, and its caller documents why.
+ */
+function compareRuleParams(
+  changed: string[],
+  desired: RulesetRule,
+  existing: RulesetRule,
+  skipKeys: readonly string[] = [],
+): void {
+  for (const field of Object.keys(desired.parameters ?? {})) {
+    if (skipKeys.includes(field)) {
+      continue;
+    }
+    compareRuleParam(changed, desired, existing, field);
+  }
+}
+
+/**
  * Whether the existing `ref_name.include` is already converged for the
  * given default branch. Converged when it contains the symbolic
  * `~DEFAULT_BRANCH` or the concrete `refs/heads/<default>` (a superset is
@@ -274,15 +304,15 @@ export interface RulesetSemanticDiffResult {
  * - `ref_name.exclude`: compared directly against the canonical value
  *   (`[]`) — any non-empty exclude is drift.
  * - required checks: the `context` set compared by name only (ignore
- *   `integration_id`); the non-list `required_status_checks` parameters
- *   (`strict_required_status_checks_policy`, `do_not_enforce_on_create`)
- *   are compared directly against the canonical value.
- * - `pull_request` rule parameters: every field compared directly
- *   against the canonical value.
- * - `code_scanning` rule parameters: the `code_scanning_tools` list
- *   compared directly against the canonical value (exact compare, no
+ *   `integration_id`); every other `required_status_checks` parameter
+ *   the canonical asset carries is compared directly against the
+ *   canonical value.
+ * - `pull_request` rule parameters: every canonical field compared
+ *   directly against the canonical value.
+ * - `code_scanning` rule parameters: every canonical field compared
+ *   directly against the canonical value (exact compare, no
  *   union/preservation of extra tools).
- * - `code_quality` rule parameters (`severity`): compared only when
+ * - `code_quality` rule parameters: compared only when
  *   both the desired and existing bodies carry the rule at all — a
  *   `code_quality` rule absent on the server (e.g. after a prior
  *   422-retry drop) is not itself drift, so the existing
@@ -296,23 +326,23 @@ export interface RulesetSemanticDiffResult {
  *   server is drift, and the canonical PUT strips it.
  * - enforcement compared directly.
  *
- * **Only what the asset carries.** Every rule-parameter compare is
- * driven by the *canonical* side; the server's keys are never
- * iterated. `pull_request` iterates the desired rule's own parameter
- * keys, so a key added to that rule in the asset is compared without
- * further edits here; the remaining compared rules
- * (`required_status_checks`, `code_scanning`, `code_quality`) name
- * their parameters explicitly below, which today covers every key the
- * asset carries for them — adding a canonical key to one of those
- * rules means extending that enumeration too. A parameter key the
- * canonical asset does
- * not model — e.g. a GitHub-supplied `pull_request.dismissal_restriction`
- * default — is, by the converger's own contract, deliberately
- * ungoverned: the canonical PUT could never set a key it has no concept
- * of, so such a key is neither drift nor a warning. GitHub adds rule
- * parameters over time, so surfacing them would produce a channel with
- * content on every repo on every tick, forever, and nothing an operator
- * could act on from a log line.
+ * **Only what the asset carries.** Every compared rule runs the same
+ * mechanism — {@link compareRuleParams} iterates the *canonical* rule's
+ * own parameter keys — so a parameter added to any rule in
+ * `assets/protect-main-ruleset.json` comes under comparison with no
+ * edit here. The server's keys are never iterated. There is exactly one
+ * skip: `required_status_checks`'s own `required_status_checks` list,
+ * compared above as a context-name set so the server-supplied
+ * `integration_id` inside each entry is ignored.
+ *
+ * A parameter key the canonical asset does not model — e.g. a
+ * GitHub-supplied `pull_request.dismissal_restriction` default — is,
+ * by the converger's own contract, deliberately ungoverned: the
+ * canonical PUT could never set a key it has no concept of, so such a
+ * key is neither drift nor a warning. GitHub adds rule parameters over
+ * time, so surfacing them would produce a channel with content on every
+ * repo on every tick, forever, and nothing an operator could act on
+ * from a log line.
  *
  * @param desired the desired body (bypass actors already unioned in).
  * @param existing the ruleset read from the server.
@@ -362,25 +392,23 @@ export function rulesetSemanticDiff(
   const desiredPr = findRule(desired, "pull_request");
   const existingPr = findRule(existing, "pull_request");
   if (desiredPr && existingPr) {
-    for (const field of Object.keys(desiredPr.parameters ?? {})) {
-      compareRuleParam(changed, desiredPr, existingPr, field);
-    }
+    compareRuleParams(changed, desiredPr, existingPr);
   }
 
   const desiredRsc = findRule(desired, "required_status_checks");
   const existingRsc = findRule(existing, "required_status_checks");
   if (desiredRsc && existingRsc) {
-    compareRuleParam(changed, desiredRsc, existingRsc, "strict_required_status_checks_policy");
-    compareRuleParam(changed, desiredRsc, existingRsc, "do_not_enforce_on_create");
-    // The `required_status_checks` list parameter itself is deliberately
-    // not compared here — it is compared as a context-name set above,
-    // ignoring `integration_id`.
+    // The one skip: the `required_status_checks` list parameter is
+    // compared above as a context-name set, ignoring the server-supplied
+    // `integration_id` inside each entry. A direct compare here would
+    // report that response-only field as permanent drift.
+    compareRuleParams(changed, desiredRsc, existingRsc, ["required_status_checks"]);
   }
 
   const desiredCs = findRule(desired, "code_scanning");
   const existingCs = findRule(existing, "code_scanning");
   if (desiredCs && existingCs) {
-    compareRuleParam(changed, desiredCs, existingCs, "code_scanning_tools");
+    compareRuleParams(changed, desiredCs, existingCs);
   }
 
   // code_quality: compared only when BOTH sides carry the rule. Absent
@@ -389,7 +417,7 @@ export function rulesetSemanticDiff(
   const desiredCq = findRule(desired, "code_quality");
   const existingCq = findRule(existing, "code_quality");
   if (desiredCq && existingCq) {
-    compareRuleParam(changed, desiredCq, existingCq, "severity");
+    compareRuleParams(changed, desiredCq, existingCq);
   }
 
   return { changed };

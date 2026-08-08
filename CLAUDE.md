@@ -196,21 +196,22 @@ npm run lint:md
       by set-containment (the one deliberate preservation surface —
       an operator's extra bypass actors are never drift), and every
       other field — including rule parameters (`pull_request`,
-      `required_status_checks`'s non-list parameters, `code_scanning`'s
-      tool list, `code_quality`'s severity when both sides carry the
+      `required_status_checks`'s non-list parameters, `code_scanning`,
+      and `code_quality` when both sides carry the
       rule) and `ref_name.exclude` — compared directly against the
       canonical asset; any difference is drift corrected by the PUT.
       The rule-parameter compare is one-directional over the canonical
-      key set, and the server's keys are never iterated. The two
-      compare shapes differ: `pull_request` iterates the desired rule's
-      own parameter keys, so a key added to that rule in the asset is
-      compared automatically; the remaining compared rules name their
-      parameters explicitly (`required_status_checks`'s
-      `strict_required_status_checks_policy` and
-      `do_not_enforce_on_create`, `code_scanning_tools`, `severity`),
-      which today is every key the asset carries for them — adding a
-      canonical key to one of those rules means adding it to that
-      enumeration too, or it silently goes uncompared. A
+      key set, and the server's keys are never iterated. Every compared
+      rule runs the SAME mechanism — `compareRuleParams` iterates the
+      canonical rule's own parameter keys — so a parameter added to any
+      rule in `assets/protect-main-ruleset.json` comes under comparison
+      with no code edit. Do not reintroduce a hardcoded parameter-name
+      list for any rule; a key the enumeration missed would silently go
+      uncompared, and `test/ruleset.test.js` derives the expected key
+      set from the asset to pin that. There is exactly ONE skip:
+      `required_status_checks`'s own `required_status_checks` list,
+      compared as a context-name set instead so the server-supplied
+      `integration_id` inside each entry is ignored. A
       parameter key the canonical asset does not model at all — a
       GitHub-supplied default such as
       `pull_request.dismissal_restriction` — is by that contract
