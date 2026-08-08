@@ -365,7 +365,12 @@ test("rulesetSemanticDiff: a non-empty ref_name.exclude is drift", () => {
 // carry are ungoverned — never compared, never surfaced (issue #82)
 // ---------------------------------------------------------------------
 
-/** The rule types whose parameters the semantic diff compares at all. */
+/**
+ * The rule types the canonical asset carries parameters on today. The
+ * diff itself hardcodes no rule list — it loops over whatever rules the
+ * canonical body carries — so this is a fixture for the per-rule cases
+ * below, not a mirror of an enumeration in `ruleset.ts`.
+ */
 const COMPARED_RULE_TYPES = [
   "pull_request",
   "required_status_checks",
@@ -471,6 +476,45 @@ test("rulesetSemanticDiff: a parameter newly added to any compared rule in the a
       type,
     );
   }
+});
+
+/** Append a whole rule to a body's `rules` array. */
+function withExtraRule(body, rule) {
+  return { ...body, rules: [...body.rules, rule] };
+}
+
+test("rulesetSemanticDiff: a RULE newly added to the asset has its parameters compared with no code edit", () => {
+  const base = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  // Stands in for a rule a future edit adds to
+  // assets/protect-main-ruleset.json — a type no hardcoded
+  // rule-name enumeration in the diff could possibly carry.
+  const desired = withExtraRule(base, {
+    type: "future_canonical_rule",
+    parameters: { some_setting: "canonical" },
+  });
+  const existing = existingFrom(
+    withRuleParam(desired, "future_canonical_rule", "some_setting", "server-side-drift"),
+  );
+  // Both sides carry the rule type, so the rule-types set compare is
+  // silent — only the parameter compare can catch this.
+  assert.deepEqual(diffChanged(desired, existing, "main"), [
+    "future_canonical_rule.some_setting",
+  ]);
+});
+
+test("rulesetSemanticDiff: a parameterless canonical rule (deletion, non_fast_forward) is harmless under the compare", () => {
+  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
+  for (const type of ["deletion", "non_fast_forward"]) {
+    assert.ok(
+      desired.rules.some((r) => r.type === type && r.parameters === undefined),
+      `the canonical asset carries ${type} with no parameters`,
+    );
+  }
+  // A server copy that carries the same parameterless rules — plus a
+  // server-side parameter the asset does not model on one of them — is
+  // still converged.
+  const existing = existingFrom(withRuleParam(desired, "deletion", "some_new_param", true));
+  assert.deepEqual(diffChanged(desired, existing, "main"), []);
 });
 
 test("rulesetSemanticDiff: the skipped required_status_checks list is not compared directly (integration_id ignored)", () => {

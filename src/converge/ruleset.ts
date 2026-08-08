@@ -248,7 +248,8 @@ function compareRuleParam(
  * converge.
  *
  * `skipKeys` names canonical keys compared elsewhere under different
- * semantics; there is exactly one, and its caller documents why.
+ * semantics — the caller passes this rule type's entry from
+ * {@link PARAM_COMPARE_SKIPS}, which documents the single case.
  */
 function compareRuleParams(
   changed: string[],
@@ -263,6 +264,22 @@ function compareRuleParams(
     compareRuleParam(changed, desired, existing, field);
   }
 }
+
+/**
+ * Canonical parameter keys that are compared elsewhere under different
+ * semantics, keyed by the rule type that carries them. Keyed by rule
+ * type (rather than a flat key list) so the parameter compare can stay
+ * one uniform loop over whatever rules the canonical asset carries.
+ *
+ * There is exactly one entry: `required_status_checks`'s own
+ * `required_status_checks` list, compared as a context-name set by
+ * {@link requiredContexts} so the server-supplied `integration_id`
+ * inside each entry is ignored. A direct compare would report that
+ * response-only field as permanent drift.
+ */
+const PARAM_COMPARE_SKIPS: Readonly<Record<string, readonly string[]>> = {
+  required_status_checks: ["required_status_checks"],
+};
 
 /**
  * Whether the existing `ref_name.include` is already converged for the
@@ -304,18 +321,13 @@ export interface RulesetSemanticDiffResult {
  * - `ref_name.exclude`: compared directly against the canonical value
  *   (`[]`) — any non-empty exclude is drift.
  * - required checks: the `context` set compared by name only (ignore
- *   `integration_id`); every other `required_status_checks` parameter
- *   the canonical asset carries is compared directly against the
- *   canonical value.
- * - `pull_request` rule parameters: every canonical field compared
- *   directly against the canonical value.
- * - `code_scanning` rule parameters: every canonical field compared
- *   directly against the canonical value (exact compare, no
- *   union/preservation of extra tools).
- * - `code_quality` rule parameters: compared only when
- *   both the desired and existing bodies carry the rule at all — a
- *   `code_quality` rule absent on the server (e.g. after a prior
- *   422-retry drop) is not itself drift, so the existing
+ *   `integration_id`).
+ * - rule parameters: for every rule the canonical body carries, every
+ *   parameter key that rule carries is compared directly against the
+ *   canonical value (exact compare — no union or preservation of e.g.
+ *   extra `code_scanning` tools). A rule the *server* lacks is skipped
+ *   entirely, so a `code_quality` rule absent on the server (e.g. after
+ *   a prior 422-retry drop) yields no parameter diff and the existing
  *   `codeQualitySkipped` retry path is unaffected.
  * - bypass actors: converged when the existing set **contains** every
  *   desired actor (set-containment on the `(actor_id/app_id, actor_type,
@@ -326,14 +338,17 @@ export interface RulesetSemanticDiffResult {
  *   server is drift, and the canonical PUT strips it.
  * - enforcement compared directly.
  *
- * **Only what the asset carries.** Every compared rule runs the same
- * mechanism — {@link compareRuleParams} iterates the *canonical* rule's
- * own parameter keys — so a parameter added to any rule in
- * `assets/protect-main-ruleset.json` comes under comparison with no
- * edit here. The server's keys are never iterated. There is exactly one
- * skip: `required_status_checks`'s own `required_status_checks` list,
- * compared above as a context-name set so the server-supplied
- * `integration_id` inside each entry is ignored.
+ * **Only what the asset carries.** The parameter compare is one
+ * mechanism driven end-to-end by the canonical body: one loop over
+ * *every rule* `desired` carries, each running
+ * {@link compareRuleParams} over that rule's *own* parameter keys. So
+ * both a parameter added to an existing rule and a whole rule added to
+ * `assets/protect-main-ruleset.json` come under comparison with no edit
+ * here. Neither the server's rules nor its parameter keys are ever
+ * iterated. The one subtraction is {@link PARAM_COMPARE_SKIPS}, whose
+ * single entry is `required_status_checks`'s own
+ * `required_status_checks` list, compared above as a context-name set
+ * so the server-supplied `integration_id` inside each entry is ignored.
  *
  * A parameter key the canonical asset does not model — e.g. a
  * GitHub-supplied `pull_request.dismissal_restriction` default — is,
@@ -384,40 +399,27 @@ export function rulesetSemanticDiff(
     changed.push("required_status_checks");
   }
 
-  // Rule parameters, checked against the canonical shape. Each compare
-  // is skipped when either side lacks the rule (the rule-types set
-  // compare above already reports that as `rules` drift), except
-  // code_quality, whose absence on the server is a known, tolerated
-  // state (the 422-retry-without path) rather than drift.
-  const desiredPr = findRule(desired, "pull_request");
-  const existingPr = findRule(existing, "pull_request");
-  if (desiredPr && existingPr) {
-    compareRuleParams(changed, desiredPr, existingPr);
-  }
-
-  const desiredRsc = findRule(desired, "required_status_checks");
-  const existingRsc = findRule(existing, "required_status_checks");
-  if (desiredRsc && existingRsc) {
-    // The one skip: the `required_status_checks` list parameter is
-    // compared above as a context-name set, ignoring the server-supplied
-    // `integration_id` inside each entry. A direct compare here would
-    // report that response-only field as permanent drift.
-    compareRuleParams(changed, desiredRsc, existingRsc, ["required_status_checks"]);
-  }
-
-  const desiredCs = findRule(desired, "code_scanning");
-  const existingCs = findRule(existing, "code_scanning");
-  if (desiredCs && existingCs) {
-    compareRuleParams(changed, desiredCs, existingCs);
-  }
-
-  // code_quality: compared only when BOTH sides carry the rule. Absent
-  // on the server alone (e.g. after a prior 422-retry drop) is not
-  // drift — it must not trigger a write that would just 422 again.
-  const desiredCq = findRule(desired, "code_quality");
-  const existingCq = findRule(existing, "code_quality");
-  if (desiredCq && existingCq) {
-    compareRuleParams(changed, desiredCq, existingCq);
+  // Rule parameters, checked against the canonical shape. The rules
+  // themselves come from the canonical body — adding a rule to
+  // `assets/protect-main-ruleset.json` puts its parameters under
+  // comparison with no edit here — and a rule the *server* lacks is
+  // skipped entirely. That skip is what keeps a `code_quality` rule
+  // dropped by a prior 422 retry from producing a parameter diff of its
+  // own; the missing rule is already reported by the rule-types set
+  // compare above as `rules` drift. A canonical rule carrying no
+  // parameters at all (`deletion`, `non_fast_forward`) iterates an
+  // empty key set and is harmless.
+  for (const desiredRule of desired.rules) {
+    const existingRule = findRule(existing, desiredRule.type);
+    if (!existingRule) {
+      continue;
+    }
+    compareRuleParams(
+      changed,
+      desiredRule,
+      existingRule,
+      PARAM_COMPARE_SKIPS[desiredRule.type] ?? [],
+    );
   }
 
   return { changed };

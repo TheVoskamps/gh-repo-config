@@ -195,20 +195,27 @@ npm run lint:md
       compared by name only (ignoring `integration_id`), bypass actors
       by set-containment (the one deliberate preservation surface —
       an operator's extra bypass actors are never drift), and every
-      other field — including rule parameters (`pull_request`,
-      `required_status_checks`'s non-list parameters, `code_scanning`,
-      and `code_quality` when both sides carry the
-      rule) and `ref_name.exclude` — compared directly against the
+      other field — including rule parameters and `ref_name.exclude` —
+      compared directly against the
       canonical asset; any difference is drift corrected by the PUT.
       The rule-parameter compare is one-directional over the canonical
-      key set, and the server's keys are never iterated. Every compared
-      rule runs the SAME mechanism — `compareRuleParams` iterates the
-      canonical rule's own parameter keys — so a parameter added to any
-      rule in `assets/protect-main-ruleset.json` comes under comparison
-      with no code edit. Do not reintroduce a hardcoded parameter-name
-      list for any rule; a key the enumeration missed would silently go
-      uncompared, and `test/ruleset.test.js` derives the expected key
-      set from the asset to pin that. There is exactly ONE skip:
+      body: ONE loop over every rule that body carries, each running
+      `compareRuleParams` over that rule's own parameter keys. Neither
+      the server's rules nor its parameter keys are ever iterated, so
+      both a parameter added to an existing rule and a whole rule added
+      to `assets/protect-main-ruleset.json` come under comparison with
+      no code edit. Do not reintroduce a hardcoded rule-name or
+      parameter-name enumeration; anything the enumeration missed would
+      silently go uncompared, and `test/ruleset.test.js` derives its
+      expectations from the asset — plus pins the added-rule case
+      directly — to catch that. A rule the SERVER lacks is skipped
+      entirely (the rule-types set compare already reports it as
+      `rules` drift), which is what keeps a `code_quality` rule dropped
+      by a prior 422 retry from producing a parameter diff of its own;
+      a canonical rule with no parameters at all (`deletion`,
+      `non_fast_forward`) iterates an empty key set and is harmless.
+      There is exactly ONE parameter skip, keyed by rule type in
+      `PARAM_COMPARE_SKIPS`:
       `required_status_checks`'s own `required_status_checks` list,
       compared as a context-name set instead so the server-supplied
       `integration_id` inside each entry is ignored. A
