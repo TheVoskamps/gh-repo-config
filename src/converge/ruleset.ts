@@ -297,8 +297,15 @@ export interface RulesetSemanticDiffResult {
  * - enforcement compared directly.
  *
  * **Only what the asset carries.** Every rule-parameter compare is
- * driven by the *canonical* rule's own parameter keys; the server's
- * keys are never iterated. A parameter key the canonical asset does
+ * driven by the *canonical* side; the server's keys are never
+ * iterated. `pull_request` iterates the desired rule's own parameter
+ * keys, so a key added to that rule in the asset is compared without
+ * further edits here; the remaining compared rules
+ * (`required_status_checks`, `code_scanning`, `code_quality`) name
+ * their parameters explicitly below, which today covers every key the
+ * asset carries for them — adding a canonical key to one of those
+ * rules means extending that enumeration too. A parameter key the
+ * canonical asset does
  * not model — e.g. a GitHub-supplied `pull_request.dismissal_restriction`
  * default — is, by the converger's own contract, deliberately
  * ungoverned: the canonical PUT could never set a key it has no concept

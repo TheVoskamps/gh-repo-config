@@ -201,8 +201,16 @@ npm run lint:md
       rule) and `ref_name.exclude` — compared directly against the
       canonical asset; any difference is drift corrected by the PUT.
       The rule-parameter compare is one-directional over the canonical
-      key set (it iterates the desired rule's own parameter keys); the
-      server's keys are never iterated, in either direction. A
+      key set, and the server's keys are never iterated. The two
+      compare shapes differ: `pull_request` iterates the desired rule's
+      own parameter keys, so a key added to that rule in the asset is
+      compared automatically; the remaining compared rules name their
+      parameters explicitly (`required_status_checks`'s
+      `strict_required_status_checks_policy` and
+      `do_not_enforce_on_create`, `code_scanning_tools`, `severity`),
+      which today is every key the asset carries for them — adding a
+      canonical key to one of those rules means adding it to that
+      enumeration too, or it silently goes uncompared. A
       parameter key the canonical asset does not model at all — a
       GitHub-supplied default such as
       `pull_request.dismissal_restriction` — is by that contract
