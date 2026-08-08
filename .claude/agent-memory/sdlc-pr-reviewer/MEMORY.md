@@ -11,3 +11,4 @@
 - [Renamed constant falsifies distant prose](reference_renamed_constant_falsifies_distant_prose.md) — a rename that changes MEANING falsifies comments carrying neither name; grep `origin/main:<file>` for the OLD semantic word.
 - [Verify a test actually bites](reference_verify_a_test_actually_bites.md) — replay against `git archive origin/main`; cross-check hand-rolled helpers against a real parser; inject at the runtime source (often `package.json`, not `dist/`).
 - [PR-body deferrals go stale](reference_pr_body_deferrals_go_stale.md) — re-read `stateReason` on deferred-to issues every round, and re-read the body itself: the cleanup the brief says landed usually only half-landed.
+- [HTTPS fetch when SSH blocked](reference_https_fetch_when_ssh_blocked.md) — SSH timeout to github.com is not a credential stop; `git fetch https://github.com/<nwo> refs/pull/N/head:pr-N-review` with a literal URL works via gh's helper.
