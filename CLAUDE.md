@@ -195,21 +195,41 @@ npm run lint:md
       compared by name only (ignoring `integration_id`), bypass actors
       by set-containment (the one deliberate preservation surface —
       an operator's extra bypass actors are never drift), and every
-      other field — including rule parameters (`pull_request`,
-      `required_status_checks`'s non-list parameters, `code_scanning`'s
-      tool list, `code_quality`'s severity when both sides carry the
-      rule) and `ref_name.exclude` — compared directly against the
+      other field — including rule parameters and `ref_name.exclude` —
+      compared directly against the
       canonical asset; any difference is drift corrected by the PUT.
       The rule-parameter compare is one-directional over the canonical
-      key set (iterates the desired rule's own parameter keys), plus a
-      separate detect-and-surface pass over the *existing* rule's keys:
-      a server-side parameter key the canonical asset doesn't carry at
-      all (e.g. a future GitHub-added default) is reported in
-      `RulesetConvergeResult.unknownParams` — an operator action cue to
-      update the asset and bump the converger's version — but is never
-      itself drift, since the canonical PUT could never set a key it
-      doesn't model; treating it as drift would just churn every tick
-      with no way to converge.
+      body: ONE loop over every rule that body carries, each running
+      `compareRuleParams` over that rule's own parameter keys. Neither
+      the server's rules nor its parameter keys are ever iterated, so
+      both a parameter added to an existing rule and a whole rule added
+      to `assets/protect-main-ruleset.json` come under comparison with
+      no code edit. Do not reintroduce a hardcoded rule-name or
+      parameter-name enumeration; anything the enumeration missed would
+      silently go uncompared, and `test/ruleset.test.js` derives its
+      expectations from the asset — plus pins the added-rule case
+      directly — to catch that. A rule the SERVER lacks is skipped
+      entirely (the rule-types set compare already reports it as
+      `rules` drift), which is what keeps a `code_quality` rule dropped
+      by a prior 422 retry from producing a parameter diff of its own;
+      a canonical rule with no parameters at all (`deletion`,
+      `non_fast_forward`) iterates an empty key set and is harmless.
+      There is exactly ONE parameter skip, keyed by rule type in
+      `PARAM_COMPARE_SKIPS`:
+      `required_status_checks`'s own `required_status_checks` list,
+      compared as a context-name set instead so the server-supplied
+      `integration_id` inside each entry is ignored. A
+      parameter key the canonical asset does not model at all — a
+      GitHub-supplied default such as
+      `pull_request.dismissal_restriction` — is by that contract
+      deliberately ungoverned: it is neither drift (the canonical PUT
+      could never set a key it has no concept of, so treating it as
+      drift would churn every tick with no way to converge) nor a
+      surfaced warning (issue #82 removed the warning channel that used
+      to report such keys — GitHub adds parameters over time, so it
+      fired on every repo on every tick and carried nothing an operator
+      could act on). Do not reintroduce a pass over the existing rule's
+      keys, value-aware or otherwise.
   - `src/sweep.ts` — `runSweep` / `runSweepFromEnv`, the sweep's
     orchestration. `runSweep`'s `converge` (files), `convergeGhas`
     (settings), and `convergeDefaultSetup` steps all stay

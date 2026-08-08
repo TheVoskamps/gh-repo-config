@@ -57,20 +57,6 @@ export interface RulesetConvergeResult {
   readonly uninstalledApps?: readonly string[];
   /** Set when the `code_quality` rule was dropped after a 422. */
   readonly codeQualitySkipped?: boolean;
-  /**
-   * Parameter keys present on the *existing* (server) rule but absent
-   * from the canonical asset's corresponding rule — e.g.
-   * `"pull_request.some_new_param"`. Never drift (never appears in
-   * `changedFields`, never triggers a write, never affects the
-   * outcome): the canonical asset doesn't carry the key, so a PUT can't
-   * set it, and treating it as drift would just churn every tick. This
-   * is a surfaced warning for an operator to notice that GitHub added a
-   * rule parameter the canonical asset (and this converger's release)
-   * doesn't yet know about, so the asset can be updated and the
-   * converger's version bumped. Present whenever detected, on any
-   * outcome (including `unchanged`).
-   */
-  readonly unknownParams?: readonly string[];
   /** Human-readable notes (e.g. org-governed rationale, deleted repo copy). */
   readonly reason?: string;
 }
@@ -249,42 +235,51 @@ function compareRuleParam(
 }
 
 /**
- * Detect-and-surface (never drift): parameter keys present on the
- * *existing* (server) rule that the canonical `desired` rule does not
- * carry at all, appended to `unknown` as `<type>.<key>`.
+ * Compare **every** parameter the canonical `desired` rule carries
+ * against the `existing` (server) rule, appending `<type>.<field>` to
+ * `changed` for each that differs.
  *
- * This is deliberately **not** folded into {@link compareRuleParam} or
- * `changedFields` — an unknown key can never be corrected by the
- * canonical PUT (the canonical asset doesn't know the key, so it can't
- * set it), so treating it as drift would report the same "difference"
- * forever without the corrective write ever being able to resolve it.
- * Instead it's a signal that GitHub added a rule parameter the
- * canonical asset (and this converger's release) doesn't yet model —
- * an operator action cue to update the asset and bump the converger's
- * version, not a per-tick convergence failure.
+ * This is the single mechanism by which rule parameters are governed:
+ * the canonical asset's own key set *is* the compare set, so adding a
+ * parameter to a rule in `assets/protect-main-ruleset.json` puts it
+ * under comparison with no edit here. The server's keys are never
+ * iterated — a key the asset does not model can never be set by the
+ * canonical PUT, so reporting it would churn forever with no way to
+ * converge.
  *
- * `excludeKeys` lets a caller exclude keys that are compared elsewhere
- * under different semantics (e.g. `required_status_checks`'s list
- * value, which is compared as a context-name set, not via
- * {@link compareRuleParam}). Response-only noise nested *inside* a
- * list entry (e.g. `integration_id` inside each
- * `required_status_checks` context entry) never surfaces here — this
- * function only scans top-level parameter keys, and `integration_id`
- * is never a top-level key.
+ * `skipKeys` names canonical keys compared elsewhere under different
+ * semantics — the caller passes this rule type's entry from
+ * {@link PARAM_COMPARE_SKIPS}, which documents the single case.
  */
-function unknownRuleParamKeys(
-  unknown: string[],
+function compareRuleParams(
+  changed: string[],
   desired: RulesetRule,
   existing: RulesetRule,
-  excludeKeys: readonly string[] = [],
+  skipKeys: readonly string[] = [],
 ): void {
-  const desiredKeys = new Set(Object.keys(desired.parameters ?? {}));
-  for (const key of Object.keys(existing.parameters ?? {})) {
-    if (!desiredKeys.has(key) && !excludeKeys.includes(key)) {
-      unknown.push(`${desired.type}.${key}`);
+  for (const field of Object.keys(desired.parameters ?? {})) {
+    if (skipKeys.includes(field)) {
+      continue;
     }
+    compareRuleParam(changed, desired, existing, field);
   }
 }
+
+/**
+ * Canonical parameter keys that are compared elsewhere under different
+ * semantics, keyed by the rule type that carries them. Keyed by rule
+ * type (rather than a flat key list) so the parameter compare can stay
+ * one uniform loop over whatever rules the canonical asset carries.
+ *
+ * There is exactly one entry: `required_status_checks`'s own
+ * `required_status_checks` list, compared as a context-name set by
+ * {@link requiredContexts} so the server-supplied `integration_id`
+ * inside each entry is ignored. A direct compare would report that
+ * response-only field as permanent drift.
+ */
+const PARAM_COMPARE_SKIPS: Readonly<Record<string, readonly string[]>> = {
+  required_status_checks: ["required_status_checks"],
+};
 
 /**
  * Whether the existing `ref_name.include` is already converged for the
@@ -298,28 +293,15 @@ function refNameConverged(existing: readonly string[], defaultBranch: string): b
   return existing.includes(DEFAULT_BRANCH_SYMBOLIC) || existing.includes(concrete);
 }
 
-/**
- * Result of {@link rulesetSemanticDiff}: the drift to correct, plus any
- * unknown server-side parameter keys surfaced (never drift — see
- * {@link RulesetSemanticDiffResult.unknownParams}).
- */
+/** Result of {@link rulesetSemanticDiff}: the drift to correct. */
 export interface RulesetSemanticDiffResult {
   /** Field names that differ after normalization — drives the PUT. */
   readonly changed: string[];
-  /**
-   * Existing (server) rule-parameter keys the canonical asset's
-   * corresponding rule does not carry at all. Detect-and-surface, not
-   * drift: never included in `changed`, never triggers a write on its
-   * own, and never affects the create/update/unchanged outcome. See
-   * {@link unknownRuleParamKeys}.
-   */
-  readonly unknownParams: string[];
 }
 
 /**
  * Semantic diff of the desired ruleset against an existing one — the
- * field names that differ after normalization (empty when converged),
- * plus any unknown server-side parameter keys surfaced alongside.
+ * field names that differ after normalization (empty when converged).
  *
  * **Posture: canonical-authoritative.** The converger's purpose is to
  * guarantee the *identical* canonical ruleset (as carried in
@@ -339,18 +321,13 @@ export interface RulesetSemanticDiffResult {
  * - `ref_name.exclude`: compared directly against the canonical value
  *   (`[]`) — any non-empty exclude is drift.
  * - required checks: the `context` set compared by name only (ignore
- *   `integration_id`); the non-list `required_status_checks` parameters
- *   (`strict_required_status_checks_policy`, `do_not_enforce_on_create`)
- *   are compared directly against the canonical value.
- * - `pull_request` rule parameters: every field compared directly
- *   against the canonical value.
- * - `code_scanning` rule parameters: the `code_scanning_tools` list
- *   compared directly against the canonical value (exact compare, no
- *   union/preservation of extra tools).
- * - `code_quality` rule parameters (`severity`): compared only when
- *   both the desired and existing bodies carry the rule at all — a
- *   `code_quality` rule absent on the server (e.g. after a prior
- *   422-retry drop) is not itself drift, so the existing
+ *   `integration_id`).
+ * - rule parameters: for every rule the canonical body carries, every
+ *   parameter key that rule carries is compared directly against the
+ *   canonical value (exact compare — no union or preservation of e.g.
+ *   extra `code_scanning` tools). A rule the *server* lacks is skipped
+ *   entirely, so a `code_quality` rule absent on the server (e.g. after
+ *   a prior 422-retry drop) yields no parameter diff and the existing
  *   `codeQualitySkipped` retry path is unaffected.
  * - bypass actors: converged when the existing set **contains** every
  *   desired actor (set-containment on the `(actor_id/app_id, actor_type,
@@ -361,21 +338,26 @@ export interface RulesetSemanticDiffResult {
  *   server is drift, and the canonical PUT strips it.
  * - enforcement compared directly.
  *
- * **Unknown-parameter surfacing (detect, don't churn).** Alongside the
- * drift compare above, this also scans the `pull_request`,
- * `required_status_checks`, `code_scanning`, and `code_quality` rules
- * (whichever the two-sided compare already covers) for parameter keys
- * present on the *existing* server rule that the canonical asset's
- * corresponding rule doesn't carry — e.g. a future GitHub-added
- * `pull_request` sub-field with a server default. A naive symmetric
- * strict compare would report such a key as drift every tick forever:
- * the canonical asset can't carry a key it doesn't know about, so the
- * corrective PUT can never set it, and the "difference" never
- * resolves. Instead an unknown key is reported via
- * {@link RulesetSemanticDiffResult.unknownParams} — a warning for an
- * operator to update the canonical asset and bump the converger's
- * version — and deliberately excluded from `changed` so it can never
- * drive a write or affect the outcome. See {@link unknownRuleParamKeys}.
+ * **Only what the asset carries.** The parameter compare is one
+ * mechanism driven end-to-end by the canonical body: one loop over
+ * *every rule* `desired` carries, each running
+ * {@link compareRuleParams} over that rule's *own* parameter keys. So
+ * both a parameter added to an existing rule and a whole rule added to
+ * `assets/protect-main-ruleset.json` come under comparison with no edit
+ * here. Neither the server's rules nor its parameter keys are ever
+ * iterated. The one subtraction is {@link PARAM_COMPARE_SKIPS}, whose
+ * single entry is `required_status_checks`'s own
+ * `required_status_checks` list, compared above as a context-name set
+ * so the server-supplied `integration_id` inside each entry is ignored.
+ *
+ * A parameter key the canonical asset does not model — e.g. a
+ * GitHub-supplied `pull_request.dismissal_restriction` default — is,
+ * by the converger's own contract, deliberately ungoverned: the
+ * canonical PUT could never set a key it has no concept of, so such a
+ * key is neither drift nor a warning. GitHub adds rule parameters over
+ * time, so surfacing them would produce a channel with content on every
+ * repo on every tick, forever, and nothing an operator could act on
+ * from a log line.
  *
  * @param desired the desired body (bypass actors already unioned in).
  * @param existing the ruleset read from the server.
@@ -387,7 +369,6 @@ export function rulesetSemanticDiff(
   defaultBranch: string,
 ): RulesetSemanticDiffResult {
   const changed: string[] = [];
-  const unknownParams: string[] = [];
 
   if (existing.enforcement !== desired.enforcement) {
     changed.push("enforcement");
@@ -418,50 +399,30 @@ export function rulesetSemanticDiff(
     changed.push("required_status_checks");
   }
 
-  // Rule parameters, checked against the canonical shape. Each compare
-  // is skipped when either side lacks the rule (the rule-types set
-  // compare above already reports that as `rules` drift), except
-  // code_quality, whose absence on the server is a known, tolerated
-  // state (the 422-retry-without path) rather than drift.
-  const desiredPr = findRule(desired, "pull_request");
-  const existingPr = findRule(existing, "pull_request");
-  if (desiredPr && existingPr) {
-    for (const field of Object.keys(desiredPr.parameters ?? {})) {
-      compareRuleParam(changed, desiredPr, existingPr, field);
+  // Rule parameters, checked against the canonical shape. The rules
+  // themselves come from the canonical body — adding a rule to
+  // `assets/protect-main-ruleset.json` puts its parameters under
+  // comparison with no edit here — and a rule the *server* lacks is
+  // skipped entirely. That skip is what keeps a `code_quality` rule
+  // dropped by a prior 422 retry from producing a parameter diff of its
+  // own; the missing rule is already reported by the rule-types set
+  // compare above as `rules` drift. A canonical rule carrying no
+  // parameters at all (`deletion`, `non_fast_forward`) iterates an
+  // empty key set and is harmless.
+  for (const desiredRule of desired.rules) {
+    const existingRule = findRule(existing, desiredRule.type);
+    if (!existingRule) {
+      continue;
     }
-    unknownRuleParamKeys(unknownParams, desiredPr, existingPr);
+    compareRuleParams(
+      changed,
+      desiredRule,
+      existingRule,
+      PARAM_COMPARE_SKIPS[desiredRule.type] ?? [],
+    );
   }
 
-  const desiredRsc = findRule(desired, "required_status_checks");
-  const existingRsc = findRule(existing, "required_status_checks");
-  if (desiredRsc && existingRsc) {
-    compareRuleParam(changed, desiredRsc, existingRsc, "strict_required_status_checks_policy");
-    compareRuleParam(changed, desiredRsc, existingRsc, "do_not_enforce_on_create");
-    // The `required_status_checks` list itself is compared as a
-    // context-name set above (ignoring `integration_id`, which lives
-    // inside each entry, not as a top-level parameter key) — exclude
-    // it here so it isn't double-reported as an "unknown" top-level key.
-    unknownRuleParamKeys(unknownParams, desiredRsc, existingRsc, ["required_status_checks"]);
-  }
-
-  const desiredCs = findRule(desired, "code_scanning");
-  const existingCs = findRule(existing, "code_scanning");
-  if (desiredCs && existingCs) {
-    compareRuleParam(changed, desiredCs, existingCs, "code_scanning_tools");
-    unknownRuleParamKeys(unknownParams, desiredCs, existingCs);
-  }
-
-  // code_quality: compared only when BOTH sides carry the rule. Absent
-  // on the server alone (e.g. after a prior 422-retry drop) is not
-  // drift — it must not trigger a write that would just 422 again.
-  const desiredCq = findRule(desired, "code_quality");
-  const existingCq = findRule(existing, "code_quality");
-  if (desiredCq && existingCq) {
-    compareRuleParam(changed, desiredCq, existingCq, "severity");
-    unknownRuleParamKeys(unknownParams, desiredCq, existingCq);
-  }
-
-  return { changed, unknownParams };
+  return { changed };
 }
 
 /** Return a copy of a ruleset body with the `code_quality` rule dropped. */
@@ -485,10 +446,7 @@ function hasCodeQuality(rules: readonly RulesetRule[]): boolean {
  *    delete the repo-level `protect-main` copy (if any) and defer.
  * 2. Otherwise build the desired body (default-branch-resolved + App
  *    bypass union), read any existing repo `protect-main`, semantic-
- *    compare, and create / update / report-unchanged. The semantic
- *    compare also surfaces (never as drift) any server-side rule
- *    parameter keys the canonical asset doesn't carry — see
- *    {@link RulesetConvergeResult.unknownParams}.
+ *    compare, and create / update / report-unchanged.
  * 3. A `code_quality`-attributable 422 on the write is retried once with
  *    that rule dropped, then reported as `codeQualitySkipped`.
  *
@@ -557,17 +515,12 @@ export async function convergeProtectMainRuleset(
     ...desired,
     bypass_actors: unionBypassActors(existing.bypass_actors, desired.bypass_actors),
   };
-  const { changed: changedFields, unknownParams } = rulesetSemanticDiff(
-    desiredWithUnion,
-    existing,
-    defaultBranch,
-  );
+  const { changed: changedFields } = rulesetSemanticDiff(desiredWithUnion, existing, defaultBranch);
 
   if (changedFields.length === 0) {
     return {
       outcome: "unchanged",
       ...(uninstalledApps.length > 0 ? { uninstalledApps } : {}),
-      ...(unknownParams.length > 0 ? { unknownParams } : {}),
     };
   }
 
@@ -576,7 +529,6 @@ export async function convergeProtectMainRuleset(
       outcome: "updated",
       changedFields,
       ...(uninstalledApps.length > 0 ? { uninstalledApps } : {}),
-      ...(unknownParams.length > 0 ? { unknownParams } : {}),
     };
   }
 
@@ -587,7 +539,6 @@ export async function convergeProtectMainRuleset(
     outcome: "updated",
     changedFields,
     ...(uninstalledApps.length > 0 ? { uninstalledApps } : {}),
-    ...(unknownParams.length > 0 ? { unknownParams } : {}),
     ...(write.codeQualitySkipped ? { codeQualitySkipped: true } : {}),
   };
 }

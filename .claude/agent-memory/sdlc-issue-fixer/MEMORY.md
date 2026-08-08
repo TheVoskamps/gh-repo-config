@@ -9,3 +9,5 @@
 - [`cp` refuses to overwrite](project-cp-refuses-to-overwrite.md) — bare `cp` prompts and stalls the `&&` chain; restore a mutation check's backup with `/bin/cp -f`
 - [Fixtures never equal the real value](feedback-fixtures-never-equal-real-values.md) — a fixture that coincides with the value it stands in for is a defect to fix now, not to flag; pick one the real value can never reach
 - [A cited guarantee has to be read](feedback-a-cited-guarantee-must-be-read.md) — "safe because test Y pins Z" is a claim about Y's assertion, not its name; open it and run the breaking value through it
+- [Generalize the level above too](feedback-generalize-the-level-above-too.md) — after replacing a hardcoded list with a loop, check what SELECTS the things you loop over; it is usually hardcoded the same way
+- [Stale worktree holds the branch claim](project-stale-worktree-holds-branch-claim.md) — checkout fails on a leftover sibling worktree; work detached at the remote tip and push `HEAD:refs/heads/<branch>`
