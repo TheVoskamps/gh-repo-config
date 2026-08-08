@@ -201,15 +201,19 @@ npm run lint:md
       rule) and `ref_name.exclude` — compared directly against the
       canonical asset; any difference is drift corrected by the PUT.
       The rule-parameter compare is one-directional over the canonical
-      key set (iterates the desired rule's own parameter keys), plus a
-      separate detect-and-surface pass over the *existing* rule's keys:
-      a server-side parameter key the canonical asset doesn't carry at
-      all (e.g. a future GitHub-added default) is reported in
-      `RulesetConvergeResult.unknownParams` — an operator action cue to
-      update the asset and bump the converger's version — but is never
-      itself drift, since the canonical PUT could never set a key it
-      doesn't model; treating it as drift would just churn every tick
-      with no way to converge.
+      key set (it iterates the desired rule's own parameter keys); the
+      server's keys are never iterated, in either direction. A
+      parameter key the canonical asset does not model at all — a
+      GitHub-supplied default such as
+      `pull_request.dismissal_restriction` — is by that contract
+      deliberately ungoverned: it is neither drift (the canonical PUT
+      could never set a key it has no concept of, so treating it as
+      drift would churn every tick with no way to converge) nor a
+      surfaced warning (issue #82 removed the warning channel that used
+      to report such keys — GitHub adds parameters over time, so it
+      fired on every repo on every tick and carried nothing an operator
+      could act on). Do not reintroduce a pass over the existing rule's
+      keys, value-aware or otherwise.
   - `src/sweep.ts` — `runSweep` / `runSweepFromEnv`, the sweep's
     orchestration. `runSweep`'s `converge` (files), `convergeGhas`
     (settings), and `convergeDefaultSetup` steps all stay

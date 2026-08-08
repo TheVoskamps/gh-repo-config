@@ -20,9 +20,8 @@ function requiredContexts(body) {
   return rule.parameters.required_status_checks.map((c) => c.context).sort();
 }
 
-/** `rulesetSemanticDiff` returns `{ changed, unknownParams }` — this test
- * file mostly cares about `changed`; `diffChanged` extracts it so the
- * bulk of the existing assertions can stay a plain array compare. */
+/** `rulesetSemanticDiff` returns `{ changed }` — `diffChanged` extracts
+ * it so the assertions can stay a plain array compare. */
 function diffChanged(desired, existing, defaultBranch) {
   return rulesetSemanticDiff(desired, existing, defaultBranch).changed;
 }
@@ -362,75 +361,38 @@ test("rulesetSemanticDiff: a non-empty ref_name.exclude is drift", () => {
 });
 
 // ---------------------------------------------------------------------
-// rulesetSemanticDiff: unknown server-side rule parameters (detect,
-// never drift — a future GitHub-added param the canonical asset does
-// not yet carry)
+// rulesetSemanticDiff: rule parameters the canonical asset does not
+// carry are ungoverned — never compared, never surfaced (issue #82)
 // ---------------------------------------------------------------------
 
-test("rulesetSemanticDiff: an unknown pull_request param on the server is surfaced, not drift", () => {
+test("rulesetSemanticDiff: a server-side param the asset does not model is not drift (the live dismissal_restriction case)", () => {
   const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
   const existing = existingFrom(
-    withRuleParam(desired, "pull_request", "some_new_param", true),
+    withRuleParam(desired, "pull_request", "dismissal_restriction", {
+      allowed_actors: [],
+      enabled: false,
+    }),
   );
-  const { changed, unknownParams } = rulesetSemanticDiff(desired, existing, "main");
-  assert.deepEqual(changed, []);
-  assert.deepEqual(unknownParams, ["pull_request.some_new_param"]);
+  assert.deepEqual(diffChanged(desired, existing, "main"), []);
 });
 
-test("rulesetSemanticDiff: an unknown required_status_checks param on the server is surfaced, not drift", () => {
+test("rulesetSemanticDiff: an unmodelled server-side param on any compared rule is not drift", () => {
   const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
-  const existing = existingFrom(
-    withRuleParam(desired, "required_status_checks", "some_new_param", "x"),
-  );
-  const { changed, unknownParams } = rulesetSemanticDiff(desired, existing, "main");
-  assert.deepEqual(changed, []);
-  assert.deepEqual(unknownParams, ["required_status_checks.some_new_param"]);
+  for (const type of ["pull_request", "required_status_checks", "code_scanning", "code_quality"]) {
+    const existing = existingFrom(withRuleParam(desired, type, "some_new_param", "x"));
+    assert.deepEqual(diffChanged(desired, existing, "main"), [], type);
+  }
 });
 
-test("rulesetSemanticDiff: an unknown code_scanning param on the server is surfaced, not drift", () => {
-  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
-  const existing = existingFrom(
-    withRuleParam(desired, "code_scanning", "some_new_param", "x"),
-  );
-  const { changed, unknownParams } = rulesetSemanticDiff(desired, existing, "main");
-  assert.deepEqual(changed, []);
-  assert.deepEqual(unknownParams, ["code_scanning.some_new_param"]);
-});
-
-test("rulesetSemanticDiff: an unknown code_quality param on the server is surfaced, not drift", () => {
-  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
-  const existing = existingFrom(
-    withRuleParam(desired, "code_quality", "some_new_param", "x"),
-  );
-  const { changed, unknownParams } = rulesetSemanticDiff(desired, existing, "main");
-  assert.deepEqual(changed, []);
-  assert.deepEqual(unknownParams, ["code_quality.some_new_param"]);
-});
-
-test("rulesetSemanticDiff: integration_id inside required_status_checks entries is never surfaced as unknown", () => {
-  const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
-  const existing = existingFrom(
-    withRuleParam(desired, "required_status_checks", "required_status_checks", [
-      { context: "codeql-required", integration_id: 15368 },
-      { context: "install-gate-required", integration_id: 15368 },
-      { context: "pinned-gate-required", integration_id: 15368 },
-      { context: "no-back-merging-guard", integration_id: 15368 },
-    ]),
-  );
-  const { changed, unknownParams } = rulesetSemanticDiff(desired, existing, "main");
-  assert.deepEqual(changed, []);
-  assert.deepEqual(unknownParams, []);
-});
-
-test("rulesetSemanticDiff: an unknown param does not itself report unchanged=false — combined with a real drift, only the known field is changed", () => {
+test("rulesetSemanticDiff: an unmodelled server-side param alongside real drift reports only the modelled field", () => {
   const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
   const withUnknown = withRuleParam(desired, "pull_request", "some_new_param", true);
   const existing = existingFrom(
     withRuleParam(withUnknown, "pull_request", "required_approving_review_count", 0),
   );
-  const { changed, unknownParams } = rulesetSemanticDiff(desired, existing, "main");
-  assert.deepEqual(changed, ["pull_request.required_approving_review_count"]);
-  assert.deepEqual(unknownParams, ["pull_request.some_new_param"]);
+  assert.deepEqual(diffChanged(desired, existing, "main"), [
+    "pull_request.required_approving_review_count",
+  ]);
 });
 
 // ---------------------------------------------------------------------
@@ -604,11 +566,11 @@ test("converge: a rule-parameter-only drift (required_approving_review_count) ->
 });
 
 // ---------------------------------------------------------------------
-// convergeProtectMainRuleset: unknown server-side rule parameters
-// (detect-and-surface, never drift, never blocks convergence)
+// convergeProtectMainRuleset: server-side rule parameters the canonical
+// asset does not model are ungoverned — no drift, no write, no warning
 // ---------------------------------------------------------------------
 
-test("converge: an unknown rule param on the server is surfaced in unknownParams and outcome stays unchanged (no churn)", async () => {
+test("converge: an unmodelled rule param on the server leaves the outcome unchanged, with no write and no warning", async () => {
   const desired = buildDesiredRuleset(APPS);
   const existing = {
     id: 7,
@@ -626,14 +588,13 @@ test("converge: an unknown rule param on the server is surfaced in unknownParams
   });
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
   assert.equal(result.outcome, "unchanged");
-  assert.deepEqual(result.unknownParams, ["pull_request.some_new_param"]);
-  // No write for a repo whose only "difference" is an unknown key —
-  // that would just churn every tick since the canonical PUT can't set
-  // a key it doesn't know about.
+  // No write for a repo whose only "difference" is a key the asset does
+  // not model — the canonical PUT could never set it, so a write would
+  // just churn every tick with no way to converge.
   assert.equal(calls.length, 0);
 });
 
-test("converge: an unknown rule param combined with real drift -> updated with only the known field in changedFields, unknown key still surfaced", async () => {
+test("converge: an unmodelled rule param combined with real drift -> updated with only the modelled field in changedFields", async () => {
   const desired = buildDesiredRuleset(APPS);
   const existing = {
     id: 7,
@@ -659,16 +620,15 @@ test("converge: an unknown rule param combined with real drift -> updated with o
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
   assert.equal(result.outcome, "updated");
   assert.deepEqual(result.changedFields, ["pull_request.required_approving_review_count"]);
-  assert.deepEqual(result.unknownParams, ["pull_request.some_new_param"]);
   const update = calls.find((c) => c.op === "update");
   const prRule = update.body.rules.find((r) => r.type === "pull_request");
-  // The corrective PUT carries the canonical value for the known field;
-  // it cannot (and does not attempt to) set the unknown key.
+  // The corrective PUT carries the canonical value for the modelled
+  // field; it cannot (and does not attempt to) set the unmodelled key.
   assert.equal(prRule.parameters.required_approving_review_count, 1);
   assert.equal(prRule.parameters.some_new_param, undefined);
 });
 
-test("converge: integration_id inside required_status_checks entries never appears in unknownParams", async () => {
+test("converge: integration_id inside required_status_checks entries is never drift (unchanged, no write)", async () => {
   const desired = buildDesiredRuleset(APPS);
   const existing = {
     id: 7,
@@ -695,6 +655,5 @@ test("converge: integration_id inside required_status_checks entries never appea
   });
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
   assert.equal(result.outcome, "unchanged");
-  assert.equal(result.unknownParams, undefined);
   assert.equal(calls.length, 0);
 });
