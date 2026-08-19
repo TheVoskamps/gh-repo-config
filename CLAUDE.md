@@ -134,7 +134,7 @@ npm run lint:md
       install-gate workflow names, and `__INSTALL_GATE_CHECK__` — the
       install gate's single required-check job name, which the
       lockfile-regen pass keys off) with deliberately no override path;
-      the App-identity slice (`__APP_NAME__`, `__APP_ID_SECRET__`,
+      the App-identity slice (`__APP_NAME__`, `__APP_CLIENT_ID_SECRET__`,
       `__APP_PRIVATE_KEY_SECRET__`, `__BOT_SLUG__`) is the per-org
       `OrgRenderOptions.prAutomationIdentity` (a `PrAutomationIdentity`),
       defaulting to `DEFAULT_PR_AUTOMATION_IDENTITY`, because each org
@@ -385,8 +385,9 @@ npm run lint:md
     cron list — inline.
     Both mint their App installation token through
     `actions/create-github-app-token`'s `client-id:` input, fed from
-    `__APP_CLIENT_ID_SECRET__` (`AUTOMERGE_APP_CLIENT_ID`, see
-    `render.ts`'s `PR_AUTOMATION_CONSTANTS`). The action still accepts
+    `__APP_CLIENT_ID_SECRET__` (`AUTOMERGE_APP_CLIENT_ID` under the
+    default identity, see `render.ts`'s
+    `DEFAULT_PR_AUTOMATION_IDENTITY`). The action still accepts
     `app-id:` but carries a `deprecationMessage` on it, so shipping
     that input would warn on every managed repo on every run;
     `test/files.test.js` pins the ban by asserting the rendered
@@ -396,21 +397,22 @@ npm run lint:md
     operator-provisioned secret, not a rename of `AUTOMERGE_APP_ID`,
     and a repo carrying only the latter has nothing to feed
     `client-id:` with — `/gh-repo-setup-pr-automation` seeds
-    `<prefix>_APP_ID`, so the Client ID secret is set by hand, as an
-    ORG secret with all-repositories visibility, in BOTH org secret
-    stores — the Actions one and the Dependabot one. Org scope is the
-    requirement, not a preference: the payload fans out to every
-    managed repo, so a repo-scoped copy would have to be provisioned
-    again on each one. Both stores is likewise a requirement, not
-    belt-and-braces: the rendered `auto-enable-automerge.yml` runs on
-    `pull_request`, which includes Dependabot's own PRs, and a run
-    triggered by a Dependabot PR resolves `secrets.*` from the
-    Dependabot store rather than the Actions store, so a copy in only
-    one store leaves one class of runs unable to mint. Only the Client
-    ID secret carries those two requirements: `secrets.<NAME>` resolves
-    a repo or an org secret alike, so `AUTOMERGE_APP_PRIVATE_KEY` may
-    sit at either scope — in this org it is an org secret, since this
-    repo carries no repo-level Actions secrets at all.
+    `<prefix>_APP_ID`, so the Client ID secret is set by hand. BOTH
+    secrets the rendered workflows read — `AUTOMERGE_APP_CLIENT_ID` and
+    `AUTOMERGE_APP_PRIVATE_KEY` — are ORG secrets with
+    all-repositories visibility, present in BOTH org secret stores, the
+    Actions one and the Dependabot one; there is no repo-scoped option
+    for either. Org scope is the requirement, not a preference: the
+    payload fans out to every managed repo, including repos created
+    after the secrets were set, so a per-repo copy is not feasible.
+    Both stores is likewise a requirement, not belt-and-braces: the
+    rendered `auto-enable-automerge.yml` runs on `pull_request`, which
+    includes Dependabot's own PRs, and a run triggered by a Dependabot
+    PR resolves every `secrets.*` reference from the Dependabot store
+    rather than the Actions store, so a secret in only one store leaves
+    one class of runs unable to mint. Both reasons are properties of
+    the secrets, so they hold for the private key exactly as they do
+    for the Client ID.
     The repo-own workflows that mint an App token (`sweep.yml`,
     `assets-pin-bump.yml`) carry no `assets/` counterpart and still
     mint with `app-id:`, so the deprecation warning survives on this
@@ -657,8 +659,9 @@ npm run lint:md
   same PR-operations App the rendered `auto-rebase-prs.yml` /
   `auto-enable-automerge.yml` authenticate as, though those identify it
   by Client ID (`AUTOMERGE_APP_CLIENT_ID`) while this one still uses the
-  numeric App ID — rather than the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
-  trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`
+  numeric App ID — rather than the default `GITHUB_TOKEN` — a PR opened
+  with `GITHUB_TOKEN` does not trigger `pull_request` workflows, so
+  `ci.yml` and `pin-shape.yml`
   would never run on its own PRs and they could never satisfy the
   `ci-required` / `pin-shape-required` required checks. That App token
   is scoped to only this last step, kept out of the checkout and the

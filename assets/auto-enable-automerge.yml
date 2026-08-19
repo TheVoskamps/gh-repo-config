@@ -8,9 +8,9 @@
 #                        holding the App Client ID, present in BOTH the
 #                        Actions and the Dependabot secret store
 #                        (e.g. AUTOMERGE_APP_CLIENT_ID)
-#   __APP_PRIVATE_KEY_SECRET__  secret holding the App private key, at
-#                        repo or org scope — secrets.<NAME> resolves
-#                        either (e.g. AUTOMERGE_APP_PRIVATE_KEY)
+#   __APP_PRIVATE_KEY_SECRET__  ORG secret, provisioned exactly like
+#                        __APP_CLIENT_ID_SECRET__ above, holding the App
+#                        private key (e.g. AUTOMERGE_APP_PRIVATE_KEY)
 #   __MERGE_METHOD__     GraphQL merge method: MERGE | SQUASH | REBASE
 #   __DO_NOT_MERGE_LABEL__  label that opts a PR out of automation
 name: auto-enable-automerge
@@ -65,25 +65,27 @@ on:
 # enablePullRequestAutoMerge ("FORBIDDEN: Resource not accessible by
 # integration").
 #
-# The workflow consumes two secrets: __APP_CLIENT_ID_SECRET__, an ORG
-# secret visible to all repositories, and __APP_PRIVATE_KEY_SECRET__,
-# which may sit at repo or org scope. A short-lived installation token
-# is minted at
-# workflow runtime by actions/create-github-app-token, which signs a JWT
-# with the private key and exchanges it for an installation access token
-# via the App's installation endpoint. There is no long-lived "App token"
-# to store; the canonical pattern is App Client ID + private key in
-# secrets, token minted per-run. Only __APP_PRIVATE_KEY_SECRET__ is seeded
-# by /gh-repo-setup-pr-automation; that skill seeds the App's numeric ID,
-# which client-id: cannot consume, so __APP_CLIENT_ID_SECRET__ is set by
-# hand, and must be set at ORG scope with all-repositories visibility:
-# this template fans out to every managed repo, so a repo-scoped copy
-# would have to be provisioned again on each one. It must be set that
-# way in BOTH org secret stores, the Actions one and the Dependabot one.
-# This workflow runs on pull_request, which includes Dependabot's own
-# PRs, and a run triggered by a Dependabot PR resolves secrets.* from
-# the Dependabot store rather than the Actions store, so a copy in only
-# one store leaves one class of runs unable to mint.
+# The workflow consumes two secrets, __APP_CLIENT_ID_SECRET__ and
+# __APP_PRIVATE_KEY_SECRET__. A short-lived installation token is minted
+# at workflow runtime by actions/create-github-app-token, which signs a
+# JWT with the private key and exchanges it for an installation access
+# token via the App's installation endpoint. There is no long-lived "App
+# token" to store; the canonical pattern is App Client ID + private key
+# in secrets, token minted per-run.
+#
+# BOTH secrets are ORG secrets with all-repositories visibility, and
+# BOTH must exist in BOTH org secret stores, the Actions one and the
+# Dependabot one. Neither has a repo-scoped option. Org scope, because
+# this template fans out to every managed repo, including repos created
+# after the secrets were set, so a per-repo copy is not feasible. Both
+# stores, because this workflow runs on pull_request, which includes
+# Dependabot's own PRs, and a run triggered by a Dependabot PR resolves
+# every secrets.* reference from the Dependabot store rather than the
+# Actions store — so a secret present in only one store leaves one class
+# of runs unable to mint. /gh-repo-setup-pr-automation does not provide
+# __APP_CLIENT_ID_SECRET__ at all: it seeds the App's numeric ID, which
+# client-id: cannot consume. Set both by hand, at that scope, in both
+# stores.
 # Without them, actions/create-github-app-token fails fast with a clear
 # error, which is the intended behaviour: do NOT fall back to GITHUB_TOKEN.
 #

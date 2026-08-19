@@ -53,7 +53,7 @@ export interface OrgRenderOptions {
   /**
    * The org's PR-automation App identity (issue #89): the App the
    * rendered `auto-enable-automerge.yml` / `auto-rebase-prs.yml` run as,
-   * the repo secrets that carry its credentials, and the git identity
+   * the org secrets that carry its credentials, and the git identity
    * its rebase commits use. Defaults to
    * {@link DEFAULT_PR_AUTOMATION_IDENTITY}. Every org that runs its own
    * PR-automation App (which is every org other than the default's
