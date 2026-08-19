@@ -20,11 +20,113 @@
  *   copy of `ecosystem-block.yml` per armed ecosystem, with the variant
  *   parts resolved per ecosystem *class*.
  * - {@link renderPrAutomationTemplate} (issue #25) substitutes the
- *   PR-automation payload's 11 placeholders: the three per-repo tokens
+ *   PR-automation payload's placeholders: the three per-repo tokens
  *   {@link renderTemplate} already handles, {@link PR_AUTOMATION_CONSTANTS}
- *   (9 fixed org-level values pinned by the issue), and `__BOT_SLUG__`
- *   (per-repo, interpolated from the repo name).
+ *   (the org-agnostic contract constants), the App-identity slice
+ *   ({@link PrAutomationIdentity} — per-org, defaulting to
+ *   {@link DEFAULT_PR_AUTOMATION_IDENTITY}), and `__BOT_SLUG__` (per-repo,
+ *   derived from the identity's `botSlug` pattern and the repo name).
+ *
+ * Org-specific content is injected through {@link OrgRenderOptions}
+ * (issue #87's multi-org fanout): every field is optional, and an
+ * absent field renders the baked TheVoskamps default byte-for-byte, so
+ * a caller that passes nothing gets exactly the single-org output.
  */
+
+/**
+ * Optional per-org inputs to the render pipeline. Each field defaults
+ * to the value baked into this module when absent, so `{}` (or no
+ * options at all) renders exactly as the single-org converger did. The
+ * per-org sweeper's config file is the intended source of these values;
+ * this module only defines the seam.
+ */
+export interface OrgRenderOptions {
+  /**
+   * The org's named Dependabot groups (issue #88), rendered into every
+   * armed ecosystem's `groups:` map ahead of the `*-minor-and-patch`
+   * catch-all. Defaults to {@link DEFAULT_NAMED_DEPENDABOT_GROUPS}. An
+   * empty map renders no named groups at all (the placeholder line is
+   * dropped, like any other empty block); a group whose pattern list is
+   * empty makes the render throw (see {@link renderNamedGroupsBlock}).
+   */
+  readonly namedDependabotGroups?: NamedDependabotGroups;
+  /**
+   * The org's PR-automation App identity (issue #89): the App the
+   * rendered `auto-enable-automerge.yml` / `auto-rebase-prs.yml` run as,
+   * the repo secrets that carry its credentials, and the git identity
+   * its rebase commits use. Defaults to
+   * {@link DEFAULT_PR_AUTOMATION_IDENTITY}. Every org that runs its own
+   * PR-automation App (which is every org other than the default's
+   * owner — an App's owner holds its private key) must supply this.
+   */
+  readonly prAutomationIdentity?: PrAutomationIdentity;
+}
+
+/**
+ * The App-identity slice of the PR-automation templates' placeholders
+ * (issue #89): the values that name WHICH GitHub App the rendered
+ * workflows act as. Each managed org registers and owns its own App, so
+ * these differ per org — unlike {@link PR_AUTOMATION_CONSTANTS}, which
+ * are the converger's contract with its own gates and stay fixed.
+ */
+export interface PrAutomationIdentity {
+  /**
+   * The App's slug — substitutes `__APP_NAME__`. The default's value also
+   * seeds `AUTOMERGE_APP_SLUG` in `ruleset.ts` (the `protect-main` bypass
+   * actor); the ruleset step does not yet read a per-org identity, so a
+   * non-default `appName` reaches the rendered workflows only.
+   */
+  readonly appName: string;
+  /** Repo secret holding the App ID — substitutes `__APP_ID_SECRET__`. */
+  readonly appIdSecret: string;
+  /**
+   * Repo secret holding the App private key — substitutes
+   * `__APP_PRIVATE_KEY_SECRET__`.
+   */
+  readonly appPrivateKeySecret: string;
+  /**
+   * The git identity the rebase sweep commits as — substitutes
+   * `__BOT_SLUG__`. This is a PATTERN, not a literal: it may carry the
+   * per-repo tokens {@link renderTemplate} resolves (`__GH_ORG__`,
+   * `__GH_REPO__`, `__DEFAULT_BRANCH__`), which are substituted after
+   * it is spliced in. The default, `__GH_REPO__-auto-rebase[bot]`, is
+   * how the historical `<repo>-auto-rebase[bot]` per-repo derivation is
+   * expressed; an org whose bot identity is fixed supplies a plain
+   * string with no token. Any other `__…__` token in it fails the
+   * rendered template's unresolved-token assertion, as it should.
+   */
+  readonly botSlug: string;
+}
+
+/**
+ * The default {@link PrAutomationIdentity} — the App identity baked in
+ * before issue #89 made it a per-org input. Renders byte-for-byte what
+ * the old `PR_AUTOMATION_CONSTANTS` identity entries and the hardcoded
+ * `<repo>-auto-rebase[bot]` did.
+ */
+export const DEFAULT_PR_AUTOMATION_IDENTITY: PrAutomationIdentity = {
+  appName: "thevoskamps-pr-automations",
+  appIdSecret: "AUTOMERGE_APP_ID",
+  appPrivateKeySecret: "AUTOMERGE_APP_PRIVATE_KEY",
+  botSlug: "__GH_REPO__-auto-rebase[bot]",
+};
+
+/**
+ * The placeholder → value map a {@link PrAutomationIdentity} substitutes.
+ * The `__BOT_SLUG__` value is the identity's pattern, still carrying any
+ * per-repo tokens; {@link renderPrAutomationTemplate} resolves those in
+ * its final {@link renderTemplate} pass.
+ */
+export function prAutomationIdentityTokens(
+  identity: PrAutomationIdentity,
+): Readonly<Record<string, string>> {
+  return {
+    __APP_NAME__: identity.appName,
+    __APP_ID_SECRET__: identity.appIdSecret,
+    __APP_PRIVATE_KEY_SECRET__: identity.appPrivateKeySecret,
+    __BOT_SLUG__: identity.botSlug,
+  };
+}
 
 /** Per-target-repo values the `__…__` tokens substitute to. */
 export interface RepoContext {
@@ -82,11 +184,14 @@ export function assertNoUnresolvedTokens(
 }
 
 /**
- * The fixed org-level constants the PR-automation templates
+ * The fixed, org-agnostic constants the PR-automation templates
  * (`auto-enable-automerge.yml`, `auto-rebase-prs.yml`) substitute,
- * pinned by issue #25's placeholder table. These are the converged
- * standard across every managed repo — nothing here is per-repo or
- * open to interpretation.
+ * pinned by issue #25's placeholder table: merge method, do-not-merge
+ * label, and the names of the gate/guard workflows and check the
+ * automation keys off. These are the converger's contract with its own
+ * gates — the converged standard across every managed repo in every
+ * org — so nothing here is per-repo, per-org, or open to
+ * interpretation, and there is deliberately no way to override them.
  *
  * No single template carries every constant: `auto-rebase-prs.yml` owns
  * the sweep-side ones and `auto-enable-automerge.yml` the
@@ -95,16 +200,13 @@ export function assertNoUnresolvedTokens(
  * that union is complete — a constant used by neither template is a
  * dead entry here, not a silently-skipped assertion.
  *
- * `__BOT_SLUG__` and `__DEFAULT_BRANCH__` are
- * NOT in this map: `__DEFAULT_BRANCH__` is per-repo (handled by
- * {@link renderTemplate}'s `RepoContext`) and `__BOT_SLUG__` is
- * per-repo but derived (repo-name interpolated), so both are resolved
- * separately in {@link renderPrAutomationTemplate}.
+ * NOT in this map: the App-identity slice (`__APP_NAME__`,
+ * `__APP_ID_SECRET__`, `__APP_PRIVATE_KEY_SECRET__`, `__BOT_SLUG__`),
+ * which issue #89 split out into {@link PrAutomationIdentity} because
+ * each org owns its own App; and `__DEFAULT_BRANCH__`, which is per-repo
+ * (handled by {@link renderTemplate}'s `RepoContext`).
  */
 export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
-  __APP_NAME__: "thevoskamps-pr-automations",
-  __APP_ID_SECRET__: "AUTOMERGE_APP_ID",
-  __APP_PRIVATE_KEY_SECRET__: "AUTOMERGE_APP_PRIVATE_KEY",
   __MERGE_METHOD__: "MERGE",
   __REST_MERGE_METHOD__: "merge",
   __DO_NOT_MERGE_LABEL__: "do-not-merge",
@@ -122,9 +224,10 @@ export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
 /**
  * Render a PR-automation template (`auto-enable-automerge.yml` or
  * `auto-rebase-prs.yml`): substitute the fixed
- * {@link PR_AUTOMATION_CONSTANTS}, the per-repo `__BOT_SLUG__`
- * (`<repo>-auto-rebase[bot]`, per the issue's placeholder table), and
- * the three tokens {@link renderTemplate} already resolves
+ * {@link PR_AUTOMATION_CONSTANTS}, the org's {@link PrAutomationIdentity}
+ * (including its `__BOT_SLUG__` pattern), and — last, so a token inside
+ * the bot-slug pattern resolves too — the three tokens
+ * {@link renderTemplate} already resolves
  * (`__GH_ORG__`/`__GH_REPO__`/`__DEFAULT_BRANCH__`).
  *
  * The full surface always renders — no conditional-drop logic (unlike
@@ -133,18 +236,23 @@ export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
  * lacks the workflows they key off). On a managed repo the gates and
  * guards are guaranteed present in the same per-repo converger PR, so
  * every placeholder always resolves.
+ *
+ * @param options per-org inputs; `prAutomationIdentity` defaults to
+ *   {@link DEFAULT_PR_AUTOMATION_IDENTITY} when absent.
  */
 export function renderPrAutomationTemplate(
   template: string,
   ctx: RepoContext,
+  options: OrgRenderOptions = {},
 ): string {
+  const identity = options.prAutomationIdentity ?? DEFAULT_PR_AUTOMATION_IDENTITY;
   let rendered = template;
-  for (const [token, value] of Object.entries(PR_AUTOMATION_CONSTANTS)) {
+  for (const [token, value] of Object.entries({
+    ...PR_AUTOMATION_CONSTANTS,
+    ...prAutomationIdentityTokens(identity),
+  })) {
     rendered = rendered.split(token).join(value);
   }
-  rendered = rendered
-    .split("__BOT_SLUG__")
-    .join(`${ctx.repo}-auto-rebase[bot]`);
   return renderTemplate(rendered, ctx);
 }
 
@@ -172,7 +280,17 @@ export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
 ] as const;
 
 /**
- * The org's canonical registry of named Dependabot groups (issue #36):
+ * A registry of named Dependabot groups: group name → the
+ * `patterns:` list Dependabot matches dependencies against, in the
+ * order the groups are rendered (first-match-wins, see
+ * {@link DEFAULT_NAMED_DEPENDABOT_GROUPS}).
+ */
+export type NamedDependabotGroups = Readonly<
+  Record<string, readonly string[]>
+>;
+
+/**
+ * The default registry of named Dependabot groups (issue #36):
  * lockstep/stack families whose members must move together because they
  * share a runtime compatibility contract (same-repo sub-actions/packages
  * exchanging versioned state, a framework + its plugin family, or an SDK
@@ -181,6 +299,10 @@ export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
  * `dependabot.yml`, the repo that incurred the motivating incident
  * (`github/codeql-action/init`/`analyze` version skew broke the
  * required CodeQL check on `main`).
+ *
+ * This is org-specific content (issue #88): a different org supplies
+ * its own registry through {@link OrgRenderOptions.namedDependabotGroups}
+ * and this default is what renders when it does not.
  *
  * Rendered as ONE union block, identically, into every armed ecosystem's
  * `groups:` — not scoped per ecosystem. This mirrors the
@@ -195,59 +317,94 @@ export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
  * Dependabot's first-match-wins group resolution puts a dependency that
  * matches both a named group and the catch-all into the named group.
  */
-export const NAMED_DEPENDABOT_GROUPS = `codeql-action:
-        patterns:
-          - "github/codeql-action/*"
-      aws-cdk:
-        patterns:
-          - "aws-cdk"
-          - "aws-cdk-lib"
-          - "@aws-cdk/*"
-          - "constructs"
-      vite-toolchain:
-        patterns:
-          - "vite"
-          - "@vitejs/*"
-          - "rollup"
-          - "typescript"
-          - "vue"
-          - "@vue/*"
-          - "@vitest/*"
-          - "vitest"
-      fastapi-stack:
-        patterns:
-          - "fastapi"
-          - "starlette"
-          - "pydantic"
-          - "pydantic-*"
-          - "pydantic_*"
-          - "uvicorn"
-          - "uvicorn-*"
-      sqlalchemy-stack:
-        patterns:
-          - "sqlalchemy"
-          - "alembic"
-          - "asyncpg"
-          - "psycopg"
-          - "psycopg2"
-          - "psycopg2-binary"
-      auth-stack:
-        patterns:
-          - "authlib"
-          - "python-jose"
-          - "python-jose[*]"
-          - "pyjwt"
-          - "cryptography"
-      aws-sdk:
-        patterns:
-          - "boto3"
-          - "botocore"
-          - "aiobotocore"
-          - "s3transfer"
-      test-stack:
-        patterns:
-          - "pytest"
-          - "pytest-*"`;
+export const DEFAULT_NAMED_DEPENDABOT_GROUPS: NamedDependabotGroups = {
+  "codeql-action": ["github/codeql-action/*"],
+  "aws-cdk": ["aws-cdk", "aws-cdk-lib", "@aws-cdk/*", "constructs"],
+  "vite-toolchain": [
+    "vite",
+    "@vitejs/*",
+    "rollup",
+    "typescript",
+    "vue",
+    "@vue/*",
+    "@vitest/*",
+    "vitest",
+  ],
+  "fastapi-stack": [
+    "fastapi",
+    "starlette",
+    "pydantic",
+    "pydantic-*",
+    "pydantic_*",
+    "uvicorn",
+    "uvicorn-*",
+  ],
+  "sqlalchemy-stack": [
+    "sqlalchemy",
+    "alembic",
+    "asyncpg",
+    "psycopg",
+    "psycopg2",
+    "psycopg2-binary",
+  ],
+  "auth-stack": [
+    "authlib",
+    "python-jose",
+    "python-jose[*]",
+    "pyjwt",
+    "cryptography",
+  ],
+  "aws-sdk": ["boto3", "botocore", "aiobotocore", "s3transfer"],
+  "test-stack": ["pytest", "pytest-*"],
+};
+
+/**
+ * Render a {@link NamedDependabotGroups} registry into the multi-line
+ * value `__NAMED_GROUPS_BLOCK__` substitutes to. Group keys sit at the
+ * `groups:` map's key indent (6 spaces under `updates:` — siblings of
+ * `*-minor-and-patch`), `patterns:` at 8, list items at 10. Per the
+ * block-placeholder convention ({@link renderEcosystemBlock}), the
+ * first line carries no leading indent — the template's placeholder
+ * line supplies it — and continuation lines carry their own absolute
+ * indent. An empty registry renders the empty string.
+ *
+ * A group whose pattern list is empty is rejected, not rendered: the
+ * only thing it could emit is a valueless `patterns:` key, which is not
+ * the list shape Dependabot's parser accepts, so shipping it would break
+ * updates on every repo the block reaches. Same fail-loud posture as
+ * {@link assertNoUnresolvedTokens} — an org registry that carries such
+ * a group is a defect in the registry, and the sweep must say so rather
+ * than render it.
+ *
+ * @throws when any group's pattern list is empty.
+ */
+export function renderNamedGroupsBlock(groups: NamedDependabotGroups): string {
+  const empty = Object.entries(groups)
+    .filter(([, patterns]) => patterns.length === 0)
+    .map(([name]) => name);
+  if (empty.length > 0) {
+    throw new Error(
+      `Named Dependabot group(s) with an empty pattern list: ${empty.join(", ")}`,
+    );
+  }
+  return Object.entries(groups)
+    .map(([name, patterns], i) => {
+      const key = `${i === 0 ? "" : "      "}${name}:`;
+      const items = patterns.map((p) => `          - ${JSON.stringify(p)}`);
+      return [key, "        patterns:", ...items].join("\n");
+    })
+    .join("\n");
+}
+
+/**
+ * The rendered form of {@link DEFAULT_NAMED_DEPENDABOT_GROUPS} — the
+ * exact text every ecosystem block carries when no per-org registry is
+ * supplied. Kept as an export so a caller can compare against the
+ * default without re-rendering it.
+ */
+export const NAMED_DEPENDABOT_GROUPS: string = renderNamedGroupsBlock(
+  DEFAULT_NAMED_DEPENDABOT_GROUPS,
+);
 
 /** The three ecosystem classes that drive the block-variant resolution. */
 type EcosystemClass = "npm-pip" | "github-actions" | "other";
@@ -302,15 +459,17 @@ function stripLeadingComments(text: string): string {
  * substituted value's first line carries no leading indent (the
  * template's own indent supplies it) and continuation lines carry their
  * own absolute indent. When a block is empty for a class
- * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip), the whole placeholder
- * line is dropped so no whitespace-only line remains.
- * `__NAMED_GROUPS_BLOCK__` is never empty — it renders
- * {@link NAMED_DEPENDABOT_GROUPS} unconditionally into every ecosystem.
+ * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip, or
+ * `__NAMED_GROUPS_BLOCK__` for an org whose registry is empty), the
+ * whole placeholder line is dropped so no whitespace-only line remains.
+ * `__NAMED_GROUPS_BLOCK__` renders the same `namedGroupsBlock` (already
+ * rendered by {@link renderNamedGroupsBlock}) into every ecosystem.
  */
 function renderEcosystemBlock(
   blockTemplate: string,
   ecosystem: string,
   ctx: RepoContext,
+  namedGroupsBlock: string,
 ): string {
   const cls = ecosystemClass(ecosystem);
 
@@ -359,7 +518,11 @@ function renderEcosystemBlock(
       continue;
     }
     if (trimmed === "__NAMED_GROUPS_BLOCK__") {
-      out.push(substituteBlockLine(line, NAMED_DEPENDABOT_GROUPS));
+      // Same empty-block collapse as the versioning strategy: an org
+      // with no named groups gets no whitespace-only line.
+      if (namedGroupsBlock !== "") {
+        out.push(substituteBlockLine(line, namedGroupsBlock));
+      }
       continue;
     }
     // Scalar placeholders on ordinary lines.
@@ -404,15 +567,21 @@ function substituteBlockLine(placeholderLine: string, value: string): string {
  * @param outerTemplate raw `dependabot.yml` payload (with comment header).
  * @param blockTemplate raw `ecosystem-block.yml` payload (with header).
  * @param ctx per-repo substitution values.
+ * @param options per-org inputs; `namedDependabotGroups` defaults to
+ *   {@link DEFAULT_NAMED_DEPENDABOT_GROUPS} when absent.
  */
 export function renderDependabotYml(
   outerTemplate: string,
   blockTemplate: string,
   ctx: RepoContext,
+  options: OrgRenderOptions = {},
 ): string {
+  const namedGroupsBlock = renderNamedGroupsBlock(
+    options.namedDependabotGroups ?? DEFAULT_NAMED_DEPENDABOT_GROUPS,
+  );
   const blockBody = stripLeadingComments(blockTemplate);
   const renderedBlocks = DEPENDABOT_ECOSYSTEMS.map((eco) =>
-    renderEcosystemBlock(blockBody, eco, ctx),
+    renderEcosystemBlock(blockBody, eco, ctx, namedGroupsBlock),
   );
   // Each block body already ends without a trailing newline; join with a
   // newline so the blocks concatenate cleanly under `updates:`.

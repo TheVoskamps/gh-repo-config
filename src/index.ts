@@ -86,13 +86,31 @@ export {
   renderDependabotYml,
   renderPrAutomationTemplate,
   assertNoUnresolvedTokens,
+  renderNamedGroupsBlock,
+  prAutomationIdentityTokens,
   DEPENDABOT_ECOSYSTEMS,
+  DEFAULT_NAMED_DEPENDABOT_GROUPS,
+  DEFAULT_PR_AUTOMATION_IDENTITY,
   NAMED_DEPENDABOT_GROUPS,
   PR_AUTOMATION_CONSTANTS,
+  type NamedDependabotGroups,
+  type OrgRenderOptions,
+  type PrAutomationIdentity,
   type RepoContext,
 } from "./converge/render.js";
 
-export { buildDesiredFiles, type DesiredFile } from "./converge/files.js";
+export {
+  buildDesiredFiles,
+  COMMUNITY_FILE_PATHS,
+  type DesiredFile,
+  type DesiredFilesOptions,
+  type CommunityFileContent,
+} from "./converge/files.js";
+
+export {
+  readOrgCommunityFiles,
+  COMMUNITY_SOURCE_REPO,
+} from "./converge/community.js";
 
 export { ASSETS_DIR, readAssetText } from "./converge/assets.js";
 

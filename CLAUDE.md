@@ -79,7 +79,11 @@ npm run lint:md
     file state, then commits changed files via the **git-data API**
     (blobs → tree → commit → ref) so scripts land mode `100755` (the
     contents API cannot set the executable bit), and opens or updates a
-    single PR to the default branch.
+    single PR to the default branch. Also carries `readFileIfPresent`,
+    the one contents-API read (`GET /repos/{o}/{r}/contents/{path}`),
+    absent-tolerant — a 404 (repo or path missing), a directory, or a
+    non-file all return `undefined`; any other non-2xx throws — used
+    only by the community-file seed lookup (`src/converge/community.ts`).
   - `src/github/settings.ts` — `RepoSettingsClient`, same dependency-
     free-`fetch` shape as the other `src/github/` clients. The converger's
     pure-API-mutation path (no files, no PR): read-then-PATCH
@@ -99,26 +103,46 @@ npm run lint:md
       expansion (one `ecosystem-block.yml` copy per armed ecosystem,
       variant parts resolved per ecosystem class — the resolution spec
       lives in the `github-setup` plugin's `gh-repo-setup-protection`
-      SKILL.md Step 3). Each ecosystem block also carries
-      `NAMED_DEPENDABOT_GROUPS`: ONE canonical union of the
-      org's lockstep/stack Dependabot groups (`codeql-action`, `aws-cdk`,
+      SKILL.md Step 3). Each ecosystem block also carries the org's
+      named Dependabot groups — ONE union of its lockstep/stack groups,
+      rendered identically into every armed ecosystem — not scoped per
+      ecosystem, per the same arm-everything-unconditionally/
+      repo-identity principle `DEPENDABOT_ECOSYSTEMS` itself follows. A
+      group whose patterns match nothing in a given ecosystem is inert
+      there. The registry is a per-org input (issue #88):
+      `OrgRenderOptions.namedDependabotGroups` (a `NamedDependabotGroups`
+      map of group name → patterns), threaded from `buildDesiredFiles`
+      through `renderDependabotYml`; when absent, the baked
+      `DEFAULT_NAMED_DEPENDABOT_GROUPS` (`codeql-action`, `aws-cdk`,
       `vite-toolchain`, `fastapi-stack`, `sqlalchemy-stack`, `auth-stack`,
-      `aws-sdk`, `test-stack`), rendered identically into every armed
-      ecosystem — not scoped per ecosystem, per the same
-      arm-everything-unconditionally/repo-identity principle
-      `DEPENDABOT_ECOSYSTEMS` itself follows. A group whose patterns
-      match nothing in a given ecosystem is inert there. Definitions and
-      precedence (named groups listed before each ecosystem's
-      `*-minor-and-patch` catch-all, so a dependency matching both lands
-      in the named group) are org-wide constants covering the org's
-      lockstep/stack dependency groupings. `renderPrAutomationTemplate` +
-      `PR_AUTOMATION_CONSTANTS` render the PR-automation
-      workflows' extra placeholders: the fixed org-level constants
-      (App identity, merge method, do-not-merge label, required-check/
+      `aws-sdk`, `test-stack`) renders byte-for-byte as before, and
+      `NAMED_DEPENDABOT_GROUPS` remains exported as that default's
+      rendered text. `renderNamedGroupsBlock` produces the block from
+      either registry, at the fixed 6/8/10-space indents the `groups:`
+      map needs; an empty registry drops the placeholder line (the same
+      empty-block collapse `__VERSIONING_STRATEGY_BLOCK__` gets), and a
+      group whose pattern list is empty throws (a valueless `patterns:`
+      key is not the list shape Dependabot accepts — fail loud, like the
+      unresolved-token assertion, rather than ship it).
+      Precedence is unchanged either way: named groups are listed before
+      each ecosystem's `*-minor-and-patch` catch-all, so a dependency
+      matching both lands in the named group. `renderPrAutomationTemplate`
+      renders the PR-automation workflows' extra placeholders, split
+      along the identity/contract line (issue #89):
+      `PR_AUTOMATION_CONSTANTS` are the fixed, org-agnostic contract
+      constants (merge method, do-not-merge label, required-check/
       install-gate workflow names, and `__INSTALL_GATE_CHECK__` — the
       install gate's single required-check job name, which the
-      lockfile-regen pass keys off) plus the per-repo-but-derived
-      `__BOT_SLUG__` (`<repo>-auto-rebase[bot]`), layered on top of the
+      lockfile-regen pass keys off) with deliberately no override path;
+      the App-identity slice (`__APP_NAME__`, `__APP_ID_SECRET__`,
+      `__APP_PRIVATE_KEY_SECRET__`, `__BOT_SLUG__`) is the per-org
+      `OrgRenderOptions.prAutomationIdentity` (a `PrAutomationIdentity`),
+      defaulting to `DEFAULT_PR_AUTOMATION_IDENTITY`, because each org
+      owns its own PR-automation App. `botSlug` is a pattern that may
+      carry the per-repo tokens — the default `__GH_REPO__-auto-rebase[bot]`
+      is the historical `<repo>-auto-rebase[bot]` derivation, resolved by
+      the final `renderTemplate` pass; a fixed org bot identity is a plain
+      string. Both are layered on top of the
       same three per-repo tokens `renderTemplate` already resolves. No
       single template uses every constant — `auto-rebase-prs.yml` owns
       the sweep-side ones (`__REQUIRED_CHECK_WORKFLOW__`,
@@ -151,11 +175,36 @@ npm run lint:md
       byte-for-byte and executable under `.github/scripts/`. The
       `COMMUNITY_FILES` list ships verbatim, non-executable
       community/governance files (`CONTRIBUTORS`, `LICENSE`, `PATENTS`,
-      `PRIOR_ART.md`) at repo root; these are the one payload kind that
+      `PRIOR_ART.md` — the paths are exported as `COMMUNITY_FILE_PATHS`)
+      at repo root; these are the one payload kind that
       is **seed-if-absent** rather than converge-and-overwrite, flagged
       by the optional `honoredLocations` field on `DesiredFile` —
       present only on `COMMUNITY_FILES` entries, absent (and therefore
-      always converge-and-overwrite) on every other payload.
+      always converge-and-overwrite) on every other payload. They are
+      also the one payload kind whose CONTENT is not an asset of this
+      repo (issue #90): `buildDesiredFiles(ctx, options)` takes it as
+      `DesiredFilesOptions.communityFiles` (a path → content map, the
+      org's own copies as read from its `.github` repo by
+      `community.ts`) and emits a `DesiredFile` only for the paths the
+      map carries — a path absent from the map is silently not a
+      payload (no error, no empty file), and an absent map seeds
+      nothing. `DesiredFilesOptions` extends `OrgRenderOptions`, so the
+      same object carries the render inputs (`namedDependabotGroups`,
+      `prAutomationIdentity`, each with a baked default);
+      `communityFiles` is the one field with no baked default.
+    - `community.ts` — `readOrgCommunityFiles(client, org)`: the
+      community-file seed source (issue #90). Looks each
+      `COMMUNITY_FILE_PATHS` entry up at the root of the target org's
+      `.github` repo (`COMMUNITY_SOURCE_REPO`) via
+      `ContentsClient.readFileIfPresent` and returns the present ones by
+      path; a file missing there, or an org with no `.github` repo at
+      all, is simply left out — never an error — composing with the
+      seed-if-absent semantics as "nothing to seed". A non-404 read
+      failure propagates. This is a **deliberate, narrow exception** to
+      the converger's no-external-source-of-truth contract, confined to
+      community files; workflows, scripts, gates, and the ruleset stay
+      canonical in `assets/`. The converger App's org-wide installation
+      already grants the read.
     - `writer.ts` — `convergeRepoFiles`: whole-file compare (a right-
       content-wrong-mode script counts as differing), commit changed
       files onto the fixed `gh-repo-config/converge` branch, open/update
@@ -165,7 +214,17 @@ npm run lint:md
       `honoredLocations` is skipped entirely — never compared for
       drift, never overwritten — once the target repo has its own copy
       at the file's own path or at any of `honoredLocations` (repo
-      root, `.github/`, `docs/` for the current community files).
+      root, `.github/`, `docs/` for the current community files). Takes
+      the same `DesiredFilesOptions` as `buildDesiredFiles`; when the
+      caller supplies no `communityFiles` it reads them itself via
+      `readOrgCommunityFiles` (so a bare call still seeds at sweep
+      time), while `runSweepFromEnv` reads them once per sweep, lazily,
+      and passes the same map to every repo's converge. That read is
+      one memoized promise, so a non-404 failure on it (auth, rate
+      limit) fails every repo's converge that tick — each recorded
+      `failed`, none stamped — and the next tick retries; only a
+      404 (no `.github` repo, or a file missing from it) is "nothing to
+      seed".
     - `ghas.ts` — `convergeGhasSettings`: read-then-write
       each GHAS/repo-security toggle and merge-button setting
       independently — one setting's failure (report-and-skip on a 422
@@ -236,7 +295,21 @@ npm run lint:md
     injectable stubs (tests supply their own) and run independently per
     repo in the same per-repo pass — one step's failure doesn't skip the
     others, but any failure marks the repo `failed` and skips stamping.
-    `runSweepFromEnv` wires the real implementations in production. The
+    `runSweepFromEnv` wires the real implementations in production. Of
+    the per-org `DesiredFilesOptions` it supplies only `communityFiles`
+    (read from the org's `.github` repo, above); it never sets
+    `namedDependabotGroups` or `prAutomationIdentity`, so a scheduled
+    sweep always renders the baked `DEFAULT_NAMED_DEPENDABOT_GROUPS`
+    and `DEFAULT_PR_AUTOMATION_IDENTITY` — no env var or config file
+    feeds those seams yet. The ruleset step's `AUTOMERGE_APP_SLUG`
+    (`src/converge/ruleset.ts`, the pr-automation App it ensures as a
+    `protect-main` bypass actor) is derived from
+    `DEFAULT_PR_AUTOMATION_IDENTITY.appName` — the default of the same
+    per-org fact, not an independent org constant — and has no per-org
+    plumbing of its own yet either; a caller supplying a non-default
+    `prAutomationIdentity` gets that identity in the rendered workflows
+    but still the default slug in the ruleset, until the sweep-side
+    wiring threads one identity through both. The
     merge pass runs independently of the version-skip
     decision, over every repo the properties API returns, so an
     unmerged converger PR from a prior tick still gets picked up.
@@ -256,7 +329,10 @@ npm run lint:md
 - `assets/` — the template payloads the converger renders. This repo's
   `assets/` files are the payloads: `render.ts` and `files.ts` operate
   directly on them, with no external source of truth to reconcile
-  against at runtime. The set: `dependabot.yml` +
+  against at runtime — the one exception being the community files,
+  which are the target org's own content read from its `.github` repo
+  (see `src/converge/community.ts`) and are not in `assets/` at all.
+  The set: `dependabot.yml` +
   `ecosystem-block.yml` templates, the gate/guard `.yml` workflows, the
   CodeQL payload set (`codeql.yml` workflow, `codeql-config.yml`,
   `codeql-language-present.sh` runtime language-detection script + its
@@ -442,12 +518,13 @@ npm run lint:md
   repo. The authoritative payload is always the file under `assets/`;
   the live copy is an output of the sweep and must never be hand-
   edited to match it.
-  Separately, `CONTRIBUTORS`, `LICENSE`,
-  `PATENTS`, and `PRIOR_ART.md` are this repo's own root files,
-  copied verbatim into `assets/` and shipped as the fixed seed-if-
-  absent payload every managed repo receives (see `files.ts`'s
-  `COMMUNITY_FILES`). These are shipped as static files in `assets/`,
-  not read per-org at converge time. Packed into the release tarball
+  Separately, this repo's own root `CONTRIBUTORS`, `LICENSE`,
+  `PATENTS`, and `PRIOR_ART.md` are just that — this repo's own. They
+  are NOT copied into `assets/` and are not what managed repos receive:
+  the seed-if-absent community payload every managed repo gets is the
+  target org's own copy of each, read from the org's `.github` repo at
+  sweep time (issue #90; see `files.ts`'s `COMMUNITY_FILES` and
+  `community.ts`). `assets/` is packed into the release tarball
   (`.github/workflows/release.yml`) alongside `dist`/`bin`/
   `package.json`.
 - `bin/gh-repo-config.js` — CLI entry point (`package.json` `bin`).

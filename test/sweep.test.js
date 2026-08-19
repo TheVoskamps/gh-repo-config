@@ -486,6 +486,12 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     // This same bare-repo-object route also serves RepoSettingsClient's
     // read (security_and_analysis + merge-button state) and its PATCH
     // writes (secret scanning, push-protection bypass, merge-button).
+    // The community-file seed lookup (issue #90) reads the org's
+    // `.github` repo once for the whole sweep; an org without one 404s
+    // every path, which seeds nothing and is not a failure.
+    if (url.includes("/repos/TheVoskamps/.github/contents/") && method === "GET") {
+      return { ok: false, status: 404, statusText: "Not Found", json: async () => ({}) };
+    }
     if (url.endsWith("/repos/TheVoskamps/fixture-behind") && method === "GET") {
       return { ok: true, status: 200, statusText: "OK", json: async () => ({ default_branch: "main" }) };
     }

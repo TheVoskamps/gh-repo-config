@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildDesiredFiles, assertNoUnresolvedTokens } from "../dist/index.js";
+import {
+  buildDesiredFiles,
+  assertNoUnresolvedTokens,
+  renderNamedGroupsBlock,
+  NAMED_DEPENDABOT_GROUPS,
+  COMMUNITY_FILE_PATHS,
+} from "../dist/index.js";
 import { readAssetText } from "../dist/index.js";
 
 const CTX = { org: "TheVoskamps", repo: "example", defaultBranch: "main" };
@@ -48,8 +54,18 @@ const workflowJobIds = (content) => {
   return ids;
 };
 
+// The org's community-file seed content, as `readOrgCommunityFiles`
+// would return it (issue #90). Passed explicitly here: `buildDesiredFiles`
+// is pure and takes the content as an input rather than reading it.
+const COMMUNITY_CONTENT = {
+  CONTRIBUTORS: "Ada Lovelace <ada@example.org>\n",
+  LICENSE: "MIT License\n\nCopyright (c) Example Org\n",
+  PATENTS: "No patent grant.\n",
+  "PRIOR_ART.md": "# Prior art\n\nNone recorded.\n",
+};
+
 test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/config + gate/guard workflows + the codeartifact-auth action + scripts + community files", () => {
-  const files = buildDesiredFiles(CTX);
+  const files = buildDesiredFiles(CTX, { communityFiles: COMMUNITY_CONTENT });
   const paths = files.map((f) => f.path);
   assert.deepEqual(paths, [
     ".github/dependabot.yml",
@@ -77,6 +93,49 @@ test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/confi
     "PATENTS",
     "PRIOR_ART.md",
   ]);
+});
+
+test("buildDesiredFiles with no options renders the default named groups; an org registry replaces them in dependabot.yml only (issue #88)", () => {
+  const dependabotOf = (files) =>
+    files.find((f) => f.path === ".github/dependabot.yml").content;
+  const bare = buildDesiredFiles(CTX);
+  const empty = buildDesiredFiles(CTX, {});
+  assert.deepEqual(empty, bare);
+  assert.ok(dependabotOf(bare).includes(NAMED_DEPENDABOT_GROUPS));
+
+  const orgGroups = { "acme-sdk": ["@acme/*"] };
+  const overridden = buildDesiredFiles(CTX, { namedDependabotGroups: orgGroups });
+  const dep = dependabotOf(overridden);
+  assert.ok(dep.includes(renderNamedGroupsBlock(orgGroups)));
+  assert.doesNotMatch(dep, /codeql-action:/);
+  // Every other payload is untouched by the registry.
+  const others = (files) => files.filter((f) => f.path !== ".github/dependabot.yml");
+  assert.deepEqual(others(overridden), others(bare));
+});
+
+test("an org-supplied PR-automation identity reaches both PR-automation workflows and nothing else (issue #89)", () => {
+  const bare = buildDesiredFiles(CTX);
+  const identity = {
+    appName: "acme-pr-bot",
+    appIdSecret: "ACME_BOT_APP_ID",
+    appPrivateKeySecret: "ACME_BOT_APP_PRIVATE_KEY",
+    botSlug: "acme-pr-bot[bot]",
+  };
+  const overridden = buildDesiredFiles(CTX, { prAutomationIdentity: identity });
+  const PR_AUTOMATION = [
+    ".github/workflows/auto-enable-automerge.yml",
+    ".github/workflows/auto-rebase-prs.yml",
+  ];
+  for (const path of PR_AUTOMATION) {
+    const f = overridden.find((x) => x.path === path);
+    assert.match(f.content, /secrets\.ACME_BOT_APP_ID/, path);
+    // The template's own comment header still mentions the example
+    // secret names in prose, so assert on the `secrets.` reference.
+    assert.doesNotMatch(f.content, /secrets\.AUTOMERGE_APP_ID/, path);
+    assert.doesNotThrow(() => assertNoUnresolvedTokens(f.content, path));
+  }
+  const others = (files) => files.filter((f) => !PR_AUTOMATION.includes(f.path));
+  assert.deepEqual(others(overridden), others(bare));
 });
 
 test("the CodeQL config lands at the exact path the workflow's config-file: line references", () => {
@@ -334,12 +393,16 @@ test("the install gate grants id-token: write on its single job only", () => {
 
 const COMMUNITY_PATHS = ["CONTRIBUTORS", "LICENSE", "PATENTS", "PRIOR_ART.md"];
 
-test("community files ship byte-for-byte verbatim at repo root, non-executable, seed-if-absent", () => {
-  const files = buildDesiredFiles(CTX);
+test("COMMUNITY_FILE_PATHS names exactly the community files, in payload order (issue #90)", () => {
+  assert.deepEqual([...COMMUNITY_FILE_PATHS], COMMUNITY_PATHS);
+});
+
+test("community files ship the org's own content byte-for-byte at repo root, non-executable, seed-if-absent (issue #90)", () => {
+  const files = buildDesiredFiles(CTX, { communityFiles: COMMUNITY_CONTENT });
   const community = files.filter((f) => COMMUNITY_PATHS.includes(f.path));
   assert.equal(community.length, COMMUNITY_PATHS.length);
   for (const f of community) {
-    assert.equal(f.content, readAssetText(f.path), `${f.path} must be verbatim`);
+    assert.equal(f.content, COMMUNITY_CONTENT[f.path], `${f.path} must be the org's content verbatim`);
     assert.equal(f.executable, false, `${f.path} should not be executable`);
     assert.ok(
       Array.isArray(f.honoredLocations) && f.honoredLocations.length > 0,
@@ -348,8 +411,39 @@ test("community files ship byte-for-byte verbatim at repo root, non-executable, 
   }
 });
 
+test("a community file the org does not carry produces no payload entry — no error, no empty file (issue #90)", () => {
+  const { LICENSE, ...withoutLicense } = COMMUNITY_CONTENT;
+  const files = buildDesiredFiles(CTX, { communityFiles: withoutLicense });
+  const paths = files.map((f) => f.path);
+  assert.equal(paths.includes("LICENSE"), false);
+  for (const path of ["CONTRIBUTORS", "PATENTS", "PRIOR_ART.md"]) {
+    assert.ok(paths.includes(path), `${path} still seeded`);
+  }
+  assert.equal(files.some((f) => f.content === ""), false, "no empty file emitted");
+});
+
+test("no community content (org without a .github repo) or no options at all: no community payload, everything else unchanged (issue #90)", () => {
+  const withAll = buildDesiredFiles(CTX, { communityFiles: COMMUNITY_CONTENT });
+  const nonCommunity = (files) => files.filter((f) => !COMMUNITY_PATHS.includes(f.path));
+  for (const files of [
+    buildDesiredFiles(CTX, { communityFiles: {} }),
+    buildDesiredFiles(CTX, {}),
+    buildDesiredFiles(CTX),
+  ]) {
+    assert.equal(files.some((f) => COMMUNITY_PATHS.includes(f.path)), false);
+    assert.deepEqual(files, nonCommunity(withAll));
+  }
+});
+
+test("only the known community paths are consulted; extra keys in the org's map are ignored (issue #90)", () => {
+  const files = buildDesiredFiles(CTX, {
+    communityFiles: { ...COMMUNITY_CONTENT, "SECURITY.md": "# Security\n" },
+  });
+  assert.equal(files.some((f) => f.path === "SECURITY.md"), false);
+});
+
 test("community files honor .github/ and docs/ as alternate locations", () => {
-  const files = buildDesiredFiles(CTX);
+  const files = buildDesiredFiles(CTX, { communityFiles: COMMUNITY_CONTENT });
   for (const path of COMMUNITY_PATHS) {
     const f = files.find((x) => x.path === path);
     assert.deepEqual(f.honoredLocations, [`.github/${path}`, `docs/${path}`]);
@@ -357,7 +451,7 @@ test("community files honor .github/ and docs/ as alternate locations", () => {
 });
 
 test("every other (non-community) DesiredFile carries no honoredLocations", () => {
-  const files = buildDesiredFiles(CTX);
+  const files = buildDesiredFiles(CTX, { communityFiles: COMMUNITY_CONTENT });
   for (const f of files) {
     if (COMMUNITY_PATHS.includes(f.path)) continue;
     assert.equal(

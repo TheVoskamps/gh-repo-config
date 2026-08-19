@@ -23,9 +23,16 @@
  *   written only when the target has no copy at its own path nor at any
  *   honored basename-location; when the target already has its own
  *   (byte-identical or not) the file is skipped entirely, not compared
- *   for drift.
+ *   for drift. Its seed content is the org's own, read from the org's
+ *   `.github` repo (issue #90, `community.ts`) — supplied by the caller
+ *   or, failing that, looked up here.
  */
-import { buildDesiredFiles, type DesiredFile } from "./files.js";
+import {
+  buildDesiredFiles,
+  type DesiredFile,
+  type DesiredFilesOptions,
+} from "./files.js";
+import { readOrgCommunityFiles } from "./community.js";
 import type { RepoContext } from "./render.js";
 import {
   ContentsClient,
@@ -109,16 +116,23 @@ function hasOwnCopy(desired: DesiredFile, existingPaths: ReadonlySet<string>): b
  * @param owner the target repo's owner (org/user).
  * @param repo the target repo's name (without owner).
  * @param dryRun when `true`, decide and report diffs without writing.
+ * @param options the per-org inputs {@link buildDesiredFiles} takes.
+ *   When `communityFiles` is absent it is read here from the owner's
+ *   `.github` repo ({@link readOrgCommunityFiles}); a sweep converging
+ *   many repos of one org passes it in, read once, instead.
  */
 export async function convergeRepoFiles(
   client: ContentsClient,
   owner: string,
   repo: string,
   dryRun: boolean,
+  options: DesiredFilesOptions = {},
 ): Promise<ConvergeResult> {
   const defaultBranch = await client.getDefaultBranch(owner, repo);
   const ctx: RepoContext = { org: owner, repo, defaultBranch };
-  const desired = buildDesiredFiles(ctx);
+  const communityFiles =
+    options.communityFiles ?? (await readOrgCommunityFiles(client, owner));
+  const desired = buildDesiredFiles(ctx, { ...options, communityFiles });
 
   const baseSha = await client.getBranchHeadSha(owner, repo, defaultBranch);
   const existingTree = await client.readTree(owner, repo, baseSha);
