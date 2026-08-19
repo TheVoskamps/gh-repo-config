@@ -32,4 +32,4 @@ does pass: a plain `cmd > <abs-path-inside-worktree>` with no other
 shell structure, e.g. `gh pr view N --json body --jq '.body' >
 <abs-path>`. `npm`/`node`/`git` invocations with `| tail`, `| grep` and
 `&&` chains of non-git commands also pass. Sibling note in the
-issue-developer's memory: [[worktree-gate-refuses-heredocs-and-chains]].
+issue-developer's memory: [[git-c-flag-blocked-in-worktree]].
