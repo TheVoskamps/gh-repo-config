@@ -46,7 +46,8 @@ export interface OrgRenderOptions {
    * armed ecosystem's `groups:` map ahead of the `*-minor-and-patch`
    * catch-all. Defaults to {@link DEFAULT_NAMED_DEPENDABOT_GROUPS}. An
    * empty map renders no named groups at all (the placeholder line is
-   * dropped, like any other empty block).
+   * dropped, like any other empty block); a group whose pattern list is
+   * empty makes the render throw (see {@link renderNamedGroupsBlock}).
    */
   readonly namedDependabotGroups?: NamedDependabotGroups;
   /**
@@ -69,7 +70,12 @@ export interface OrgRenderOptions {
  * are the converger's contract with its own gates and stay fixed.
  */
 export interface PrAutomationIdentity {
-  /** The App's slug — substitutes `__APP_NAME__`. */
+  /**
+   * The App's slug — substitutes `__APP_NAME__`. The default's value also
+   * seeds `AUTOMERGE_APP_SLUG` in `ruleset.ts` (the `protect-main` bypass
+   * actor); the ruleset step does not yet read a per-org identity, so a
+   * non-default `appName` reaches the rendered workflows only.
+   */
   readonly appName: string;
   /** Repo secret holding the App ID — substitutes `__APP_ID_SECRET__`. */
   readonly appIdSecret: string;
