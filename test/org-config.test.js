@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -520,6 +520,34 @@ for (const { name, env, match } of HARD_ERRORS) {
     assert.equal(fetched, false);
   });
 }
+
+test(
+  "a config file the process cannot read fails the sweep before any API call",
+  { skip: process.getuid?.() === 0 ? "mode 000 does not deny root" : false },
+  async () => {
+    let fetched = false;
+    await withConfigFile("{}", async (path) => {
+      chmodSync(path, 0o000);
+      await withFetch(
+        async () => {
+          fetched = true;
+          throw new Error("no API call should have been made");
+        },
+        async () => {
+          const named = new RegExp(
+            `org config file ${path.replace(/[.]/g, "\\.")} could not be read`,
+          );
+          await assert.rejects(() => readOrgConfig(path), named);
+          await assert.rejects(
+            () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path }),
+            named,
+          );
+        },
+      );
+    });
+    assert.equal(fetched, false);
+  },
+);
 
 for (const [name, text, match] of [
   ["invalid JSON", "{ nope", /invalid JSON/],
