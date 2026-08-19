@@ -252,7 +252,10 @@ on:
 # __APP_PRIVATE_KEY_SECRET__. A short-lived installation token is
 # minted at runtime by actions/create-github-app-token (see the first
 # job step); there is no long-lived stored token.
-# /gh-repo-setup-pr-automation seeds the two secrets. Until the App is
+# Only __APP_PRIVATE_KEY_SECRET__ is seeded by
+# /gh-repo-setup-pr-automation; that skill seeds the App's numeric ID,
+# which client-id: cannot consume, so __APP_CLIENT_ID_SECRET__ is an
+# org-level secret an operator sets by hand. Until the App is
 # provisioned the first workflow run fails fast at the token-mint step
 # with a clear error from actions/create-github-app-token; that failure
 # is intended.
