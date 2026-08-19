@@ -9,6 +9,7 @@ import {
   rulesetSemanticDiff,
   RULESET_NAME,
   AUTOMERGE_APP_SLUG,
+  DEFAULT_PR_AUTOMATION_IDENTITY,
 } from "../dist/index.js";
 
 const ADMIN = { actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "pull_request" };
@@ -791,4 +792,8 @@ test("converge: integration_id inside required_status_checks entries is never dr
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
   assert.equal(result.outcome, "unchanged");
   assert.equal(calls.length, 0);
+});
+
+test("AUTOMERGE_APP_SLUG is derived from the default PrAutomationIdentity's appName, not a second literal (issue #89)", () => {
+  assert.equal(AUTOMERGE_APP_SLUG, DEFAULT_PR_AUTOMATION_IDENTITY.appName);
 });

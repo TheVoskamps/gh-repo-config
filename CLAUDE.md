@@ -120,7 +120,10 @@ npm run lint:md
       rendered text. `renderNamedGroupsBlock` produces the block from
       either registry, at the fixed 6/8/10-space indents the `groups:`
       map needs; an empty registry drops the placeholder line (the same
-      empty-block collapse `__VERSIONING_STRATEGY_BLOCK__` gets).
+      empty-block collapse `__VERSIONING_STRATEGY_BLOCK__` gets), and a
+      group whose pattern list is empty throws (a valueless `patterns:`
+      key is not the list shape Dependabot accepts — fail loud, like the
+      unresolved-token assertion, rather than ship it).
       Precedence is unchanged either way: named groups are listed before
       each ecosystem's `*-minor-and-patch` catch-all, so a dependency
       matching both lands in the named group. `renderPrAutomationTemplate`
@@ -298,7 +301,15 @@ npm run lint:md
     `namedDependabotGroups` or `prAutomationIdentity`, so a scheduled
     sweep always renders the baked `DEFAULT_NAMED_DEPENDABOT_GROUPS`
     and `DEFAULT_PR_AUTOMATION_IDENTITY` — no env var or config file
-    feeds those seams yet. The
+    feeds those seams yet. The ruleset step's `AUTOMERGE_APP_SLUG`
+    (`src/converge/ruleset.ts`, the pr-automation App it ensures as a
+    `protect-main` bypass actor) is derived from
+    `DEFAULT_PR_AUTOMATION_IDENTITY.appName` — the default of the same
+    per-org fact, not an independent org constant — and has no per-org
+    plumbing of its own yet either; a caller supplying a non-default
+    `prAutomationIdentity` gets that identity in the rendered workflows
+    but still the default slug in the ruleset, until the sweep-side
+    wiring threads one identity through both. The
     merge pass runs independently of the version-skip
     decision, over every repo the properties API returns, so an
     unmerged converger PR from a prior tick still gets picked up.

@@ -361,8 +361,26 @@ export const DEFAULT_NAMED_DEPENDABOT_GROUPS: NamedDependabotGroups = {
  * first line carries no leading indent — the template's placeholder
  * line supplies it — and continuation lines carry their own absolute
  * indent. An empty registry renders the empty string.
+ *
+ * A group whose pattern list is empty is rejected, not rendered: the
+ * only thing it could emit is a valueless `patterns:` key, which is not
+ * the list shape Dependabot's parser accepts, so shipping it would break
+ * updates on every repo the block reaches. Same fail-loud posture as
+ * {@link assertNoUnresolvedTokens} — an org registry that carries such
+ * a group is a defect in the registry, and the sweep must say so rather
+ * than render it.
+ *
+ * @throws when any group's pattern list is empty.
  */
 export function renderNamedGroupsBlock(groups: NamedDependabotGroups): string {
+  const empty = Object.entries(groups)
+    .filter(([, patterns]) => patterns.length === 0)
+    .map(([name]) => name);
+  if (empty.length > 0) {
+    throw new Error(
+      `Named Dependabot group(s) with an empty pattern list: ${empty.join(", ")}`,
+    );
+  }
   return Object.entries(groups)
     .map(([name, patterns], i) => {
       const key = `${i === 0 ? "" : "      "}${name}:`;

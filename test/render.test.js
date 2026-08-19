@@ -377,6 +377,30 @@ test("an empty org registry drops the named-groups line entirely, leaving no whi
   }
 });
 
+test("renderNamedGroupsBlock rejects a group with an empty pattern list rather than emitting a valueless patterns: key (issue #88)", () => {
+  assert.throws(
+    () => renderNamedGroupsBlock({ "codeql-action": ["github/codeql-action/*"], "empty-one": [] }),
+    /empty pattern list: empty-one/,
+  );
+  // The failure surfaces through the composite render too — no partial output.
+  assert.throws(
+    () =>
+      renderDependabotYml(
+        readAssetText("dependabot.yml"),
+        readAssetText("ecosystem-block.yml"),
+        CTX,
+        { namedDependabotGroups: { "empty-one": [] } },
+      ),
+    /empty pattern list: empty-one/,
+  );
+  // Every offending group is named, and a non-empty registry still renders.
+  assert.throws(
+    () => renderNamedGroupsBlock({ a: [], b: ["x"], c: [] }),
+    /empty pattern list: a, c/,
+  );
+  assert.doesNotMatch(renderNamedGroupsBlock({ b: ["x"] }), /patterns:\n(?!\s+- )/);
+});
+
 test("target-branch reflects the per-repo default branch", () => {
   const out = renderDependabotYml(
     readAssetText("dependabot.yml"),
