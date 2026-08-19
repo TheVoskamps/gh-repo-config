@@ -21,6 +21,14 @@
  * call, so a malformed pin or policy fails the tick outright rather than
  * being silently ignored — a silently-ignored pin is worse than a failed
  * tick.
+ *
+ * Editing this file does not on its own re-converge a repo the sweep
+ * already stamped at `CURRENT_VERSION`: the version skip reads only the
+ * `gh-repo-config-version` stamp, which no config-file change moves.
+ * Delivering a new group or a new identity to already-current repos
+ * needs the converger's own `version` bumped, or those repos'
+ * `gh-repo-config-version` cleared. It is the same hazard an un-bumped
+ * `assets/` change carries.
  */
 import { readFile } from "node:fs/promises";
 import type {
@@ -84,14 +92,18 @@ export const DEFAULT_ORG_CONFIG: OrgConfig = {
 };
 
 /**
- * A parsed config plus the unknown-key warnings the parse collected.
- * Unknown keys never stop the sweep and are never silently dropped:
- * the caller prints one line per warning to stderr.
+ * Where an unknown-key warning goes. The parse calls this the moment it
+ * finds the key, rather than returning the warnings at the end, because
+ * a validation failure elsewhere in the same file throws before any
+ * return value exists — an unknown key alongside, say, a partial
+ * `pr-automation-identity` would otherwise be reported nowhere.
  */
-export interface ParsedOrgConfig {
-  readonly config: OrgConfig;
-  readonly warnings: readonly string[];
-}
+export type OrgConfigWarningSink = (warning: string) => void;
+
+/** The sink a caller gets when it names none: one line per warning on stderr. */
+const warnOnStderr: OrgConfigWarningSink = (warning) => {
+  console.error(warning);
+};
 
 /** Top-level keys this converger version understands. */
 const KNOWN_KEYS = [
@@ -147,18 +159,41 @@ function parseNamedGroups(raw: unknown): NamedDependabotGroups {
   return groups;
 }
 
-function parseIdentity(raw: unknown, warnings: string[]): PrAutomationIdentity {
+/**
+ * Report every key this converger version does not understand, at the
+ * top level and inside `pr-automation-identity`.
+ *
+ * This runs as its own pass before any value is validated, so an
+ * unknown key is reported even when another key's malformed value then
+ * fails the whole parse.
+ */
+function warnUnknownKeys(
+  parsed: Record<string, unknown>,
+  onWarning: OrgConfigWarningSink,
+): void {
+  for (const key of Object.keys(parsed)) {
+    if (!(KNOWN_KEYS as readonly string[]).includes(key)) {
+      onWarning(`org config: unknown key "${key}" (ignored)`);
+    }
+  }
+  const identity = parsed["pr-automation-identity"];
+  if (!isPlainObject(identity)) {
+    return;
+  }
+  for (const key of Object.keys(identity)) {
+    if (!(IDENTITY_KEYS as readonly string[]).includes(key)) {
+      onWarning(
+        `org config: unknown key "pr-automation-identity.${key}" (ignored)`,
+      );
+    }
+  }
+}
+
+function parseIdentity(raw: unknown): PrAutomationIdentity {
   if (!isPlainObject(raw)) {
     throw new Error(
       'org config "pr-automation-identity": must be an object carrying app-name, app-id-secret, app-private-key-secret, and bot-slug',
     );
-  }
-  for (const key of Object.keys(raw)) {
-    if (!(IDENTITY_KEYS as readonly string[]).includes(key)) {
-      warnings.push(
-        `org config: unknown key "pr-automation-identity.${key}" (ignored)`,
-      );
-    }
   }
   return {
     appName: requireIdentityString(raw, "app-name"),
@@ -206,11 +241,16 @@ function parsePolicy(raw: unknown): SweeperUpdatePolicy {
  * Parse and validate an org config file's text.
  *
  * @param text the file's contents, expected to be a JSON object.
- * @returns the resolved config plus one warning per unknown key.
+ * @param onWarning where each unknown key's warning goes; defaults to
+ *   stderr, so a caller that names no sink still cannot lose one.
+ * @returns the resolved config.
  * @throws Error naming the offending key when any value has the wrong
  *   shape, or when the text is not a JSON object.
  */
-export function parseOrgConfig(text: string): ParsedOrgConfig {
+export function parseOrgConfig(
+  text: string,
+  onWarning: OrgConfigWarningSink = warnOnStderr,
+): OrgConfig {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -223,19 +263,14 @@ export function parseOrgConfig(text: string): ParsedOrgConfig {
     throw new Error("org config: the top level must be a JSON object");
   }
 
-  const warnings: string[] = [];
-  for (const key of Object.keys(parsed)) {
-    if (!(KNOWN_KEYS as readonly string[]).includes(key)) {
-      warnings.push(`org config: unknown key "${key}" (ignored)`);
-    }
-  }
+  warnUnknownKeys(parsed, onWarning);
 
   const config: OrgConfig = {
     ...("named-dependabot-groups" in parsed
       ? { namedDependabotGroups: parseNamedGroups(parsed["named-dependabot-groups"]) }
       : {}),
     ...("pr-automation-identity" in parsed
-      ? { prAutomationIdentity: parseIdentity(parsed["pr-automation-identity"], warnings) }
+      ? { prAutomationIdentity: parseIdentity(parsed["pr-automation-identity"]) }
       : {}),
     ...("version-pin" in parsed
       ? { versionPin: parseVersionPin(parsed["version-pin"]) }
@@ -245,7 +280,7 @@ export function parseOrgConfig(text: string): ParsedOrgConfig {
         ? parsePolicy(parsed["sweeper-update-policy"])
         : DEFAULT_SWEEPER_UPDATE_POLICY,
   };
-  return { config, warnings };
+  return config;
 }
 
 /**
@@ -254,8 +289,13 @@ export function parseOrgConfig(text: string): ParsedOrgConfig {
  * absence is a misconfiguration rather than "no config".
  *
  * @param path the file path `GH_REPO_CONFIG_FILE` named.
+ * @param onWarning where each unknown key's warning goes; defaults to
+ *   stderr, as in {@link parseOrgConfig}.
  */
-export async function readOrgConfig(path: string): Promise<ParsedOrgConfig> {
+export async function readOrgConfig(
+  path: string,
+  onWarning: OrgConfigWarningSink = warnOnStderr,
+): Promise<OrgConfig> {
   let text: string;
   try {
     text = await readFile(path, "utf8");
@@ -264,7 +304,7 @@ export async function readOrgConfig(path: string): Promise<ParsedOrgConfig> {
       `org config file ${path} could not be read: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  return parseOrgConfig(text);
+  return parseOrgConfig(text, onWarning);
 }
 
 /**

@@ -827,12 +827,9 @@ export async function runSweepFromEnv(
   // made: a pin or a policy that was silently ignored is worse than a
   // tick that failed loudly.
   const configFile = env.GH_REPO_CONFIG_FILE;
-  const { config, warnings } = configFile
+  const config = configFile
     ? await readOrgConfig(configFile)
-    : { config: DEFAULT_ORG_CONFIG, warnings: [] as readonly string[] };
-  for (const warning of warnings) {
-    console.error(warning);
-  }
+    : DEFAULT_ORG_CONFIG;
   assertVersionPinSatisfied(config.versionPin, CURRENT_VERSION);
   const sweeperRepo = parseSweeperRepo(env.GH_REPO_CONFIG_SWEEPER_REPO);
 

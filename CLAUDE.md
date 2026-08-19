@@ -87,7 +87,17 @@ npm run lint:md
     is a thrown `Error` naming the key, raised before the sweep's first
     API call — a silently-ignored pin or policy is worse than a failed
     tick. Unknown keys, top-level or inside `pr-automation-identity`,
-    are one stderr warning line each and never stop the sweep.
+    are one stderr warning line each and never stop the sweep — emitted
+    through a caller-supplied sink (`OrgConfigWarningSink`, defaulting to
+    stderr) as each key is found, in one pass ahead of all validation, so
+    a malformed value elsewhere in the same file cannot swallow the
+    warning by throwing first. Editing this file does NOT on its own
+    re-converge a repo already stamped at `CURRENT_VERSION`: the version
+    skip reads only the `gh-repo-config-version` stamp, which no
+    config-file change moves, so a new named group or a new identity
+    reaches already-current repos only once the converger's own
+    `version` is bumped (or those repos' stamps are cleared) — the same
+    hazard Conventions documents for an un-bumped `assets/` change.
     `assertVersionPinSatisfied` is the pin's defense-in-depth check
     (the sweeper workflow is its intended primary consumer, so this is
     the only pin enforcement that runs today): strip the leading `v`,

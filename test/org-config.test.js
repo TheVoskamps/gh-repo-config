@@ -43,20 +43,23 @@ async function withConfigFile(text, body) {
 // ---------------------------------------------------------------------
 
 test("an empty object takes every default and warns about nothing", () => {
-  const { config, warnings } = parseOrgConfig("{}");
+  const warnings = [];
+  const config = parseOrgConfig("{}", (w) => warnings.push(w));
   assert.deepEqual(config, DEFAULT_ORG_CONFIG);
   assert.equal(config.sweeperUpdatePolicy, DEFAULT_SWEEPER_UPDATE_POLICY);
   assert.deepEqual(warnings, []);
 });
 
 test("a fully populated file resolves every key", () => {
-  const { config, warnings } = parseOrgConfig(
+  const warnings = [];
+  const config = parseOrgConfig(
     JSON.stringify({
       "named-dependabot-groups": { "acme-sdk": ["@acme/*", "acme-core"] },
       "pr-automation-identity": IDENTITY_JSON,
       "version-pin": "v1.2.3",
       "sweeper-update-policy": "auto",
     }),
+    (w) => warnings.push(w),
   );
   assert.deepEqual(config.namedDependabotGroups, {
     "acme-sdk": ["@acme/*", "acme-core"],
@@ -75,7 +78,7 @@ test("a fully populated file resolves every key", () => {
 test("each key alone leaves the others at their defaults", () => {
   const groupsOnly = parseOrgConfig(
     JSON.stringify({ "named-dependabot-groups": { g: ["p"] } }),
-  ).config;
+  );
   assert.deepEqual(groupsOnly.namedDependabotGroups, { g: ["p"] });
   assert.equal(groupsOnly.prAutomationIdentity, undefined);
   assert.equal(groupsOnly.versionPin, undefined);
@@ -83,27 +86,25 @@ test("each key alone leaves the others at their defaults", () => {
 
   const identityOnly = parseOrgConfig(
     JSON.stringify({ "pr-automation-identity": IDENTITY_JSON }),
-  ).config;
+  );
   assert.equal(identityOnly.prAutomationIdentity.appName, "acme-pr-automations");
   assert.equal(identityOnly.namedDependabotGroups, undefined);
 
-  const pinOnly = parseOrgConfig(JSON.stringify({ "version-pin": "v0.1.0" })).config;
+  const pinOnly = parseOrgConfig(JSON.stringify({ "version-pin": "v0.1.0" }));
   assert.equal(pinOnly.versionPin, "v0.1.0");
   assert.equal(pinOnly.namedDependabotGroups, undefined);
 
   for (const policy of SWEEPER_UPDATE_POLICIES) {
     const policyOnly = parseOrgConfig(
       JSON.stringify({ "sweeper-update-policy": policy }),
-    ).config;
+    );
     assert.equal(policyOnly.sweeperUpdatePolicy, policy);
     assert.equal(policyOnly.versionPin, undefined);
   }
 });
 
 test("an empty named-groups map is a real value, not an absent key", () => {
-  const { config } = parseOrgConfig(
-    JSON.stringify({ "named-dependabot-groups": {} }),
-  );
+  const config = parseOrgConfig(JSON.stringify({ "named-dependabot-groups": {} }));
   // Full replacement, not a merge: `{}` means "no named groups at all",
   // which must NOT fall back to DEFAULT_NAMED_DEPENDABOT_GROUPS.
   assert.deepEqual(config.namedDependabotGroups, {});
@@ -189,12 +190,14 @@ test("an unrecognized sweeper-update-policy is a hard error", () => {
 // ---------------------------------------------------------------------
 
 test("unknown keys warn by name and parsing continues", () => {
-  const { config, warnings } = parseOrgConfig(
+  const warnings = [];
+  const config = parseOrgConfig(
     JSON.stringify({
       "version-pin": "v9.9.9",
       "future-key": true,
       "pr-automation-identity": { ...IDENTITY_JSON, "app-owner": "acme" },
     }),
+    (w) => warnings.push(w),
   );
   assert.equal(config.versionPin, "v9.9.9");
   assert.equal(config.prAutomationIdentity.appName, "acme-pr-automations");
@@ -204,16 +207,57 @@ test("unknown keys warn by name and parsing continues", () => {
   ]);
 });
 
+test("unknown keys are reported even when another key then fails the parse", () => {
+  // The warning is emitted as the key is found, so a hard error raised
+  // afterwards cannot swallow it — including one raised by the very
+  // object the unknown key sits in.
+  const partial = { ...IDENTITY_JSON, "app-owner": "acme" };
+  delete partial["bot-slug"];
+  const warnings = [];
+  assert.throws(
+    () =>
+      parseOrgConfig(
+        JSON.stringify({
+          "future-key": true,
+          "named-dependabot-groups": { g: [] },
+          "pr-automation-identity": partial,
+        }),
+        (w) => warnings.push(w),
+      ),
+    /"named-dependabot-groups\.g": must be a non-empty array/,
+  );
+  assert.deepEqual(warnings, [
+    'org config: unknown key "future-key" (ignored)',
+    'org config: unknown key "pr-automation-identity.app-owner" (ignored)',
+  ]);
+
+  const identityOnly = [];
+  assert.throws(
+    () =>
+      parseOrgConfig(JSON.stringify({ "pr-automation-identity": partial }), (w) =>
+        identityOnly.push(w),
+      ),
+    /"pr-automation-identity\.bot-slug": required/,
+  );
+  assert.deepEqual(identityOnly, [
+    'org config: unknown key "pr-automation-identity.app-owner" (ignored)',
+  ]);
+});
+
 // ---------------------------------------------------------------------
 // readOrgConfig
 // ---------------------------------------------------------------------
 
-test("readOrgConfig reads and parses a file", async () => {
-  const { config } = await withConfigFile(
+test("readOrgConfig reads and parses a file, passing its sink through", async () => {
+  const warnings = [];
+  const config = await withConfigFile(
     JSON.stringify({ "sweeper-update-schedule": "daily", "version-pin": "v4.5.6" }),
-    (path) => readOrgConfig(path),
+    (path) => readOrgConfig(path, (w) => warnings.push(w)),
   );
   assert.equal(config.versionPin, "v4.5.6");
+  assert.deepEqual(warnings, [
+    'org config: unknown key "sweeper-update-schedule" (ignored)',
+  ]);
 });
 
 test("readOrgConfig on a missing file is a hard error naming the path", async () => {
@@ -488,6 +532,36 @@ test("an unknown key warns on stderr and the sweep still runs", async () => {
     console.error = originalError;
   }
   assert.deepEqual(errors, ['org config: unknown key "future-key" (ignored)']);
+});
+
+test("an unknown key still warns on stderr when the same file then fails the sweep", async () => {
+  const partial = { ...IDENTITY_JSON, "app-owner": "acme" };
+  delete partial["bot-slug"];
+  const originalError = console.error;
+  const errors = [];
+  console.error = (m) => errors.push(m);
+  try {
+    await withConfigFile(
+      JSON.stringify({ "pr-automation-identity": partial }),
+      async (path) => {
+        await withFetch(
+          async () => {
+            throw new Error("no API call should have been made");
+          },
+          () =>
+            assert.rejects(
+              () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path }),
+              /"pr-automation-identity\.bot-slug": required/,
+            ),
+        );
+      },
+    );
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(errors, [
+    'org config: unknown key "pr-automation-identity.app-owner" (ignored)',
+  ]);
 });
 
 // Every hard error must land before the first API call, so a bad pin or

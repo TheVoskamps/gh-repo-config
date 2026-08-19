@@ -6,6 +6,7 @@ import {
   PartialStampError,
   CURRENT_VERSION,
   isBehind,
+  DEFAULT_PR_AUTOMATION_IDENTITY,
 } from "../dist/index.js";
 
 // A minimal fake of OrgPropertiesClient — runSweep only calls
@@ -447,7 +448,7 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
         json: async () => ({
           installations: [
             { app_id: 4319606, app_slug: "test-converger" },
-            { app_id: 3835765, app_slug: "thevoskamps-pr-automations" },
+            { app_id: 3835765, app_slug: DEFAULT_PR_AUTOMATION_IDENTITY.appName },
           ],
         }),
       };

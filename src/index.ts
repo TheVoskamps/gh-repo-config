@@ -40,7 +40,7 @@ export {
   DEFAULT_SWEEPER_UPDATE_POLICY,
   DEFAULT_ORG_CONFIG,
   type OrgConfig,
-  type ParsedOrgConfig,
+  type OrgConfigWarningSink,
   type SweeperUpdatePolicy,
 } from "./config/org-config.js";
 
