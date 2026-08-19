@@ -256,8 +256,9 @@ on:
 # minted at runtime by actions/create-github-app-token (see the first
 # job step); there is no long-lived stored token.
 # Both are ORG secrets with all-repositories visibility, present in
-# BOTH org secret stores, the Actions one and the Dependabot one;
-# neither has a repo-scoped option. auto-enable-automerge.yml's header
+# BOTH org secret stores, the Actions one and the Dependabot one,
+# rather than as the repo-scoped secret each store also offers.
+# auto-enable-automerge.yml's header
 # states why, and both reasons are properties of the secrets rather
 # than of that workflow, so they hold wherever the secrets are read
 # from. /gh-repo-setup-pr-automation does not provide

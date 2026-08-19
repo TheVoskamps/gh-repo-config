@@ -90,10 +90,11 @@ export interface PrAutomationIdentity {
    * Both secrets this identity names — this one and
    * {@link PrAutomationIdentity.appPrivateKeySecret} — are provisioned
    * as ORG secrets with all-repositories visibility, present in BOTH
-   * org secret stores: the Actions one and the Dependabot one. Neither
-   * is a repo-scoped option. Org scope is forced by fanout: the payload
-   * reaches every managed repo, including repos created after
-   * provisioning, so a per-repo copy is not feasible. Both stores are
+   * org secret stores: the Actions one and the Dependabot one, rather
+   * than as the repo-scoped secret each store also offers. Org scope is
+   * forced by fanout: the payload reaches every managed repo, including
+   * repos created after provisioning, so a per-repo copy is not
+   * feasible. Both stores are
    * forced by Dependabot: the rendered `auto-enable-automerge.yml` runs
    * on `pull_request`, which includes Dependabot's own PRs, and a run a
    * Dependabot PR triggers resolves every `secrets.*` from the

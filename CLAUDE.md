@@ -401,10 +401,11 @@ npm run lint:md
     secrets the rendered workflows read — `AUTOMERGE_APP_CLIENT_ID` and
     `AUTOMERGE_APP_PRIVATE_KEY` — are ORG secrets with
     all-repositories visibility, present in BOTH org secret stores, the
-    Actions one and the Dependabot one; there is no repo-scoped option
-    for either. Org scope is the requirement, not a preference: the
-    payload fans out to every managed repo, including repos created
-    after the secrets were set, so a per-repo copy is not feasible.
+    Actions one and the Dependabot one. Org scope is the requirement,
+    not a preference. GitHub does offer a repo-scoped secret in each
+    store, but the payload fans out to every managed repo, including
+    repos created after the secrets were set, so a per-repo copy is not
+    feasible.
     Both stores is likewise a requirement, not belt-and-braces: the
     rendered `auto-enable-automerge.yml` runs on `pull_request`, which
     includes Dependabot's own PRs, and a run triggered by a Dependabot

@@ -75,9 +75,10 @@ on:
 #
 # BOTH secrets are ORG secrets with all-repositories visibility, and
 # BOTH must exist in BOTH org secret stores, the Actions one and the
-# Dependabot one. Neither has a repo-scoped option. Org scope, because
-# this template fans out to every managed repo, including repos created
-# after the secrets were set, so a per-repo copy is not feasible. Both
+# Dependabot one. Each store also offers a repo-scoped secret, which is
+# not usable here. Org scope, because this template fans out to every
+# managed repo, including repos created after the secrets were set, so
+# a per-repo copy is not feasible. Both
 # stores, because this workflow runs on pull_request, which includes
 # Dependabot's own PRs, and a run triggered by a Dependabot PR resolves
 # every secrets.* reference from the Dependabot store rather than the

@@ -84,7 +84,10 @@ the App installation token.
 deprecated in favour of `client-id:`, so this snippet emits a
 deprecation warning on every run. The rendered PR-automation payload
 (`assets/auto-enable-automerge.yml`, `assets/auto-rebase-prs.yml`) has
-moved to `client-id:`; this App has not — `sweep.yml` reads only
-`CONVERGER_APP_ID`, and a Client ID is a different value from the
-numeric App ID, so switching means provisioning a Client ID secret
-first.
+moved to `client-id:`; this App has not — `sweep.yml` and the snippet
+above still read `CONVERGER_APP_ID`. The secret the switch needs is
+already provisioned: `CONVERGER_APP_CLIENT_ID` exists as an
+`organization` secret visible to this repo, alongside the two in the
+table. A Client ID is a different value from the numeric App ID, so
+the switch is a matter of pointing the workflow at that secret, not of
+renaming anything.
