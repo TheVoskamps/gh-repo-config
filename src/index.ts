@@ -99,7 +99,18 @@ export {
   type RepoContext,
 } from "./converge/render.js";
 
-export { buildDesiredFiles, type DesiredFile } from "./converge/files.js";
+export {
+  buildDesiredFiles,
+  COMMUNITY_FILE_PATHS,
+  type DesiredFile,
+  type DesiredFilesOptions,
+  type CommunityFileContent,
+} from "./converge/files.js";
+
+export {
+  readOrgCommunityFiles,
+  COMMUNITY_SOURCE_REPO,
+} from "./converge/community.js";
 
 export { ASSETS_DIR, readAssetText } from "./converge/assets.js";
 

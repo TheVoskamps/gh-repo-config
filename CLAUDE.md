@@ -79,7 +79,11 @@ npm run lint:md
     file state, then commits changed files via the **git-data API**
     (blobs → tree → commit → ref) so scripts land mode `100755` (the
     contents API cannot set the executable bit), and opens or updates a
-    single PR to the default branch.
+    single PR to the default branch. Also carries `readFileIfPresent`,
+    the one contents-API read (`GET /repos/{o}/{r}/contents/{path}`),
+    absent-tolerant — a 404 (repo or path missing), a directory, or a
+    non-file all return `undefined`; any other non-2xx throws — used
+    only by the community-file seed lookup (`src/converge/community.ts`).
   - `src/github/settings.ts` — `RepoSettingsClient`, same dependency-
     free-`fetch` shape as the other `src/github/` clients. The converger's
     pure-API-mutation path (no files, no PR): read-then-PATCH
@@ -168,11 +172,36 @@ npm run lint:md
       byte-for-byte and executable under `.github/scripts/`. The
       `COMMUNITY_FILES` list ships verbatim, non-executable
       community/governance files (`CONTRIBUTORS`, `LICENSE`, `PATENTS`,
-      `PRIOR_ART.md`) at repo root; these are the one payload kind that
+      `PRIOR_ART.md` — the paths are exported as `COMMUNITY_FILE_PATHS`)
+      at repo root; these are the one payload kind that
       is **seed-if-absent** rather than converge-and-overwrite, flagged
       by the optional `honoredLocations` field on `DesiredFile` —
       present only on `COMMUNITY_FILES` entries, absent (and therefore
-      always converge-and-overwrite) on every other payload.
+      always converge-and-overwrite) on every other payload. They are
+      also the one payload kind whose CONTENT is not an asset of this
+      repo (issue #90): `buildDesiredFiles(ctx, options)` takes it as
+      `DesiredFilesOptions.communityFiles` (a path → content map, the
+      org's own copies as read from its `.github` repo by
+      `community.ts`) and emits a `DesiredFile` only for the paths the
+      map carries — a path absent from the map is silently not a
+      payload (no error, no empty file), and an absent map seeds
+      nothing. `DesiredFilesOptions` extends `OrgRenderOptions`, so the
+      same object carries the render inputs (`namedDependabotGroups`,
+      `prAutomationIdentity`, each with a baked default);
+      `communityFiles` is the one field with no baked default.
+    - `community.ts` — `readOrgCommunityFiles(client, org)`: the
+      community-file seed source (issue #90). Looks each
+      `COMMUNITY_FILE_PATHS` entry up at the root of the target org's
+      `.github` repo (`COMMUNITY_SOURCE_REPO`) via
+      `ContentsClient.readFileIfPresent` and returns the present ones by
+      path; a file missing there, or an org with no `.github` repo at
+      all, is simply left out — never an error — composing with the
+      seed-if-absent semantics as "nothing to seed". A non-404 read
+      failure propagates. This is a **deliberate, narrow exception** to
+      the converger's no-external-source-of-truth contract, confined to
+      community files; workflows, scripts, gates, and the ruleset stay
+      canonical in `assets/`. The converger App's org-wide installation
+      already grants the read.
     - `writer.ts` — `convergeRepoFiles`: whole-file compare (a right-
       content-wrong-mode script counts as differing), commit changed
       files onto the fixed `gh-repo-config/converge` branch, open/update
@@ -182,7 +211,12 @@ npm run lint:md
       `honoredLocations` is skipped entirely — never compared for
       drift, never overwritten — once the target repo has its own copy
       at the file's own path or at any of `honoredLocations` (repo
-      root, `.github/`, `docs/` for the current community files).
+      root, `.github/`, `docs/` for the current community files). Takes
+      the same `DesiredFilesOptions` as `buildDesiredFiles`; when the
+      caller supplies no `communityFiles` it reads them itself via
+      `readOrgCommunityFiles` (so a bare call still seeds at sweep
+      time), while `runSweepFromEnv` reads them once per sweep, lazily,
+      and passes the same map to every repo's converge.
     - `ghas.ts` — `convergeGhasSettings`: read-then-write
       each GHAS/repo-security toggle and merge-button setting
       independently — one setting's failure (report-and-skip on a 422
@@ -273,7 +307,10 @@ npm run lint:md
 - `assets/` — the template payloads the converger renders. This repo's
   `assets/` files are the payloads: `render.ts` and `files.ts` operate
   directly on them, with no external source of truth to reconcile
-  against at runtime. The set: `dependabot.yml` +
+  against at runtime — the one exception being the community files,
+  which are the target org's own content read from its `.github` repo
+  (see `src/converge/community.ts`) and are not in `assets/` at all.
+  The set: `dependabot.yml` +
   `ecosystem-block.yml` templates, the gate/guard `.yml` workflows, the
   CodeQL payload set (`codeql.yml` workflow, `codeql-config.yml`,
   `codeql-language-present.sh` runtime language-detection script + its
@@ -459,12 +496,13 @@ npm run lint:md
   repo. The authoritative payload is always the file under `assets/`;
   the live copy is an output of the sweep and must never be hand-
   edited to match it.
-  Separately, `CONTRIBUTORS`, `LICENSE`,
-  `PATENTS`, and `PRIOR_ART.md` are this repo's own root files,
-  copied verbatim into `assets/` and shipped as the fixed seed-if-
-  absent payload every managed repo receives (see `files.ts`'s
-  `COMMUNITY_FILES`). These are shipped as static files in `assets/`,
-  not read per-org at converge time. Packed into the release tarball
+  Separately, this repo's own root `CONTRIBUTORS`, `LICENSE`,
+  `PATENTS`, and `PRIOR_ART.md` are just that — this repo's own. They
+  are NOT copied into `assets/` and are not what managed repos receive:
+  the seed-if-absent community payload every managed repo gets is the
+  target org's own copy of each, read from the org's `.github` repo at
+  sweep time (issue #90; see `files.ts`'s `COMMUNITY_FILES` and
+  `community.ts`). `assets/` is packed into the release tarball
   (`.github/workflows/release.yml`) alongside `dist`/`bin`/
   `package.json`.
 - `bin/gh-repo-config.js` — CLI entry point (`package.json` `bin`).

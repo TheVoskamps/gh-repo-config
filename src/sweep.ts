@@ -66,6 +66,8 @@ import {
   type ContentsClientOptions,
 } from "./github/contents.js";
 import { convergeRepoFiles, type ConvergeResult } from "./converge/writer.js";
+import { readOrgCommunityFiles } from "./converge/community.js";
+import type { CommunityFileContent } from "./converge/files.js";
 import {
   RepoSettingsClient,
   type RepoSettingsClientOptions,
@@ -823,6 +825,21 @@ export async function runSweepFromEnv(
     }));
   };
 
+  // The org's community-file seed content (issue #90) is per-org, not
+  // per-repo: read it from the org's `.github` repo once, lazily, on the
+  // first converge that needs it, and hand the same map to every repo's
+  // converge rather than re-reading each file per repo per tick. The
+  // memoized promise is shared as-is, so a non-404 read failure fails
+  // every repo's converge this tick (each is recorded `failed`, none is
+  // stamped) rather than one repo — a converge that seeded nothing
+  // because a read broke would be wrong on every repo alike, and the
+  // next tick retries.
+  let communityFiles: Promise<CommunityFileContent> | undefined;
+  const resolveCommunityFiles = (): Promise<CommunityFileContent> => {
+    communityFiles ??= readOrgCommunityFiles(contentsClient, org);
+    return communityFiles;
+  };
+
   // The real converge step (issue #14): render this slice's payload set
   // and open/update one PR per repo. It throws on any convergence
   // failure (unresolved token, git-data write error), which
@@ -833,8 +850,10 @@ export async function runSweepFromEnv(
   // `runSweep`, which carries it into `SweepReport.convergeResults`.
   return runSweep(client, org, CURRENT_VERSION, {
     dryRun,
-    converge: (repo: string) =>
-      convergeRepoFiles(contentsClient, org, repo, dryRun),
+    converge: async (repo: string) =>
+      convergeRepoFiles(contentsClient, org, repo, dryRun, {
+        communityFiles: await resolveCommunityFiles(),
+      }),
     // The real GHAS/merge-button settings-convergence step (issue #15):
     // pure API mutations, no files, no PR. Throws on an unexpected
     // (non-422) write failure, which `runSweep` records as that repo's

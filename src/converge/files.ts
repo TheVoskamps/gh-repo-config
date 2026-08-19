@@ -16,7 +16,10 @@
  * governance-files payload set — literal, verbatim copies (never
  * rendered) that seed **only when the target repo has no copy of its
  * own** anywhere GitHub honors that file kind (see
- * {@link COMMUNITY_FILES} and `writer.ts`'s seed-if-absent branch).
+ * {@link COMMUNITY_FILES} and `writer.ts`'s seed-if-absent branch);
+ * issue #90 moves their content out of `assets/` and into the target
+ * org's own `.github` repo, read at sweep time (see
+ * {@link DesiredFilesOptions.communityFiles} and `community.ts`).
  * Issue #39 adds the `codeartifact-auth` composite action — the first
  * payload that is verbatim (no placeholders) yet lands at a bespoke
  * non-workflow path (see {@link VERBATIM_AT_PATH}).
@@ -43,7 +46,12 @@
  * - **verbatim community/governance files** — shipped byte-for-byte,
  *   non-executable, and — unlike every other payload above — never
  *   overwritten: they seed only when the target repo has no copy of
- *   its own (see {@link DesiredFile.honoredLocations}).
+ *   its own (see {@link DesiredFile.honoredLocations}). Also unlike
+ *   every other payload, their content is not an asset of this repo:
+ *   it is the target org's own, looked up in the org's `.github` repo at
+ *   sweep time and passed in via {@link DesiredFilesOptions.communityFiles}
+ *   (issue #90) — a deliberate, narrow exception to the
+ *   no-external-source-of-truth contract, confined to this payload kind.
  */
 import { readAssetText } from "./assets.js";
 import {
@@ -176,47 +184,79 @@ const VERBATIM_AT_PATH: readonly { asset: string; path: string }[] = [
 
 /**
  * One community/governance file the converger seeds when the target repo
- * has none of its own (issue #18): the asset name (also its target
- * basename, landing at repo root), plus every other basename-location
- * GitHub honors for that file kind. `writer.ts`'s seed-if-absent branch
- * skips the file entirely — never overwrites — when the target already
- * has a copy at `path` **or** at any of `honoredLocations`.
+ * has none of its own (issue #18): its target path (a basename, landing
+ * at repo root — also the path it is looked up under in the org's
+ * `.github` repo, issue #90), plus every other basename-location GitHub
+ * honors for that file kind. `writer.ts`'s seed-if-absent branch skips
+ * the file entirely — never overwrites — when the target already has a
+ * copy at `path` **or** at any of `honoredLocations`.
  *
  * Adding a further community file (e.g. `CODE_OF_CONDUCT.md`,
  * `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, `GOVERNANCE.md`,
- * `FUNDING.yml`) is a matter of dropping the asset and adding one entry
- * here — no change to the seeding logic in `writer.ts`.
+ * `FUNDING.yml`) is a matter of adding one entry here — no change to
+ * the seeding logic in `writer.ts` or the lookup in `community.ts`; an
+ * org that wants it seeded then puts its copy in its `.github` repo.
  *
  * GitHub's honored locations for these top-level community files are
  * repo root, `.github/`, and `docs/`, except `FUNDING.yml` (root and
  * `.github/` only — GitHub does not honor a `docs/FUNDING.yml`).
  */
 const COMMUNITY_FILES: readonly {
-  asset: string;
   path: string;
   honoredLocations: readonly string[];
 }[] = [
   {
-    asset: "CONTRIBUTORS",
     path: "CONTRIBUTORS",
     honoredLocations: [".github/CONTRIBUTORS", "docs/CONTRIBUTORS"],
   },
   {
-    asset: "LICENSE",
     path: "LICENSE",
     honoredLocations: [".github/LICENSE", "docs/LICENSE"],
   },
   {
-    asset: "PATENTS",
     path: "PATENTS",
     honoredLocations: [".github/PATENTS", "docs/PATENTS"],
   },
   {
-    asset: "PRIOR_ART.md",
     path: "PRIOR_ART.md",
     honoredLocations: [".github/PRIOR_ART.md", "docs/PRIOR_ART.md"],
   },
 ];
+
+/**
+ * The community-file paths the converger seeds, in payload order — the
+ * set `community.ts` looks up in the org's `.github` repo and the only
+ * keys {@link DesiredFilesOptions.communityFiles} is consulted for.
+ */
+export const COMMUNITY_FILE_PATHS: readonly string[] = COMMUNITY_FILES.map(
+  (f) => f.path,
+);
+
+/**
+ * Community-file seed content by target path (issue #90): the org's own
+ * copy of each {@link COMMUNITY_FILE_PATHS} entry, as found in its
+ * `.github` repo. A path with no entry is one the org does not carry,
+ * and produces no payload — the "nothing to seed" case.
+ */
+export type CommunityFileContent = Readonly<Record<string, string>>;
+
+/**
+ * Everything {@link buildDesiredFiles} takes besides the per-repo
+ * context: the per-org render inputs ({@link OrgRenderOptions}, each
+ * with a baked default) plus the community-file content, which has NO
+ * baked default — its source is the target org's `.github` repo, read
+ * at sweep time (`community.ts`), and an absent or empty map simply
+ * seeds nothing.
+ */
+export interface DesiredFilesOptions extends OrgRenderOptions {
+  /**
+   * The org's community-file content by path (issue #90). Only the
+   * paths in {@link COMMUNITY_FILE_PATHS} are consulted; a path absent
+   * from the map yields no `DesiredFile`. Absent altogether means no
+   * community file is seeded on this pass.
+   */
+  readonly communityFiles?: CommunityFileContent;
+}
 
 /**
  * Build the full set of files the converger wants present in a target
@@ -230,14 +270,16 @@ const COMMUNITY_FILES: readonly {
  * deterministic.
  *
  * @param ctx the per-repo substitution values.
- * @param options the per-org inputs (issue #87's multi-org fanout),
- *   passed through to the render pipeline; every field is optional and
- *   an absent field renders the baked default, so omitting the argument
- *   yields the single-org payload byte-for-byte.
+ * @param options the per-org inputs (issue #87's multi-org fanout):
+ *   the render inputs pass through to the render pipeline, every one
+ *   optional with a baked default, so omitting them yields the
+ *   single-org rendered payload byte-for-byte; `communityFiles` is the
+ *   org's own seed content and has no default — omit it and no
+ *   community file is emitted.
  */
 export function buildDesiredFiles(
   ctx: RepoContext,
-  options: OrgRenderOptions = {},
+  options: DesiredFilesOptions = {},
 ): DesiredFile[] {
   const files: DesiredFile[] = [];
 
@@ -310,14 +352,14 @@ export function buildDesiredFiles(
   }
 
   // Verbatim community/governance files (issue #18): seed-if-absent,
-  // never rendered, never overwritten.
-  for (const { asset, path, honoredLocations } of COMMUNITY_FILES) {
-    files.push({
-      path,
-      content: readAssetText(asset),
-      executable: false,
-      honoredLocations,
-    });
+  // never rendered, never overwritten. Content is the org's own (issue
+  // #90); a file the org does not carry is silently not a payload.
+  for (const { path, honoredLocations } of COMMUNITY_FILES) {
+    const content = options.communityFiles?.[path];
+    if (content === undefined) {
+      continue;
+    }
+    files.push({ path, content, executable: false, honoredLocations });
   }
 
   return files;

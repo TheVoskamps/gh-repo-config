@@ -27,6 +27,9 @@
  * - Create / update the work-branch ref:
  *   `POST /repos/{o}/{r}/git/refs`, `PATCH /repos/{o}/{r}/git/refs/{ref}`.
  * - List / create PRs: `GET|POST /repos/{o}/{r}/pulls`.
+ * - Single-file read by path, absent-tolerant (the community-file seed
+ *   source in the org's `.github` repo, issue #90):
+ *   `GET /repos/{o}/{r}/contents/{path}`.
  */
 
 /** The file modes the converger writes. */
@@ -82,6 +85,12 @@ interface RawBlob {
 
 interface RawCreated {
   readonly sha: string;
+}
+
+interface RawContentsFile {
+  readonly type: string;
+  readonly content?: string;
+  readonly encoding?: string;
 }
 
 interface RawPull {
@@ -202,6 +211,48 @@ export class ContentsClient {
       }
     }
     return map;
+  }
+
+  /**
+   * Read one file's content by path from a repo's default branch, or
+   * `undefined` when there is nothing there to read: the repo does not
+   * exist (or is not visible to the token), the path is absent, or the
+   * path is not a regular file. All three are one outcome for the
+   * caller — "no such file" — which is what the community-file seed
+   * lookup (issue #90) needs: an org without a `.github` repo and an org
+   * whose `.github` repo lacks one file both mean "nothing to seed".
+   * Any other non-2xx status still throws.
+   *
+   * Uses the contents API rather than the tree/blob reads the write
+   * path uses because a single request answers "present, and here is
+   * the content" or "absent" per file, with no ref/tree round-trips and
+   * no distinct handling for an empty repo.
+   */
+  async readFileIfPresent(
+    owner: string,
+    repo: string,
+    path: string,
+  ): Promise<string | undefined> {
+    const res = await this.doFetch(
+      `${this.apiBase}/repos/${owner}/${repo}/contents/${path}`,
+      { headers: this.headers() },
+    );
+    if (res.status === 404) {
+      return undefined;
+    }
+    const body = await this.json<RawContentsFile | RawContentsFile[]>(
+      res,
+      `Failed to read ${path} from ${owner}/${repo}`,
+    );
+    // A directory at that path returns an array; anything but a regular
+    // file with inline content is "not a file to seed".
+    if (Array.isArray(body) || body.type !== "file" || body.content === undefined) {
+      return undefined;
+    }
+    if (body.encoding === "base64") {
+      return Buffer.from(body.content, "base64").toString("utf8");
+    }
+    return body.content;
   }
 
   /** Read a blob's content as a UTF-8 string. */
