@@ -20,10 +20,12 @@
  *   copy of `ecosystem-block.yml` per armed ecosystem, with the variant
  *   parts resolved per ecosystem *class*.
  * - {@link renderPrAutomationTemplate} (issue #25) substitutes the
- *   PR-automation payload's 11 placeholders: the three per-repo tokens
+ *   PR-automation payload's placeholders: the three per-repo tokens
  *   {@link renderTemplate} already handles, {@link PR_AUTOMATION_CONSTANTS}
- *   (9 fixed org-level values pinned by the issue), and `__BOT_SLUG__`
- *   (per-repo, interpolated from the repo name).
+ *   (the org-agnostic contract constants), the App-identity slice
+ *   ({@link PrAutomationIdentity} — per-org, defaulting to
+ *   {@link DEFAULT_PR_AUTOMATION_IDENTITY}), and `__BOT_SLUG__` (per-repo,
+ *   derived from the identity's `botSlug` pattern and the repo name).
  *
  * Org-specific content is injected through {@link OrgRenderOptions}
  * (issue #87's multi-org fanout): every field is optional, and an
@@ -47,6 +49,77 @@ export interface OrgRenderOptions {
    * dropped, like any other empty block).
    */
   readonly namedDependabotGroups?: NamedDependabotGroups;
+  /**
+   * The org's PR-automation App identity (issue #89): the App the
+   * rendered `auto-enable-automerge.yml` / `auto-rebase-prs.yml` run as,
+   * the repo secrets that carry its credentials, and the git identity
+   * its rebase commits use. Defaults to
+   * {@link DEFAULT_PR_AUTOMATION_IDENTITY}. Every org that runs its own
+   * PR-automation App (which is every org other than the default's
+   * owner — an App's owner holds its private key) must supply this.
+   */
+  readonly prAutomationIdentity?: PrAutomationIdentity;
+}
+
+/**
+ * The App-identity slice of the PR-automation templates' placeholders
+ * (issue #89): the values that name WHICH GitHub App the rendered
+ * workflows act as. Each managed org registers and owns its own App, so
+ * these differ per org — unlike {@link PR_AUTOMATION_CONSTANTS}, which
+ * are the converger's contract with its own gates and stay fixed.
+ */
+export interface PrAutomationIdentity {
+  /** The App's slug — substitutes `__APP_NAME__`. */
+  readonly appName: string;
+  /** Repo secret holding the App ID — substitutes `__APP_ID_SECRET__`. */
+  readonly appIdSecret: string;
+  /**
+   * Repo secret holding the App private key — substitutes
+   * `__APP_PRIVATE_KEY_SECRET__`.
+   */
+  readonly appPrivateKeySecret: string;
+  /**
+   * The git identity the rebase sweep commits as — substitutes
+   * `__BOT_SLUG__`. This is a PATTERN, not a literal: it may carry the
+   * per-repo tokens {@link renderTemplate} resolves (`__GH_ORG__`,
+   * `__GH_REPO__`, `__DEFAULT_BRANCH__`), which are substituted after
+   * it is spliced in. The default, `__GH_REPO__-auto-rebase[bot]`, is
+   * how the historical `<repo>-auto-rebase[bot]` per-repo derivation is
+   * expressed; an org whose bot identity is fixed supplies a plain
+   * string with no token. Any other `__…__` token in it fails the
+   * rendered template's unresolved-token assertion, as it should.
+   */
+  readonly botSlug: string;
+}
+
+/**
+ * The default {@link PrAutomationIdentity} — the App identity baked in
+ * before issue #89 made it a per-org input. Renders byte-for-byte what
+ * the old `PR_AUTOMATION_CONSTANTS` identity entries and the hardcoded
+ * `<repo>-auto-rebase[bot]` did.
+ */
+export const DEFAULT_PR_AUTOMATION_IDENTITY: PrAutomationIdentity = {
+  appName: "thevoskamps-pr-automations",
+  appIdSecret: "AUTOMERGE_APP_ID",
+  appPrivateKeySecret: "AUTOMERGE_APP_PRIVATE_KEY",
+  botSlug: "__GH_REPO__-auto-rebase[bot]",
+};
+
+/**
+ * The placeholder → value map a {@link PrAutomationIdentity} substitutes.
+ * The `__BOT_SLUG__` value is the identity's pattern, still carrying any
+ * per-repo tokens; {@link renderPrAutomationTemplate} resolves those in
+ * its final {@link renderTemplate} pass.
+ */
+export function prAutomationIdentityTokens(
+  identity: PrAutomationIdentity,
+): Readonly<Record<string, string>> {
+  return {
+    __APP_NAME__: identity.appName,
+    __APP_ID_SECRET__: identity.appIdSecret,
+    __APP_PRIVATE_KEY_SECRET__: identity.appPrivateKeySecret,
+    __BOT_SLUG__: identity.botSlug,
+  };
 }
 
 /** Per-target-repo values the `__…__` tokens substitute to. */
@@ -105,11 +178,14 @@ export function assertNoUnresolvedTokens(
 }
 
 /**
- * The fixed org-level constants the PR-automation templates
+ * The fixed, org-agnostic constants the PR-automation templates
  * (`auto-enable-automerge.yml`, `auto-rebase-prs.yml`) substitute,
- * pinned by issue #25's placeholder table. These are the converged
- * standard across every managed repo — nothing here is per-repo or
- * open to interpretation.
+ * pinned by issue #25's placeholder table: merge method, do-not-merge
+ * label, and the names of the gate/guard workflows and check the
+ * automation keys off. These are the converger's contract with its own
+ * gates — the converged standard across every managed repo in every
+ * org — so nothing here is per-repo, per-org, or open to
+ * interpretation, and there is deliberately no way to override them.
  *
  * No single template carries every constant: `auto-rebase-prs.yml` owns
  * the sweep-side ones and `auto-enable-automerge.yml` the
@@ -118,16 +194,13 @@ export function assertNoUnresolvedTokens(
  * that union is complete — a constant used by neither template is a
  * dead entry here, not a silently-skipped assertion.
  *
- * `__BOT_SLUG__` and `__DEFAULT_BRANCH__` are
- * NOT in this map: `__DEFAULT_BRANCH__` is per-repo (handled by
- * {@link renderTemplate}'s `RepoContext`) and `__BOT_SLUG__` is
- * per-repo but derived (repo-name interpolated), so both are resolved
- * separately in {@link renderPrAutomationTemplate}.
+ * NOT in this map: the App-identity slice (`__APP_NAME__`,
+ * `__APP_ID_SECRET__`, `__APP_PRIVATE_KEY_SECRET__`, `__BOT_SLUG__`),
+ * which issue #89 split out into {@link PrAutomationIdentity} because
+ * each org owns its own App; and `__DEFAULT_BRANCH__`, which is per-repo
+ * (handled by {@link renderTemplate}'s `RepoContext`).
  */
 export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
-  __APP_NAME__: "thevoskamps-pr-automations",
-  __APP_ID_SECRET__: "AUTOMERGE_APP_ID",
-  __APP_PRIVATE_KEY_SECRET__: "AUTOMERGE_APP_PRIVATE_KEY",
   __MERGE_METHOD__: "MERGE",
   __REST_MERGE_METHOD__: "merge",
   __DO_NOT_MERGE_LABEL__: "do-not-merge",
@@ -145,9 +218,10 @@ export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
 /**
  * Render a PR-automation template (`auto-enable-automerge.yml` or
  * `auto-rebase-prs.yml`): substitute the fixed
- * {@link PR_AUTOMATION_CONSTANTS}, the per-repo `__BOT_SLUG__`
- * (`<repo>-auto-rebase[bot]`, per the issue's placeholder table), and
- * the three tokens {@link renderTemplate} already resolves
+ * {@link PR_AUTOMATION_CONSTANTS}, the org's {@link PrAutomationIdentity}
+ * (including its `__BOT_SLUG__` pattern), and — last, so a token inside
+ * the bot-slug pattern resolves too — the three tokens
+ * {@link renderTemplate} already resolves
  * (`__GH_ORG__`/`__GH_REPO__`/`__DEFAULT_BRANCH__`).
  *
  * The full surface always renders — no conditional-drop logic (unlike
@@ -156,18 +230,23 @@ export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
  * lacks the workflows they key off). On a managed repo the gates and
  * guards are guaranteed present in the same per-repo converger PR, so
  * every placeholder always resolves.
+ *
+ * @param options per-org inputs; `prAutomationIdentity` defaults to
+ *   {@link DEFAULT_PR_AUTOMATION_IDENTITY} when absent.
  */
 export function renderPrAutomationTemplate(
   template: string,
   ctx: RepoContext,
+  options: OrgRenderOptions = {},
 ): string {
+  const identity = options.prAutomationIdentity ?? DEFAULT_PR_AUTOMATION_IDENTITY;
   let rendered = template;
-  for (const [token, value] of Object.entries(PR_AUTOMATION_CONSTANTS)) {
+  for (const [token, value] of Object.entries({
+    ...PR_AUTOMATION_CONSTANTS,
+    ...prAutomationIdentityTokens(identity),
+  })) {
     rendered = rendered.split(token).join(value);
   }
-  rendered = rendered
-    .split("__BOT_SLUG__")
-    .join(`${ctx.repo}-auto-rebase[bot]`);
   return renderTemplate(rendered, ctx);
 }
 

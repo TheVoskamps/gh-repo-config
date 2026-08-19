@@ -10,7 +10,7 @@
  * Issue #25 adds the PR-automation payload set — the auto-merge and
  * auto-rebase workflows plus the lockfile-regen script (+ its
  * self-test), rendered via {@link renderPrAutomationTemplate} for their
- * nine extra fixed placeholders. The write path (`writer.ts`) and the
+ * extra fixed-constant and App-identity placeholders. The write path (`writer.ts`) and the
  * render pipeline (`render.ts`) are shared, so a slice only adds entries
  * here, not a new PR-per-concern. Issue #18 adds the community/
  * governance-files payload set — literal, verbatim copies (never
@@ -124,8 +124,8 @@ const RENDERED_WORKFLOWS: readonly string[] = [
 /**
  * The PR-automation workflows (issue #25). Rendered separately from
  * {@link RENDERED_WORKFLOWS} because they carry the extra
- * {@link PR_AUTOMATION_CONSTANTS} placeholders (via
- * {@link renderPrAutomationTemplate}), not just the three plain
+ * {@link PR_AUTOMATION_CONSTANTS} and per-org App-identity placeholders
+ * (via {@link renderPrAutomationTemplate}), not just the three plain
  * per-repo tokens `renderTemplate` handles.
  */
 const RENDERED_PR_AUTOMATION_WORKFLOWS: readonly string[] = [
@@ -267,10 +267,14 @@ export function buildDesiredFiles(
   }
 
   // PR-automation workflows under .github/workflows/ (issue #25):
-  // extra fixed-constant + __BOT_SLUG__ substitution via
+  // extra fixed-constant + per-org App-identity substitution via
   // renderPrAutomationTemplate, not the plain three-token render.
   for (const name of RENDERED_PR_AUTOMATION_WORKFLOWS) {
-    const rendered = renderPrAutomationTemplate(readAssetText(name), ctx);
+    const rendered = renderPrAutomationTemplate(
+      readAssetText(name),
+      ctx,
+      options,
+    );
     assertNoUnresolvedTokens(rendered, `.github/workflows/${name}`);
     files.push({
       path: `.github/workflows/${name}`,

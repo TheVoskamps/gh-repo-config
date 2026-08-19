@@ -119,14 +119,23 @@ npm run lint:md
       empty-block collapse `__VERSIONING_STRATEGY_BLOCK__` gets).
       Precedence is unchanged either way: named groups are listed before
       each ecosystem's `*-minor-and-patch` catch-all, so a dependency
-      matching both lands in the named group. `renderPrAutomationTemplate` +
-      `PR_AUTOMATION_CONSTANTS` render the PR-automation
-      workflows' extra placeholders: the fixed org-level constants
-      (App identity, merge method, do-not-merge label, required-check/
+      matching both lands in the named group. `renderPrAutomationTemplate`
+      renders the PR-automation workflows' extra placeholders, split
+      along the identity/contract line (issue #89):
+      `PR_AUTOMATION_CONSTANTS` are the fixed, org-agnostic contract
+      constants (merge method, do-not-merge label, required-check/
       install-gate workflow names, and `__INSTALL_GATE_CHECK__` — the
       install gate's single required-check job name, which the
-      lockfile-regen pass keys off) plus the per-repo-but-derived
-      `__BOT_SLUG__` (`<repo>-auto-rebase[bot]`), layered on top of the
+      lockfile-regen pass keys off) with deliberately no override path;
+      the App-identity slice (`__APP_NAME__`, `__APP_ID_SECRET__`,
+      `__APP_PRIVATE_KEY_SECRET__`, `__BOT_SLUG__`) is the per-org
+      `OrgRenderOptions.prAutomationIdentity` (a `PrAutomationIdentity`),
+      defaulting to `DEFAULT_PR_AUTOMATION_IDENTITY`, because each org
+      owns its own PR-automation App. `botSlug` is a pattern that may
+      carry the per-repo tokens — the default `__GH_REPO__-auto-rebase[bot]`
+      is the historical `<repo>-auto-rebase[bot]` derivation, resolved by
+      the final `renderTemplate` pass; a fixed org bot identity is a plain
+      string. Both are layered on top of the
       same three per-repo tokens `renderTemplate` already resolves. No
       single template uses every constant — `auto-rebase-prs.yml` owns
       the sweep-side ones (`__REQUIRED_CHECK_WORKFLOW__`,

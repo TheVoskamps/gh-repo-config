@@ -102,6 +102,31 @@ test("buildDesiredFiles with no options renders the default named groups; an org
   assert.deepEqual(others(overridden), others(bare));
 });
 
+test("an org-supplied PR-automation identity reaches both PR-automation workflows and nothing else (issue #89)", () => {
+  const bare = buildDesiredFiles(CTX);
+  const identity = {
+    appName: "acme-pr-bot",
+    appIdSecret: "ACME_BOT_APP_ID",
+    appPrivateKeySecret: "ACME_BOT_APP_PRIVATE_KEY",
+    botSlug: "acme-pr-bot[bot]",
+  };
+  const overridden = buildDesiredFiles(CTX, { prAutomationIdentity: identity });
+  const PR_AUTOMATION = [
+    ".github/workflows/auto-enable-automerge.yml",
+    ".github/workflows/auto-rebase-prs.yml",
+  ];
+  for (const path of PR_AUTOMATION) {
+    const f = overridden.find((x) => x.path === path);
+    assert.match(f.content, /secrets\.ACME_BOT_APP_ID/, path);
+    // The template's own comment header still mentions the example
+    // secret names in prose, so assert on the `secrets.` reference.
+    assert.doesNotMatch(f.content, /secrets\.AUTOMERGE_APP_ID/, path);
+    assert.doesNotThrow(() => assertNoUnresolvedTokens(f.content, path));
+  }
+  const others = (files) => files.filter((f) => !PR_AUTOMATION.includes(f.path));
+  assert.deepEqual(others(overridden), others(bare));
+});
+
 test("the CodeQL config lands at the exact path the workflow's config-file: line references", () => {
   const files = buildDesiredFiles(CTX);
   const workflow = files.find((f) => f.path === ".github/workflows/codeql.yml");

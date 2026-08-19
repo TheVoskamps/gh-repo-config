@@ -7,8 +7,10 @@ import {
   renderPrAutomationTemplate,
   DEPENDABOT_ECOSYSTEMS,
   DEFAULT_NAMED_DEPENDABOT_GROUPS,
+  DEFAULT_PR_AUTOMATION_IDENTITY,
   NAMED_DEPENDABOT_GROUPS,
   PR_AUTOMATION_CONSTANTS,
+  prAutomationIdentityTokens,
   renderNamedGroupsBlock,
 } from "../dist/index.js";
 import { readAssetText } from "../dist/index.js";
@@ -416,6 +418,124 @@ test("renderPrAutomationTemplate substitutes each fixed constant to its pinned v
   for (const token of Object.keys(PR_AUTOMATION_CONSTANTS)) {
     assert.ok(covered.has(token), `${token} is used by neither PR-automation template`);
   }
+});
+
+// Issue #89: the App-identity slice is a per-org input; the contract
+// constants are not. The default identity must render byte-identical to
+// the pre-#89 output; an org identity must replace every identity token
+// and nothing else.
+
+const IDENTITY_TOKENS = [
+  "__APP_NAME__",
+  "__APP_ID_SECRET__",
+  "__APP_PRIVATE_KEY_SECRET__",
+  "__BOT_SLUG__",
+];
+
+test("PR_AUTOMATION_CONSTANTS carries only the org-agnostic contract constants; the identity slice lives in PrAutomationIdentity (issue #89)", () => {
+  assert.deepEqual(Object.keys(PR_AUTOMATION_CONSTANTS).sort(), [
+    "__DO_NOT_MERGE_LABEL__",
+    "__INSTALL_GATE_CHECK__",
+    "__INSTALL_GATE_WORKFLOW__",
+    "__MERGE_METHOD__",
+    "__REQUIRED_CHECK_WORKFLOW__",
+    "__REST_MERGE_METHOD__",
+  ]);
+  for (const token of IDENTITY_TOKENS) {
+    assert.equal(token in PR_AUTOMATION_CONSTANTS, false, `${token} must not be a fixed constant`);
+  }
+  assert.deepEqual(
+    Object.keys(prAutomationIdentityTokens(DEFAULT_PR_AUTOMATION_IDENTITY)).sort(),
+    [...IDENTITY_TOKENS].sort(),
+  );
+  // Every identity token is used by at least one template — a token
+  // neither template carries would be dead surface here.
+  const templates = ["auto-rebase-prs.yml", "auto-enable-automerge.yml"].map(readAssetText);
+  for (const token of IDENTITY_TOKENS) {
+    assert.ok(templates.some((t) => t.includes(token)), `${token} used by neither template`);
+  }
+});
+
+test("renderPrAutomationTemplate with no options, {} options, or the default identity renders byte-identical output, and that output is the pre-#89 identity (issue #89)", () => {
+  for (const name of ["auto-rebase-prs.yml", "auto-enable-automerge.yml"]) {
+    const template = readAssetText(name);
+    const bare = renderPrAutomationTemplate(template, CTX);
+    assert.equal(renderPrAutomationTemplate(template, CTX, {}), bare);
+    assert.equal(
+      renderPrAutomationTemplate(template, CTX, {
+        prAutomationIdentity: DEFAULT_PR_AUTOMATION_IDENTITY,
+      }),
+      bare,
+    );
+    // The baked default identity, verbatim.
+    if (template.includes("__APP_NAME__")) {
+      assert.match(bare, /thevoskamps-pr-automations/);
+    }
+    assert.match(bare, /secrets\.AUTOMERGE_APP_ID/);
+    assert.match(bare, /secrets\.AUTOMERGE_APP_PRIVATE_KEY/);
+    for (const token of IDENTITY_TOKENS) {
+      assert.equal(bare.includes(token), false, `${token} unresolved in ${name}`);
+    }
+  }
+  const rebase = renderPrAutomationTemplate(readAssetText("auto-rebase-prs.yml"), CTX);
+  assert.match(rebase, /git config user\.name "example-auto-rebase\[bot\]"/);
+});
+
+const ORG_IDENTITY = {
+  appName: "acme-pr-bot",
+  appIdSecret: "ACME_BOT_APP_ID",
+  appPrivateKeySecret: "ACME_BOT_APP_PRIVATE_KEY",
+  botSlug: "acme-pr-bot[bot]",
+};
+
+test("an org-supplied identity replaces every identity token and leaves the contract constants untouched (issue #89)", () => {
+  for (const name of ["auto-rebase-prs.yml", "auto-enable-automerge.yml"]) {
+    const template = readAssetText(name);
+    const out = renderPrAutomationTemplate(template, CTX, {
+      prAutomationIdentity: ORG_IDENTITY,
+    });
+    assert.doesNotThrow(() => assertNoUnresolvedTokens(out, name));
+    // Default identity is gone. (The template's own comment header
+    // still names the example secrets and slug shape in prose, so the
+    // assertions target the substituted sites, not bare words.)
+    assert.doesNotMatch(out, /thevoskamps-pr-automations/);
+    assert.doesNotMatch(out, /secrets\.AUTOMERGE_APP_ID/);
+    assert.doesNotMatch(out, /secrets\.AUTOMERGE_APP_PRIVATE_KEY/);
+    assert.doesNotMatch(out, /"example-auto-rebase\[bot\]/);
+    // Org identity is in.
+    if (template.includes("__APP_NAME__")) assert.match(out, /acme-pr-bot"/);
+    assert.match(out, /secrets\.ACME_BOT_APP_ID/);
+    assert.match(out, /secrets\.ACME_BOT_APP_PRIVATE_KEY/);
+    // Contract constants render exactly as with the default identity.
+    for (const [token, value] of Object.entries(PR_AUTOMATION_CONSTANTS)) {
+      if (!template.includes(token)) continue;
+      assert.equal(out.includes(value), true, `${value} missing from ${name}`);
+    }
+  }
+  const rebase = renderPrAutomationTemplate(readAssetText("auto-rebase-prs.yml"), CTX, {
+    prAutomationIdentity: ORG_IDENTITY,
+  });
+  assert.match(rebase, /git config user\.name "acme-pr-bot\[bot\]"/);
+  assert.match(rebase, /git config user\.email "acme-pr-bot\[bot\]@users\.noreply\.github\.com"/);
+});
+
+test("botSlug is a pattern: per-repo tokens inside it resolve, so the default's __GH_REPO__ derivation still works for an org identity (issue #89)", () => {
+  const out = renderPrAutomationTemplate(
+    readAssetText("auto-rebase-prs.yml"),
+    { org: "Acme", repo: "widgets", defaultBranch: "main" },
+    { prAutomationIdentity: { ...ORG_IDENTITY, botSlug: "__GH_ORG__-__GH_REPO__-bot[bot]" } },
+  );
+  assert.match(out, /git config user\.name "Acme-widgets-bot\[bot\]"/);
+  assert.doesNotThrow(() => assertNoUnresolvedTokens(out, "auto-rebase-prs.yml"));
+});
+
+test("a botSlug carrying an unknown token fails the unresolved-token assertion rather than shipping (issue #89)", () => {
+  const out = renderPrAutomationTemplate(
+    readAssetText("auto-rebase-prs.yml"),
+    CTX,
+    { prAutomationIdentity: { ...ORG_IDENTITY, botSlug: "__NOT_A_TOKEN__[bot]" } },
+  );
+  assert.throws(() => assertNoUnresolvedTokens(out, "auto-rebase-prs.yml"), /__NOT_A_TOKEN__/);
 });
 
 test("renderPrAutomationTemplate interpolates __BOT_SLUG__ from the per-repo name", () => {

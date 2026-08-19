@@ -87,12 +87,15 @@ export {
   renderPrAutomationTemplate,
   assertNoUnresolvedTokens,
   renderNamedGroupsBlock,
+  prAutomationIdentityTokens,
   DEPENDABOT_ECOSYSTEMS,
   DEFAULT_NAMED_DEPENDABOT_GROUPS,
+  DEFAULT_PR_AUTOMATION_IDENTITY,
   NAMED_DEPENDABOT_GROUPS,
   PR_AUTOMATION_CONSTANTS,
   type NamedDependabotGroups,
   type OrgRenderOptions,
+  type PrAutomationIdentity,
   type RepoContext,
 } from "./converge/render.js";
 
