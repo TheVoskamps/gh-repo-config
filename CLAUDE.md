@@ -365,7 +365,7 @@ npm run lint:md
   - `ecosystem-block.yml` carries `__NAMED_GROUPS_BLOCK__` (the named
     Dependabot groups — see `render.ts`'s `NAMED_DEPENDABOT_GROUPS`
     description above). `no-back-merging-guard.yml` runs with
-    least-privilege permissions. The two PR-automation workflows are
+    least-privilege permissions. The PR-automation workflows are
     split by EVENT, not by concern (issue #77): `auto-rebase-prs.yml`
     owns everything the `workflow_run` / `workflow_dispatch` /
     `schedule` / `push` / `issue_comment` sweep does — the rebase pass
@@ -383,6 +383,21 @@ npm run lint:md
     message, since GitHub caps commit messages at 16383. Each documents
     its trigger set — including `auto-rebase-prs.yml`'s two-rationale
     cron list — inline.
+    Both mint their App installation token through
+    `actions/create-github-app-token`'s `client-id:` input, fed from
+    `__APP_CLIENT_ID_SECRET__` (`AUTOMERGE_APP_CLIENT_ID`, see
+    `render.ts`'s `PR_AUTOMATION_CONSTANTS`). The action still accepts
+    `app-id:` but carries a `deprecationMessage` on it, so shipping
+    that input would warn on every managed repo on every run;
+    `test/files.test.js` pins the ban by asserting the rendered
+    workflows contain no `app-id:` at all. The switch also changed
+    which secret is read — an App's Client ID and its numeric App ID
+    are different values — so `AUTOMERGE_APP_CLIENT_ID` is a separate
+    operator-provisioned secret, not a rename of `AUTOMERGE_APP_ID`,
+    and a repo carrying only the latter has nothing to feed
+    `client-id:` with. The repo-own
+    workflows (`sweep.yml`, `assets-pin-bump.yml`) carry no `assets/`
+    counterpart and still mint with `app-id:`.
   - **Job count is a first-class constraint on every fanned-out
     workflow.** GitHub bills a whole minute per JOB, rounded up, so a
     wrapper job doing three seconds of work costs the same as a real
@@ -621,8 +636,11 @@ npm run lint:md
   the push itself.
   The commit/push/PR step mints a short-lived GitHub App
   installation token from the `AUTOMERGE_APP_ID` /
-  `AUTOMERGE_APP_PRIVATE_KEY` repo secrets (the same PR-operations App
-  `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use) rather than
+  `AUTOMERGE_APP_PRIVATE_KEY` repo secrets — the same PR-operations App
+  the rendered `auto-rebase-prs.yml` / `auto-enable-automerge.yml`
+  authenticate as, though those identify it by Client ID
+  (`AUTOMERGE_APP_CLIENT_ID`) while this one still uses the numeric App
+  ID — rather than
   the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
   trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`
   would never run on its own PRs and they could never satisfy the
