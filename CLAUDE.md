@@ -395,9 +395,12 @@ npm run lint:md
     are different values — so `AUTOMERGE_APP_CLIENT_ID` is a separate
     operator-provisioned secret, not a rename of `AUTOMERGE_APP_ID`,
     and a repo carrying only the latter has nothing to feed
-    `client-id:` with. The repo-own
-    workflows (`sweep.yml`, `assets-pin-bump.yml`) carry no `assets/`
-    counterpart and still mint with `app-id:`.
+    `client-id:` with — `/gh-repo-setup-pr-automation` seeds
+    `<prefix>_APP_ID`, so the Client ID secret is set by hand.
+    The repo-own workflows that mint an App token (`sweep.yml`,
+    `assets-pin-bump.yml`) carry no `assets/` counterpart and still
+    mint with `app-id:`, so the deprecation warning survives on this
+    repo's own runs until they are switched too.
   - **Job count is a first-class constraint on every fanned-out
     workflow.** GitHub bills a whole minute per JOB, rounded up, so a
     wrapper job doing three seconds of work costs the same as a real

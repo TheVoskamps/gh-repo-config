@@ -43,7 +43,7 @@ installation tokens in CI, not for receiving event deliveries.
 ## Secrets
 
 The App ID and private key are stored as `organization` secrets
-(visible to all repositories, matching the `AUTOMERGE_*` pair):
+(visible to all repositories, matching the `AUTOMERGE_*` secrets):
 
 | Secret | Holds |
 | --- | --- |
@@ -79,3 +79,12 @@ The minted token authorises only the permissions granted to the App
 above, and expires within the hour. The `permissions:` block of the
 workflow governs the default `GITHUB_TOKEN` only; it does not affect
 the App installation token.
+
+`actions/create-github-app-token` still accepts `app-id:` but marks it
+deprecated in favour of `client-id:`, so this snippet emits a
+deprecation warning on every run. The rendered PR-automation payload
+(`assets/auto-enable-automerge.yml`, `assets/auto-rebase-prs.yml`) has
+moved to `client-id:`; this App has not — `sweep.yml` reads only
+`CONVERGER_APP_ID`, and a Client ID is a different value from the
+numeric App ID, so switching means provisioning a Client ID secret
+first.

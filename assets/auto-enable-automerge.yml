@@ -70,8 +70,9 @@ on:
 # to store; the canonical pattern is App Client ID + private key in repo
 # secrets, token minted per-run. Only __APP_PRIVATE_KEY_SECRET__ is seeded
 # by /gh-repo-setup-pr-automation; that skill seeds the App's numeric ID,
-# which client-id: cannot consume, so __APP_CLIENT_ID_SECRET__ is an
-# org-level secret an operator sets by hand.
+# which client-id: cannot consume, so __APP_CLIENT_ID_SECRET__ is set by
+# hand — at org scope where the App serves the whole org, at repo scope
+# otherwise; `secrets.` resolves either.
 # Without them, actions/create-github-app-token fails fast with a clear
 # error, which is the intended behaviour: do NOT fall back to GITHUB_TOKEN.
 #
