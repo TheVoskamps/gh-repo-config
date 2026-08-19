@@ -24,7 +24,30 @@
  *   {@link renderTemplate} already handles, {@link PR_AUTOMATION_CONSTANTS}
  *   (9 fixed org-level values pinned by the issue), and `__BOT_SLUG__`
  *   (per-repo, interpolated from the repo name).
+ *
+ * Org-specific content is injected through {@link OrgRenderOptions}
+ * (issue #87's multi-org fanout): every field is optional, and an
+ * absent field renders the baked TheVoskamps default byte-for-byte, so
+ * a caller that passes nothing gets exactly the single-org output.
  */
+
+/**
+ * Optional per-org inputs to the render pipeline. Each field defaults
+ * to the value baked into this module when absent, so `{}` (or no
+ * options at all) renders exactly as the single-org converger did. The
+ * per-org sweeper's config file is the intended source of these values;
+ * this module only defines the seam.
+ */
+export interface OrgRenderOptions {
+  /**
+   * The org's named Dependabot groups (issue #88), rendered into every
+   * armed ecosystem's `groups:` map ahead of the `*-minor-and-patch`
+   * catch-all. Defaults to {@link DEFAULT_NAMED_DEPENDABOT_GROUPS}. An
+   * empty map renders no named groups at all (the placeholder line is
+   * dropped, like any other empty block).
+   */
+  readonly namedDependabotGroups?: NamedDependabotGroups;
+}
 
 /** Per-target-repo values the `__…__` tokens substitute to. */
 export interface RepoContext {
@@ -172,7 +195,17 @@ export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
 ] as const;
 
 /**
- * The org's canonical registry of named Dependabot groups (issue #36):
+ * A registry of named Dependabot groups: group name → the
+ * `patterns:` list Dependabot matches dependencies against, in the
+ * order the groups are rendered (first-match-wins, see
+ * {@link DEFAULT_NAMED_DEPENDABOT_GROUPS}).
+ */
+export type NamedDependabotGroups = Readonly<
+  Record<string, readonly string[]>
+>;
+
+/**
+ * The default registry of named Dependabot groups (issue #36):
  * lockstep/stack families whose members must move together because they
  * share a runtime compatibility contract (same-repo sub-actions/packages
  * exchanging versioned state, a framework + its plugin family, or an SDK
@@ -181,6 +214,10 @@ export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
  * `dependabot.yml`, the repo that incurred the motivating incident
  * (`github/codeql-action/init`/`analyze` version skew broke the
  * required CodeQL check on `main`).
+ *
+ * This is org-specific content (issue #88): a different org supplies
+ * its own registry through {@link OrgRenderOptions.namedDependabotGroups}
+ * and this default is what renders when it does not.
  *
  * Rendered as ONE union block, identically, into every armed ecosystem's
  * `groups:` — not scoped per ecosystem. This mirrors the
@@ -195,59 +232,76 @@ export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
  * Dependabot's first-match-wins group resolution puts a dependency that
  * matches both a named group and the catch-all into the named group.
  */
-export const NAMED_DEPENDABOT_GROUPS = `codeql-action:
-        patterns:
-          - "github/codeql-action/*"
-      aws-cdk:
-        patterns:
-          - "aws-cdk"
-          - "aws-cdk-lib"
-          - "@aws-cdk/*"
-          - "constructs"
-      vite-toolchain:
-        patterns:
-          - "vite"
-          - "@vitejs/*"
-          - "rollup"
-          - "typescript"
-          - "vue"
-          - "@vue/*"
-          - "@vitest/*"
-          - "vitest"
-      fastapi-stack:
-        patterns:
-          - "fastapi"
-          - "starlette"
-          - "pydantic"
-          - "pydantic-*"
-          - "pydantic_*"
-          - "uvicorn"
-          - "uvicorn-*"
-      sqlalchemy-stack:
-        patterns:
-          - "sqlalchemy"
-          - "alembic"
-          - "asyncpg"
-          - "psycopg"
-          - "psycopg2"
-          - "psycopg2-binary"
-      auth-stack:
-        patterns:
-          - "authlib"
-          - "python-jose"
-          - "python-jose[*]"
-          - "pyjwt"
-          - "cryptography"
-      aws-sdk:
-        patterns:
-          - "boto3"
-          - "botocore"
-          - "aiobotocore"
-          - "s3transfer"
-      test-stack:
-        patterns:
-          - "pytest"
-          - "pytest-*"`;
+export const DEFAULT_NAMED_DEPENDABOT_GROUPS: NamedDependabotGroups = {
+  "codeql-action": ["github/codeql-action/*"],
+  "aws-cdk": ["aws-cdk", "aws-cdk-lib", "@aws-cdk/*", "constructs"],
+  "vite-toolchain": [
+    "vite",
+    "@vitejs/*",
+    "rollup",
+    "typescript",
+    "vue",
+    "@vue/*",
+    "@vitest/*",
+    "vitest",
+  ],
+  "fastapi-stack": [
+    "fastapi",
+    "starlette",
+    "pydantic",
+    "pydantic-*",
+    "pydantic_*",
+    "uvicorn",
+    "uvicorn-*",
+  ],
+  "sqlalchemy-stack": [
+    "sqlalchemy",
+    "alembic",
+    "asyncpg",
+    "psycopg",
+    "psycopg2",
+    "psycopg2-binary",
+  ],
+  "auth-stack": [
+    "authlib",
+    "python-jose",
+    "python-jose[*]",
+    "pyjwt",
+    "cryptography",
+  ],
+  "aws-sdk": ["boto3", "botocore", "aiobotocore", "s3transfer"],
+  "test-stack": ["pytest", "pytest-*"],
+};
+
+/**
+ * Render a {@link NamedDependabotGroups} registry into the multi-line
+ * value `__NAMED_GROUPS_BLOCK__` substitutes to. Group keys sit at the
+ * `groups:` map's key indent (6 spaces under `updates:` — siblings of
+ * `*-minor-and-patch`), `patterns:` at 8, list items at 10. Per the
+ * block-placeholder convention ({@link renderEcosystemBlock}), the
+ * first line carries no leading indent — the template's placeholder
+ * line supplies it — and continuation lines carry their own absolute
+ * indent. An empty registry renders the empty string.
+ */
+export function renderNamedGroupsBlock(groups: NamedDependabotGroups): string {
+  return Object.entries(groups)
+    .map(([name, patterns], i) => {
+      const key = `${i === 0 ? "" : "      "}${name}:`;
+      const items = patterns.map((p) => `          - ${JSON.stringify(p)}`);
+      return [key, "        patterns:", ...items].join("\n");
+    })
+    .join("\n");
+}
+
+/**
+ * The rendered form of {@link DEFAULT_NAMED_DEPENDABOT_GROUPS} — the
+ * exact text every ecosystem block carries when no per-org registry is
+ * supplied. Kept as an export so a caller can compare against the
+ * default without re-rendering it.
+ */
+export const NAMED_DEPENDABOT_GROUPS: string = renderNamedGroupsBlock(
+  DEFAULT_NAMED_DEPENDABOT_GROUPS,
+);
 
 /** The three ecosystem classes that drive the block-variant resolution. */
 type EcosystemClass = "npm-pip" | "github-actions" | "other";
@@ -302,15 +356,17 @@ function stripLeadingComments(text: string): string {
  * substituted value's first line carries no leading indent (the
  * template's own indent supplies it) and continuation lines carry their
  * own absolute indent. When a block is empty for a class
- * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip), the whole placeholder
- * line is dropped so no whitespace-only line remains.
- * `__NAMED_GROUPS_BLOCK__` is never empty — it renders
- * {@link NAMED_DEPENDABOT_GROUPS} unconditionally into every ecosystem.
+ * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip, or
+ * `__NAMED_GROUPS_BLOCK__` for an org whose registry is empty), the
+ * whole placeholder line is dropped so no whitespace-only line remains.
+ * `__NAMED_GROUPS_BLOCK__` renders the same `namedGroupsBlock` (already
+ * rendered by {@link renderNamedGroupsBlock}) into every ecosystem.
  */
 function renderEcosystemBlock(
   blockTemplate: string,
   ecosystem: string,
   ctx: RepoContext,
+  namedGroupsBlock: string,
 ): string {
   const cls = ecosystemClass(ecosystem);
 
@@ -359,7 +415,11 @@ function renderEcosystemBlock(
       continue;
     }
     if (trimmed === "__NAMED_GROUPS_BLOCK__") {
-      out.push(substituteBlockLine(line, NAMED_DEPENDABOT_GROUPS));
+      // Same empty-block collapse as the versioning strategy: an org
+      // with no named groups gets no whitespace-only line.
+      if (namedGroupsBlock !== "") {
+        out.push(substituteBlockLine(line, namedGroupsBlock));
+      }
       continue;
     }
     // Scalar placeholders on ordinary lines.
@@ -404,15 +464,21 @@ function substituteBlockLine(placeholderLine: string, value: string): string {
  * @param outerTemplate raw `dependabot.yml` payload (with comment header).
  * @param blockTemplate raw `ecosystem-block.yml` payload (with header).
  * @param ctx per-repo substitution values.
+ * @param options per-org inputs; `namedDependabotGroups` defaults to
+ *   {@link DEFAULT_NAMED_DEPENDABOT_GROUPS} when absent.
  */
 export function renderDependabotYml(
   outerTemplate: string,
   blockTemplate: string,
   ctx: RepoContext,
+  options: OrgRenderOptions = {},
 ): string {
+  const namedGroupsBlock = renderNamedGroupsBlock(
+    options.namedDependabotGroups ?? DEFAULT_NAMED_DEPENDABOT_GROUPS,
+  );
   const blockBody = stripLeadingComments(blockTemplate);
   const renderedBlocks = DEPENDABOT_ECOSYSTEMS.map((eco) =>
-    renderEcosystemBlock(blockBody, eco, ctx),
+    renderEcosystemBlock(blockBody, eco, ctx, namedGroupsBlock),
   );
   // Each block body already ends without a trailing newline; join with a
   // newline so the blocks concatenate cleanly under `updates:`.

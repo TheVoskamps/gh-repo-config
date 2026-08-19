@@ -86,9 +86,13 @@ export {
   renderDependabotYml,
   renderPrAutomationTemplate,
   assertNoUnresolvedTokens,
+  renderNamedGroupsBlock,
   DEPENDABOT_ECOSYSTEMS,
+  DEFAULT_NAMED_DEPENDABOT_GROUPS,
   NAMED_DEPENDABOT_GROUPS,
   PR_AUTOMATION_CONSTANTS,
+  type NamedDependabotGroups,
+  type OrgRenderOptions,
   type RepoContext,
 } from "./converge/render.js";
 

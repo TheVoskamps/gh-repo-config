@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildDesiredFiles, assertNoUnresolvedTokens } from "../dist/index.js";
+import {
+  buildDesiredFiles,
+  assertNoUnresolvedTokens,
+  renderNamedGroupsBlock,
+  NAMED_DEPENDABOT_GROUPS,
+} from "../dist/index.js";
 import { readAssetText } from "../dist/index.js";
 
 const CTX = { org: "TheVoskamps", repo: "example", defaultBranch: "main" };
@@ -77,6 +82,24 @@ test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/confi
     "PATENTS",
     "PRIOR_ART.md",
   ]);
+});
+
+test("buildDesiredFiles with no options renders the default named groups; an org registry replaces them in dependabot.yml only (issue #88)", () => {
+  const dependabotOf = (files) =>
+    files.find((f) => f.path === ".github/dependabot.yml").content;
+  const bare = buildDesiredFiles(CTX);
+  const empty = buildDesiredFiles(CTX, {});
+  assert.deepEqual(empty, bare);
+  assert.ok(dependabotOf(bare).includes(NAMED_DEPENDABOT_GROUPS));
+
+  const orgGroups = { "acme-sdk": ["@acme/*"] };
+  const overridden = buildDesiredFiles(CTX, { namedDependabotGroups: orgGroups });
+  const dep = dependabotOf(overridden);
+  assert.ok(dep.includes(renderNamedGroupsBlock(orgGroups)));
+  assert.doesNotMatch(dep, /codeql-action:/);
+  // Every other payload is untouched by the registry.
+  const others = (files) => files.filter((f) => f.path !== ".github/dependabot.yml");
+  assert.deepEqual(others(overridden), others(bare));
 });
 
 test("the CodeQL config lands at the exact path the workflow's config-file: line references", () => {

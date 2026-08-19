@@ -6,8 +6,10 @@ import {
   renderDependabotYml,
   renderPrAutomationTemplate,
   DEPENDABOT_ECOSYSTEMS,
+  DEFAULT_NAMED_DEPENDABOT_GROUPS,
   NAMED_DEPENDABOT_GROUPS,
   PR_AUTOMATION_CONSTANTS,
+  renderNamedGroupsBlock,
 } from "../dist/index.js";
 import { readAssetText } from "../dist/index.js";
 
@@ -285,6 +287,92 @@ test("docker block also receives the full named-group union, indentation intact 
   // docker is the "other"-class ecosystem the reviewer called out by
   // name as under-covered by bare unanchored substring matches.
   assert.ok(docker.includes(expectedNamedGroupsBlock()));
+});
+
+// Issue #88: the named-group registry is a per-org input with the baked
+// TheVoskamps set as the default. The default path must stay
+// byte-identical to the pre-#88 render; the override path must render
+// the org's own registry in the same shape and at the same position.
+
+test("NAMED_DEPENDABOT_GROUPS is exactly the rendered default registry (issue #88)", () => {
+  assert.equal(
+    renderNamedGroupsBlock(DEFAULT_NAMED_DEPENDABOT_GROUPS),
+    NAMED_DEPENDABOT_GROUPS,
+  );
+  // The default registry's group order is the rendered order.
+  assert.deepEqual(Object.keys(DEFAULT_NAMED_DEPENDABOT_GROUPS), [
+    "codeql-action",
+    "aws-cdk",
+    "vite-toolchain",
+    "fastapi-stack",
+    "sqlalchemy-stack",
+    "auth-stack",
+    "aws-sdk",
+    "test-stack",
+  ]);
+});
+
+test("renderDependabotYml with no options, {} options, or the default registry renders byte-identical output (issue #88)", () => {
+  const args = [readAssetText("dependabot.yml"), readAssetText("ecosystem-block.yml"), CTX];
+  const bare = renderDependabotYml(...args);
+  const empty = renderDependabotYml(...args, {});
+  const explicit = renderDependabotYml(...args, {
+    namedDependabotGroups: DEFAULT_NAMED_DEPENDABOT_GROUPS,
+  });
+  assert.equal(empty, bare);
+  assert.equal(explicit, bare);
+});
+
+const ORG_GROUPS = {
+  "acme-sdk": ["@acme/*", "acme-core"],
+  "django-stack": ["django", "django-*"],
+};
+
+test("an org-supplied registry replaces the default in every ecosystem block, indentation intact, ahead of the catch-all (issue #88)", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+    { namedDependabotGroups: ORG_GROUPS },
+  );
+  assert.doesNotThrow(() => assertNoUnresolvedTokens(out, "dependabot.yml"));
+  const expected =
+    `${GROUP_KEY_INDENT}acme-sdk:\n` +
+    `${PATTERNS_INDENT}patterns:\n` +
+    `${LIST_ITEM_INDENT}- "@acme/*"\n` +
+    `${LIST_ITEM_INDENT}- "acme-core"\n` +
+    `${GROUP_KEY_INDENT}django-stack:\n` +
+    `${PATTERNS_INDENT}patterns:\n` +
+    `${LIST_ITEM_INDENT}- "django"\n` +
+    `${LIST_ITEM_INDENT}- "django-*"`;
+  for (const eco of DEPENDABOT_ECOSYSTEMS) {
+    const block = blockFor(out, eco);
+    assert.ok(block.includes(expected), `${eco}: org registry not rendered verbatim`);
+    // The default registry is gone — replaced, not appended to.
+    assert.doesNotMatch(block, /codeql-action:/, `${eco}: default group leaked`);
+    // Precedence preserved: the org's groups precede the catch-all.
+    const firstIdx = block.indexOf(`${GROUP_KEY_INDENT}acme-sdk:`);
+    const catchAllIdx = block.indexOf(`${GROUP_KEY_INDENT}${eco}-minor-and-patch:`);
+    assert.ok(firstIdx !== -1 && catchAllIdx !== -1 && firstIdx < catchAllIdx, `${eco}: precedence`);
+  }
+});
+
+test("an empty org registry drops the named-groups line entirely, leaving no whitespace-only line (issue #88)", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+    { namedDependabotGroups: {} },
+  );
+  assert.doesNotThrow(() => assertNoUnresolvedTokens(out, "dependabot.yml"));
+  assert.doesNotMatch(out, /codeql-action:/);
+  const whitespaceOnly = out.split("\n").filter((l) => l.length > 0 && l.trim() === "");
+  assert.deepEqual(whitespaceOnly, []);
+  for (const eco of DEPENDABOT_ECOSYSTEMS) {
+    const block = blockFor(out, eco);
+    // `groups:` is immediately followed by the catch-all.
+    assert.match(block, new RegExp(`^    groups:\\n${GROUP_KEY_INDENT}${eco}-minor-and-patch:$`, "m"));
+  }
 });
 
 test("target-branch reflects the per-repo default branch", () => {

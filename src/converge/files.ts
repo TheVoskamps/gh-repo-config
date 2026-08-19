@@ -51,6 +51,7 @@ import {
   renderDependabotYml,
   renderPrAutomationTemplate,
   renderTemplate,
+  type OrgRenderOptions,
   type RepoContext,
 } from "./render.js";
 
@@ -227,8 +228,17 @@ const COMMUNITY_FILES: readonly {
  * rendered-at-path config, then verbatim-at-path YAML, then scripts,
  * then community files, each in declaration order) so a diff / commit is
  * deterministic.
+ *
+ * @param ctx the per-repo substitution values.
+ * @param options the per-org inputs (issue #87's multi-org fanout),
+ *   passed through to the render pipeline; every field is optional and
+ *   an absent field renders the baked default, so omitting the argument
+ *   yields the single-org payload byte-for-byte.
  */
-export function buildDesiredFiles(ctx: RepoContext): DesiredFile[] {
+export function buildDesiredFiles(
+  ctx: RepoContext,
+  options: OrgRenderOptions = {},
+): DesiredFile[] {
   const files: DesiredFile[] = [];
 
   // dependabot.yml — composite ecosystem expansion under .github/.
@@ -236,6 +246,7 @@ export function buildDesiredFiles(ctx: RepoContext): DesiredFile[] {
     readAssetText("dependabot.yml"),
     readAssetText("ecosystem-block.yml"),
     ctx,
+    options,
   );
   assertNoUnresolvedTokens(dependabot, ".github/dependabot.yml");
   files.push({

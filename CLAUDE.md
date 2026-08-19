@@ -99,19 +99,27 @@ npm run lint:md
       expansion (one `ecosystem-block.yml` copy per armed ecosystem,
       variant parts resolved per ecosystem class — the resolution spec
       lives in the `github-setup` plugin's `gh-repo-setup-protection`
-      SKILL.md Step 3). Each ecosystem block also carries
-      `NAMED_DEPENDABOT_GROUPS`: ONE canonical union of the
-      org's lockstep/stack Dependabot groups (`codeql-action`, `aws-cdk`,
+      SKILL.md Step 3). Each ecosystem block also carries the org's
+      named Dependabot groups — ONE union of its lockstep/stack groups,
+      rendered identically into every armed ecosystem — not scoped per
+      ecosystem, per the same arm-everything-unconditionally/
+      repo-identity principle `DEPENDABOT_ECOSYSTEMS` itself follows. A
+      group whose patterns match nothing in a given ecosystem is inert
+      there. The registry is a per-org input (issue #88):
+      `OrgRenderOptions.namedDependabotGroups` (a `NamedDependabotGroups`
+      map of group name → patterns), threaded from `buildDesiredFiles`
+      through `renderDependabotYml`; when absent, the baked
+      `DEFAULT_NAMED_DEPENDABOT_GROUPS` (`codeql-action`, `aws-cdk`,
       `vite-toolchain`, `fastapi-stack`, `sqlalchemy-stack`, `auth-stack`,
-      `aws-sdk`, `test-stack`), rendered identically into every armed
-      ecosystem — not scoped per ecosystem, per the same
-      arm-everything-unconditionally/repo-identity principle
-      `DEPENDABOT_ECOSYSTEMS` itself follows. A group whose patterns
-      match nothing in a given ecosystem is inert there. Definitions and
-      precedence (named groups listed before each ecosystem's
-      `*-minor-and-patch` catch-all, so a dependency matching both lands
-      in the named group) are org-wide constants covering the org's
-      lockstep/stack dependency groupings. `renderPrAutomationTemplate` +
+      `aws-sdk`, `test-stack`) renders byte-for-byte as before, and
+      `NAMED_DEPENDABOT_GROUPS` remains exported as that default's
+      rendered text. `renderNamedGroupsBlock` produces the block from
+      either registry, at the fixed 6/8/10-space indents the `groups:`
+      map needs; an empty registry drops the placeholder line (the same
+      empty-block collapse `__VERSIONING_STRATEGY_BLOCK__` gets).
+      Precedence is unchanged either way: named groups are listed before
+      each ecosystem's `*-minor-and-patch` catch-all, so a dependency
+      matching both lands in the named group. `renderPrAutomationTemplate` +
       `PR_AUTOMATION_CONSTANTS` render the PR-automation
       workflows' extra placeholders: the fixed org-level constants
       (App identity, merge method, do-not-merge label, required-check/
