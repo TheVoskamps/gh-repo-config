@@ -4,7 +4,8 @@
 # Placeholders (see the github-setup plugin payload README for the convention):
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
-#   __APP_CLIENT_ID_SECRET__  repo secret holding the App Client ID
+#   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
+#                        holding the App Client ID
 #                        (e.g. AUTOMERGE_APP_CLIENT_ID)
 #   __APP_PRIVATE_KEY_SECRET__  repo secret holding the App private key
 #                        (e.g. AUTOMERGE_APP_PRIVATE_KEY)
@@ -62,17 +63,19 @@ on:
 # enablePullRequestAutoMerge ("FORBIDDEN: Resource not accessible by
 # integration").
 #
-# The workflow consumes two repo secrets: __APP_CLIENT_ID_SECRET__ and
-# __APP_PRIVATE_KEY_SECRET__. A short-lived installation token is minted at
+# The workflow consumes two secrets: __APP_CLIENT_ID_SECRET__, an ORG
+# secret visible to all repositories, and __APP_PRIVATE_KEY_SECRET__, a
+# repo secret. A short-lived installation token is minted at
 # workflow runtime by actions/create-github-app-token, which signs a JWT
 # with the private key and exchanges it for an installation access token
 # via the App's installation endpoint. There is no long-lived "App token"
-# to store; the canonical pattern is App Client ID + private key in repo
+# to store; the canonical pattern is App Client ID + private key in
 # secrets, token minted per-run. Only __APP_PRIVATE_KEY_SECRET__ is seeded
 # by /gh-repo-setup-pr-automation; that skill seeds the App's numeric ID,
 # which client-id: cannot consume, so __APP_CLIENT_ID_SECRET__ is set by
-# hand — at org scope where the App serves the whole org, at repo scope
-# otherwise; `secrets.` resolves either.
+# hand, and must be set at ORG scope with all-repositories visibility:
+# this template fans out to every managed repo, so a repo-scoped copy
+# would have to be provisioned again on each one.
 # Without them, actions/create-github-app-token fails fast with a clear
 # error, which is the intended behaviour: do NOT fall back to GITHUB_TOKEN.
 #

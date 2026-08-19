@@ -4,7 +4,8 @@
 # Placeholders (see the github-setup plugin payload README for the convention):
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
-#   __APP_CLIENT_ID_SECRET__  repo secret holding the App Client ID
+#   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
+#                        holding the App Client ID
 #                        (e.g. AUTOMERGE_APP_CLIENT_ID)
 #   __APP_PRIVATE_KEY_SECRET__  repo secret holding the App private key
 #                        (e.g. AUTOMERGE_APP_PRIVATE_KEY)
@@ -248,15 +249,17 @@ on:
 # like an external actor, so the checks do re-run. Do NOT fall back to
 # GITHUB_TOKEN.
 #
-# The workflow consumes two repo secrets: __APP_CLIENT_ID_SECRET__ and
-# __APP_PRIVATE_KEY_SECRET__. A short-lived installation token is
+# The workflow consumes two secrets: __APP_CLIENT_ID_SECRET__, an ORG
+# secret visible to all repositories, and __APP_PRIVATE_KEY_SECRET__, a
+# repo secret. A short-lived installation token is
 # minted at runtime by actions/create-github-app-token (see the first
 # job step); there is no long-lived stored token.
 # Only __APP_PRIVATE_KEY_SECRET__ is seeded by
 # /gh-repo-setup-pr-automation; that skill seeds the App's numeric ID,
 # which client-id: cannot consume, so __APP_CLIENT_ID_SECRET__ is set by
-# hand — at org scope where the App serves the whole org, at repo scope
-# otherwise; `secrets.` resolves either. Until the App is
+# hand, and must be set at ORG scope with all-repositories visibility:
+# this template fans out to every managed repo, so a repo-scoped copy
+# would have to be provisioned again on each one. Until the App is
 # provisioned the first workflow run fails fast at the token-mint step
 # with a clear error from actions/create-github-app-token; that failure
 # is intended.

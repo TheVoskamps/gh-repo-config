@@ -396,7 +396,12 @@ npm run lint:md
     operator-provisioned secret, not a rename of `AUTOMERGE_APP_ID`,
     and a repo carrying only the latter has nothing to feed
     `client-id:` with — `/gh-repo-setup-pr-automation` seeds
-    `<prefix>_APP_ID`, so the Client ID secret is set by hand.
+    `<prefix>_APP_ID`, so the Client ID secret is set by hand, as an
+    ORG secret with all-repositories visibility. Org scope is the
+    requirement, not a preference: the payload fans out to every
+    managed repo, so a repo-scoped copy would have to be provisioned
+    again on each one. Only the Client ID secret is org-scoped;
+    `AUTOMERGE_APP_PRIVATE_KEY` stays a repo secret.
     The repo-own workflows that mint an App token (`sweep.yml`,
     `assets-pin-bump.yml`) carry no `assets/` counterpart and still
     mint with `app-id:`, so the deprecation warning survives on this
