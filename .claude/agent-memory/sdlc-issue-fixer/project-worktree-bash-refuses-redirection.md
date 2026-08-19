@@ -33,3 +33,8 @@ shell structure, e.g. `gh pr view N --json body --jq '.body' >
 <abs-path>`. `npm`/`node`/`git` invocations with `| tail`, `| grep` and
 `&&` chains of non-git commands also pass. Sibling note in the
 issue-developer's memory: [[git-c-flag-blocked-in-worktree]].
+
+Separately, BSD in-place sed — `sed -i '' -e … <file>` — is refused with
+a different message: the empty backup-suffix argument is read as a path
+and reported as resolving outside the repository. Use the `Edit` tool
+for in-place substitution rather than reaching for `sed -i`.
