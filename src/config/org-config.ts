@@ -12,8 +12,9 @@
  * The format is JSON, not YAML, because the release tarball is
  * dependency-free and runs under bare `node bin/gh-repo-config.js
  * sweep`: no YAML parser exists at runtime and none is added. The
- * sweeper workflow also reads the version pin out of this same file in
- * bash before the tarball exists, and `jq` is on every runner.
+ * sweeper workflow — later work, no payload exists yet — must also read
+ * the version pin out of this same file in bash before the tarball
+ * exists, and `jq` is on every runner where YAML tooling is not.
  *
  * Every validation failure is a thrown `Error` naming the offending key
  * and what was expected. The sweep runs this parse before its first API
@@ -67,9 +68,11 @@ export interface OrgConfig {
   readonly prAutomationIdentity?: PrAutomationIdentity;
   /**
    * A converger release tag of the form `vX.Y.Z`, leading `v` included.
-   * Absent means latest. Its primary consumer is the sweeper workflow,
-   * which downloads the pinned tarball; the converger enforces it as
-   * defense-in-depth via {@link assertVersionPinSatisfied}.
+   * Absent means latest. Its intended primary consumer is the sweeper
+   * workflow, which downloads the pinned tarball (later work); the
+   * converger enforces it as defense-in-depth via
+   * {@link assertVersionPinSatisfied}, which is the only enforcement
+   * that exists today.
    */
   readonly versionPin?: string;
   readonly sweeperUpdatePolicy: SweeperUpdatePolicy;
@@ -267,10 +270,10 @@ export async function readOrgConfig(path: string): Promise<ParsedOrgConfig> {
 /**
  * Enforce a `version-pin` against the running converger's own version.
  *
- * The pin's primary consumer is the sweeper workflow, which downloads
- * the pinned tarball. This check is defense-in-depth: a workflow that
- * failed to honor the pin cannot then run the wrong converger version
- * against the org's repos.
+ * The pin's intended primary consumer is the sweeper workflow, which
+ * downloads the pinned tarball (later work). This check is
+ * defense-in-depth: a workflow that failed to honor the pin cannot then
+ * run the wrong converger version against the org's repos.
  *
  * @param pin the configured pin (`vX.Y.Z`), or `undefined` for no pin.
  * @param currentVersion the running converger's version, bare (no `v`).

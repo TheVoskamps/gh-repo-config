@@ -277,10 +277,15 @@ npm run lint:md
     - `ruleset.ts` — `convergeProtectMainRuleset`: pure API
       mutation, no files, no PR. Creates/converges the repo-level
       `protect-main` ruleset from `assets/protect-main-ruleset.json`,
-      unioning in App bypass actors (converger + AUTOMERGE, each
-      resolved to an `app_id` at sweep time — an uninstalled App's
-      entry is omitted and reported, never a failure) onto the existing
-      bypass list (never dropping an operator's own bypasses). When an
+      unioning in App bypass actors (converger + the org's
+      PR-automation App, each resolved to an `app_id` at sweep time —
+      an uninstalled App's entry is omitted and reported, never a
+      failure) onto the existing
+      bypass list (never dropping an operator's own bypasses). Both
+      slugs arrive as the `appBypass` argument; this module holds no
+      slug constant of its own (issue #91 removed the
+      `AUTOMERGE_APP_SLUG` export), so a second source cannot drift
+      from the identity the rendered workflows use. When an
       active org-level ruleset already governs the default branch, the
       repo-level copy is deleted and convergence is deferred
       (`org-governed`), not asserted redundantly. A `code_quality` 422
@@ -730,7 +735,12 @@ npm run lint:md
   `GH_REPO_CONFIG_APP_SLUG` (read from the token-mint step's own
   `app-slug` output, not a separate secret) so the merge pass can
   match `user.login === "<slug>[bot]"` and never merge a PR authored
-  by anyone else.
+  by anyone else. It sets neither `GH_REPO_CONFIG_FILE` nor
+  `GH_REPO_CONFIG_SWEEPER_REPO` (issue #91): this repo is not a
+  per-org sweeper repo, so its own sweep runs on the baked defaults.
+  The env-side plumbing exists for the sweeper-workflow payload that
+  is later work — do not read its absence here as the seam being
+  unwired.
 
 ## Conventions
 
