@@ -73,9 +73,14 @@ npm run lint:md
     all optional and all kebab-case: `named-dependabot-groups` (group
     name → non-empty pattern array; a **full replacement** of
     `DEFAULT_NAMED_DEPENDABOT_GROUPS`, so `{}` renders no named groups),
-    `pr-automation-identity` (all of `app-name`, `app-id-secret`,
-    `app-private-key-secret`, `bot-slug` required together — a partial
-    identity mixes one org's App with another's secret names),
+    `pr-automation-identity` (all of `app-name`,
+    `app-client-id-secret`, `app-private-key-secret`, `bot-slug`
+    required together — a partial identity mixes one org's App with
+    another's secret names; `app-client-id-secret` maps to
+    `PrAutomationIdentity.appClientIdSecret` and names the secret
+    holding the App's **Client ID**, not its numeric App ID, since
+    that is the value `actions/create-github-app-token`'s
+    `client-id:` input takes),
     `version-pin` (`vX.Y.Z`; absent means latest, and there is
     deliberately no per-target-repo pinning, since the sweep runs one
     tarball version per tick and per-repo pins would institutionalize

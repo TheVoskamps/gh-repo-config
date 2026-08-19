@@ -119,7 +119,7 @@ const KNOWN_KEYS = [
  */
 const IDENTITY_KEYS = [
   "app-name",
-  "app-id-secret",
+  "app-client-id-secret",
   "app-private-key-secret",
   "bot-slug",
 ] as const;
@@ -192,12 +192,12 @@ function warnUnknownKeys(
 function parseIdentity(raw: unknown): PrAutomationIdentity {
   if (!isPlainObject(raw)) {
     throw new Error(
-      'org config "pr-automation-identity": must be an object carrying app-name, app-id-secret, app-private-key-secret, and bot-slug',
+      'org config "pr-automation-identity": must be an object carrying app-name, app-client-id-secret, app-private-key-secret, and bot-slug',
     );
   }
   return {
     appName: requireIdentityString(raw, "app-name"),
-    appIdSecret: requireIdentityString(raw, "app-id-secret"),
+    appClientIdSecret: requireIdentityString(raw, "app-client-id-secret"),
     appPrivateKeySecret: requireIdentityString(raw, "app-private-key-secret"),
     botSlug: requireIdentityString(raw, "bot-slug"),
   };

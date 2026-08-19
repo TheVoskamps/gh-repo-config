@@ -21,7 +21,7 @@ const REPO = "fixture-behind";
 
 const IDENTITY_JSON = {
   "app-name": "acme-pr-automations",
-  "app-id-secret": "ACME_APP_ID",
+  "app-client-id-secret": "ACME_APP_CLIENT_ID",
   "app-private-key-secret": "ACME_APP_PRIVATE_KEY",
   "bot-slug": "acme-bot[bot]",
 };
@@ -66,7 +66,7 @@ test("a fully populated file resolves every key", () => {
   });
   assert.deepEqual(config.prAutomationIdentity, {
     appName: "acme-pr-automations",
-    appIdSecret: "ACME_APP_ID",
+    appClientIdSecret: "ACME_APP_CLIENT_ID",
     appPrivateKeySecret: "ACME_APP_PRIVATE_KEY",
     botSlug: "acme-bot[bot]",
   });
@@ -158,10 +158,10 @@ test("a partial pr-automation-identity is a hard error naming the missing sub-ke
     () =>
       parseOrgConfig(
         JSON.stringify({
-          "pr-automation-identity": { ...IDENTITY_JSON, "app-id-secret": "" },
+          "pr-automation-identity": { ...IDENTITY_JSON, "app-client-id-secret": "" },
         }),
       ),
-    /"pr-automation-identity\.app-id-secret": required/,
+    /"pr-automation-identity\.app-client-id-secret": required/,
   );
   assert.throws(
     () => parseOrgConfig(JSON.stringify({ "pr-automation-identity": "acme" })),
@@ -454,7 +454,7 @@ test("no config file and no sweeper repo: the sweep behaves exactly as before", 
   assert.match(api.written(".github/dependabot.yml"), /codeql-action/);
   assert.match(
     api.written(".github/workflows/auto-rebase-prs.yml"),
-    /AUTOMERGE_APP_ID/,
+    /AUTOMERGE_APP_CLIENT_ID/,
   );
 });
 
@@ -490,13 +490,13 @@ test("a populated config file reaches every consumer", async () => {
 
   // pr-automation-identity reaches the rendered workflows...
   const workflow = api.written(".github/workflows/auto-rebase-prs.yml");
-  assert.match(workflow, /secrets\.ACME_APP_ID/);
+  assert.match(workflow, /secrets\.ACME_APP_CLIENT_ID/);
   assert.match(workflow, /secrets\.ACME_APP_PRIVATE_KEY/);
   assert.match(workflow, /acme-bot\[bot\]/);
   // The default secret names survive only in the header comment's
   // worked example, never as a `secrets.` reference.
   assert.ok(
-    !workflow.includes("secrets.AUTOMERGE_APP_ID"),
+    !workflow.includes("secrets.AUTOMERGE_APP_CLIENT_ID"),
     "default secret reference replaced",
   );
 
@@ -634,7 +634,7 @@ for (const [name, text, match] of [
   [
     "a partial identity",
     JSON.stringify({ "pr-automation-identity": { "app-name": "acme" } }),
-    /"pr-automation-identity\.app-id-secret"/,
+    /"pr-automation-identity\.app-client-id-secret"/,
   ],
   [
     "a bad policy",
