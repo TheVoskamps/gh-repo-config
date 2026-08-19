@@ -399,25 +399,12 @@ npm run lint:md
     `client-id:` with — `/gh-repo-setup-pr-automation` seeds
     `<prefix>_APP_ID`, so the Client ID secret is set by hand. BOTH
     secrets the rendered workflows read — `AUTOMERGE_APP_CLIENT_ID` and
-    `AUTOMERGE_APP_PRIVATE_KEY` — are ORG secrets with
+    `AUTOMERGE_APP_PRIVATE_KEY` — must be ORG secrets with
     all-repositories visibility, present in BOTH org secret stores, the
-    Actions one and the Dependabot one. Org scope is the requirement,
-    not a preference. GitHub does offer a repo-scoped secret in each
-    store, but the payload fans out to every managed repo, including
-    repos created after the secrets were set, so a per-repo copy is not
-    feasible.
-    Both stores is likewise a requirement, not belt-and-braces: the
-    rendered `auto-enable-automerge.yml` runs on `pull_request`, which
-    includes Dependabot's own PRs, and a run triggered by a Dependabot
-    PR resolves every `secrets.*` reference from the Dependabot store
-    rather than the Actions store, so a secret in only one store leaves
-    one class of runs unable to mint. Both reasons are properties of
-    the secrets, so they hold for the private key exactly as they do
-    for the Client ID.
-    The repo-own workflows that mint an App token (`sweep.yml`,
-    `assets-pin-bump.yml`) carry no `assets/` counterpart and still
-    mint with `app-id:`, so the deprecation warning survives on this
-    repo's own runs until they are switched too.
+    Actions one and the Dependabot one; the
+    `assets/auto-enable-automerge.yml` header carries the one full
+    statement of why, and is the copy a managed repo's maintainer
+    reads.
   - **Job count is a first-class constraint on every fanned-out
     workflow.** GitHub bills a whole minute per JOB, rounded up, so a
     wrapper job doing three seconds of work costs the same as a real
@@ -656,13 +643,11 @@ npm run lint:md
   the push itself.
   The commit/push/PR step mints a short-lived GitHub App
   installation token from the `AUTOMERGE_APP_ID` /
-  `AUTOMERGE_APP_PRIVATE_KEY` secrets (org secrets in this org) — the
+  `AUTOMERGE_APP_PRIVATE_KEY` secrets (org secrets in this org; the
   same PR-operations App the rendered `auto-rebase-prs.yml` /
-  `auto-enable-automerge.yml` authenticate as, though those identify it
-  by Client ID (`AUTOMERGE_APP_CLIENT_ID`) while this one still uses the
-  numeric App ID — rather than the default `GITHUB_TOKEN` — a PR opened
-  with `GITHUB_TOKEN` does not trigger `pull_request` workflows, so
-  `ci.yml` and `pin-shape.yml`
+  `auto-enable-automerge.yml` authenticate as) rather than
+  the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
+  trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`
   would never run on its own PRs and they could never satisfy the
   `ci-required` / `pin-shape-required` required checks. That App token
   is scoped to only this last step, kept out of the checkout and the

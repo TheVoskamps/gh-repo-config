@@ -79,15 +79,3 @@ The minted token authorises only the permissions granted to the App
 above, and expires within the hour. The `permissions:` block of the
 workflow governs the default `GITHUB_TOKEN` only; it does not affect
 the App installation token.
-
-`actions/create-github-app-token` still accepts `app-id:` but marks it
-deprecated in favour of `client-id:`, so this snippet emits a
-deprecation warning on every run. The rendered PR-automation payload
-(`assets/auto-enable-automerge.yml`, `assets/auto-rebase-prs.yml`) has
-moved to `client-id:`; this App has not — `sweep.yml` and the snippet
-above still read `CONVERGER_APP_ID`. The secret the switch needs is
-already provisioned: `CONVERGER_APP_CLIENT_ID` exists as an
-`organization` secret visible to this repo, alongside the two in the
-table. A Client ID is a different value from the numeric App ID, so
-the switch is a matter of pointing the workflow at that secret, not of
-renaming anything.
