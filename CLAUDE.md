@@ -58,6 +58,43 @@ npm run lint:md
   `dist/`, not `src/`.
   - `src/config/selection.ts` — managed-or-not precedence over the
     `gh-repo-config-mode` / `gh-repo-config-default` custom properties.
+  - `src/config/org-config.ts` — the per-org config file (issue #91):
+    the seam that lets one released tarball serve every org. Each org
+    runs the sweep from its own private sweeper repo, which carries this
+    file as org-owned content the converger never converges;
+    `runSweepFromEnv` reads its path from `GH_REPO_CONFIG_FILE` (unset →
+    every value takes its baked default and the sweep behaves exactly as
+    it did before). The format is **JSON**, one top-level object, because
+    the release tarball is dependency-free (no YAML parser at runtime)
+    and the sweeper workflow reads the version pin out of the same file
+    in bash with `jq` before the tarball exists. Keys, all optional and
+    all kebab-case: `named-dependabot-groups` (group name → non-empty
+    pattern array; a **full replacement** of
+    `DEFAULT_NAMED_DEPENDABOT_GROUPS`, so `{}` renders no named groups),
+    `pr-automation-identity` (all four of `app-name`, `app-id-secret`,
+    `app-private-key-secret`, `bot-slug` required together — a partial
+    identity mixes one org's App with another's secret names),
+    `version-pin` (`vX.Y.Z`; absent means latest, and there is
+    deliberately no per-target-repo pinning, since the sweep runs one
+    tarball version per tick and per-repo pins would institutionalize
+    skew the stamp/`isBehind` model has no endpoint for — the escape
+    hatch for one repo is `gh-repo-config-mode: ignore`), and
+    `sweeper-update-policy` (`manual` | `auto` | `off`, default
+    `manual`; parsed and exposed here, its consumer is the
+    sweeper-workflow payload and is later work). Every malformed value
+    is a thrown `Error` naming the key, raised before the sweep's first
+    API call — a silently-ignored pin or policy is worse than a failed
+    tick. Unknown keys, top-level or inside `pr-automation-identity`,
+    are one stderr warning line each and never stop the sweep.
+    `assertVersionPinSatisfied` is the pin's defense-in-depth check
+    (the workflow is its primary consumer): strip the leading `v`,
+    compare to `CURRENT_VERSION`, throw naming both on mismatch.
+    `parseSweeperRepo` validates `GH_REPO_CONFIG_SWEEPER_REPO` — the
+    sweeper repo's own `owner/repo`, which reaches the sweep via
+    environment rather than this file because the invoking workflow
+    states its own `$GITHUB_REPOSITORY`, so no org Actions variable (and
+    no extra converger-App scope) is needed and the identity cannot
+    drift.
   - `src/version-compare.ts` — `isBehind`, the version-skip check
     against `gh-repo-config-version`.
   - `src/stamp/decide.ts` — combines selection + version-skip into a
@@ -295,21 +332,23 @@ npm run lint:md
     injectable stubs (tests supply their own) and run independently per
     repo in the same per-repo pass — one step's failure doesn't skip the
     others, but any failure marks the repo `failed` and skips stamping.
-    `runSweepFromEnv` wires the real implementations in production. Of
-    the per-org `DesiredFilesOptions` it supplies only `communityFiles`
-    (read from the org's `.github` repo, above); it never sets
-    `namedDependabotGroups` or `prAutomationIdentity`, so a scheduled
-    sweep always renders the baked `DEFAULT_NAMED_DEPENDABOT_GROUPS`
-    and `DEFAULT_PR_AUTOMATION_IDENTITY` — no env var or config file
-    feeds those seams yet. The ruleset step's `AUTOMERGE_APP_SLUG`
-    (`src/converge/ruleset.ts`, the pr-automation App it ensures as a
-    `protect-main` bypass actor) is derived from
-    `DEFAULT_PR_AUTOMATION_IDENTITY.appName` — the default of the same
-    per-org fact, not an independent org constant — and has no per-org
-    plumbing of its own yet either; a caller supplying a non-default
-    `prAutomationIdentity` gets that identity in the rendered workflows
-    but still the default slug in the ruleset, until the sweep-side
-    wiring threads one identity through both. The
+    `runSweepFromEnv` wires the real implementations in production. It
+    resolves the per-org config file (`src/config/org-config.ts`, issue
+    #91) and the sweeper repo BEFORE building any client, so a malformed
+    file fails the tick with no API call made, then hands every repo's
+    converge a `DesiredFilesOptions` carrying `communityFiles` (read
+    from the org's `.github` repo, above) plus whichever of
+    `namedDependabotGroups` / `prAutomationIdentity` the file supplied;
+    an org with no config file omits both and renders the baked
+    `DEFAULT_NAMED_DEPENDABOT_GROUPS` / `DEFAULT_PR_AUTOMATION_IDENTITY`
+    byte-for-byte. The pr-automation App slug the ruleset step ensures
+    as a `protect-main` bypass actor is derived from that same RESOLVED
+    identity's `appName`, so an org running its own App gets that App as
+    the bypass actor rather than a default it has not installed; there
+    is deliberately no baked slug constant beside it, since a second
+    source would drift from the identity the rendered workflows use.
+    `sweeperRepo` and `sweeperUpdatePolicy` are passed on the options
+    and echoed onto `SweepReport`; nothing consumes either yet. The
     merge pass runs independently of the version-skip
     decision, over every repo the properties API returns, so an
     unmerged converger PR from a prior tick still gets picked up.
@@ -552,7 +591,9 @@ npm run lint:md
 - `bin/gh-repo-config.js` — CLI entry point (`package.json` `bin`).
   Subcommands: `version` (default) and `sweep` (reads
   `GH_REPO_CONFIG_ORG` / `GH_REPO_CONFIG_TOKEN` /
-  `GH_REPO_CONFIG_APP_SLUG` / optional `GH_REPO_CONFIG_DRY_RUN` from
+  `GH_REPO_CONFIG_APP_SLUG` / optional `GH_REPO_CONFIG_DRY_RUN` /
+  optional `GH_REPO_CONFIG_FILE` / optional
+  `GH_REPO_CONFIG_SWEEPER_REPO` from
   the environment; exits non-zero when any repo's convergence or stamp
   write failed, so a scheduled sweep run cannot fail silently). The
   sweep summary also prints each repo's CodeQL default-setup and

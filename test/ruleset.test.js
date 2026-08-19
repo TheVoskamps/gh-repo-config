@@ -8,13 +8,13 @@ import {
   orgRulesetGoverns,
   rulesetSemanticDiff,
   RULESET_NAME,
-  AUTOMERGE_APP_SLUG,
   DEFAULT_PR_AUTOMATION_IDENTITY,
 } from "../dist/index.js";
 
 const ADMIN = { actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "pull_request" };
 const CONVERGER = { slug: "the-converger", appId: 4319606 };
-const AUTOMERGE = { slug: AUTOMERGE_APP_SLUG, appId: 3835765 };
+const AUTOMERGE_SLUG = DEFAULT_PR_AUTOMATION_IDENTITY.appName;
+const AUTOMERGE = { slug: AUTOMERGE_SLUG, appId: 3835765 };
 
 function requiredContexts(body) {
   const rule = body.rules.find((r) => r.type === "required_status_checks");
@@ -51,7 +51,7 @@ test("buildDesiredRuleset unions the two App bypass actors onto the admin entry"
 });
 
 test("buildDesiredRuleset omits an uninstalled App (undefined appId) from the bypass list", () => {
-  const body = buildDesiredRuleset([CONVERGER, { slug: AUTOMERGE_APP_SLUG, appId: undefined }]);
+  const body = buildDesiredRuleset([CONVERGER, { slug: AUTOMERGE_SLUG, appId: undefined }]);
   const keys = body.bypass_actors.map((a) => `${a.actor_type}:${a.actor_id}`);
   assert.ok(keys.includes("Integration:4319606"));
   assert.ok(!keys.some((k) => k.includes("3835765")));
@@ -645,10 +645,10 @@ test("converge: an org TAG ruleset present does NOT defer — repo-level branch 
 
 test("converge: an uninstalled App is omitted from bypass and reported, never a failure", async () => {
   const { client } = fakeClient();
-  const apps = [CONVERGER, { slug: AUTOMERGE_APP_SLUG, appId: undefined }];
+  const apps = [CONVERGER, { slug: AUTOMERGE_SLUG, appId: undefined }];
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", apps, false);
   assert.equal(result.outcome, "created");
-  assert.deepEqual(result.uninstalledApps, [AUTOMERGE_APP_SLUG]);
+  assert.deepEqual(result.uninstalledApps, [AUTOMERGE_SLUG]);
 });
 
 test("converge: a code_quality 422 -> retried without the rule, reported as skipped", async () => {
@@ -794,6 +794,4 @@ test("converge: integration_id inside required_status_checks entries is never dr
   assert.equal(calls.length, 0);
 });
 
-test("AUTOMERGE_APP_SLUG is derived from the default PrAutomationIdentity's appName, not a second literal (issue #89)", () => {
-  assert.equal(AUTOMERGE_APP_SLUG, DEFAULT_PR_AUTOMATION_IDENTITY.appName);
-});
+
