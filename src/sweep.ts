@@ -798,12 +798,13 @@ export async function runSweep(
  * - `GH_REPO_CONFIG_FILE` — path to the org config file (issue #91,
  *   `./config/org-config.js`), the per-org source of the named
  *   Dependabot groups, the PR-automation App identity, the converger
- *   version pin, and the sweeper update policy. Unset means every value
+ *   version pin, and the sweeper update policy. Unset or empty — the
+ *   shape an unset Actions expression renders as — means every value
  *   takes its baked default. Set but missing, unreadable, or malformed
  *   is a hard error before the first API call.
  * - `GH_REPO_CONFIG_SWEEPER_REPO` — the sweeper repo (`owner/repo`) this
- *   sweep runs from, as the invoking workflow states it. Absent means no
- *   repo is the sweeper this tick; malformed is a hard error.
+ *   sweep runs from, as the invoking workflow states it. Absent or empty
+ *   means no repo is the sweeper this tick; malformed is a hard error.
  * - `GITHUB_API_URL` — API base (GitHub Actions sets this).
  */
 export async function runSweepFromEnv(

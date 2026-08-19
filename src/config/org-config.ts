@@ -69,9 +69,9 @@ export interface OrgConfig {
    */
   readonly namedDependabotGroups?: NamedDependabotGroups;
   /**
-   * The org's own PR-automation App. Every sub-key is required
-   * together with the rest — mixing one org's App with another's secret names is a
-   * footgun, not a default.
+   * The org's own PR-automation App. Every sub-key is required together
+   * with the rest — mixing one org's App with another's secret names is
+   * a footgun, not a default.
    */
   readonly prAutomationIdentity?: PrAutomationIdentity;
   /**
@@ -344,7 +344,8 @@ export function assertVersionPinSatisfied(
  * sweeper without an org Actions variable (which would need a scope the
  * converger App does not hold) and the identity cannot drift.
  *
- * @param raw the env value, or `undefined` when no repo is the sweeper.
+ * @param raw the env value. `undefined` or empty — the shape an unset
+ *   Actions expression renders as — means no repo is the sweeper.
  * @throws Error when present but not `owner/repo`.
  */
 export function parseSweeperRepo(raw: string | undefined): string | undefined {

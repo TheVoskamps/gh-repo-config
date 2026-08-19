@@ -63,15 +63,15 @@ npm run lint:md
     is that each org runs the sweep from its own private sweeper repo,
     which carries this file as org-owned content the converger never
     converges — no sweeper-repo payload is built yet, so the seam is
-    wired but nothing on GitHub uses it;
-    `runSweepFromEnv` reads its path from `GH_REPO_CONFIG_FILE` (unset →
-    every value takes its baked default and the sweep behaves exactly as
-    it did before). The format is **JSON**, one top-level object, because
-    the release tarball is dependency-free (no YAML parser at runtime)
-    and the sweeper workflow — later work — must read the version pin
-    out of the same file in bash with `jq` before the tarball exists. Keys, all optional and
-    all kebab-case: `named-dependabot-groups` (group name → non-empty
-    pattern array; a **full replacement** of
+    wired but nothing on GitHub uses it; `runSweepFromEnv` reads its
+    path from `GH_REPO_CONFIG_FILE` (unset → every value takes its
+    baked default and the sweep behaves exactly as it did before). The
+    format is **JSON**, one top-level object, because the release
+    tarball is dependency-free (no YAML parser at runtime) and the
+    sweeper workflow — later work — must read the version pin out of
+    the same file in bash with `jq` before the tarball exists. Keys,
+    all optional and all kebab-case: `named-dependabot-groups` (group
+    name → non-empty pattern array; a **full replacement** of
     `DEFAULT_NAMED_DEPENDABOT_GROUPS`, so `{}` renders no named groups),
     `pr-automation-identity` (all of `app-name`, `app-id-secret`,
     `app-private-key-secret`, `bot-slug` required together — a partial
@@ -293,12 +293,11 @@ npm run lint:md
       unioning in App bypass actors (converger + the org's
       PR-automation App, each resolved to an `app_id` at sweep time —
       an uninstalled App's entry is omitted and reported, never a
-      failure) onto the existing
-      bypass list (never dropping an operator's own bypasses). Both
-      slugs arrive as the `appBypass` argument; this module holds no
-      slug constant of its own (issue #91 removed the
-      `AUTOMERGE_APP_SLUG` export), so a second source cannot drift
-      from the identity the rendered workflows use. When an
+      failure) onto the existing bypass list (never dropping an
+      operator's own bypasses). Both slugs arrive as the `appBypass`
+      argument; this module holds no slug constant of its own (issue
+      #91 removed the `AUTOMERGE_APP_SLUG` export), so a second source
+      cannot drift from the identity the rendered workflows use. When an
       active org-level ruleset already governs the default branch, the
       repo-level copy is deleted and convergence is deferred
       (`org-governed`), not asserted redundantly. A `code_quality` 422
@@ -367,9 +366,9 @@ npm run lint:md
     source would drift from the identity the rendered workflows use.
     `sweeperRepo` and `sweeperUpdatePolicy` are passed on the options
     and echoed onto `SweepReport`; nothing consumes either yet. The
-    merge pass runs independently of the version-skip
-    decision, over every repo the properties API returns, so an
-    unmerged converger PR from a prior tick still gets picked up.
+    merge pass runs independently of the version-skip decision, over
+    every repo the properties API returns, so an unmerged converger PR
+    from a prior tick still gets picked up.
     The `convergeRuleset` step runs in a separate pass
     **after** the merge pass, gated by an ordering rule: for a given
     repo, the ruleset is asserted only once that repo's file
