@@ -400,8 +400,11 @@ npm run lint:md
     ORG secret with all-repositories visibility. Org scope is the
     requirement, not a preference: the payload fans out to every
     managed repo, so a repo-scoped copy would have to be provisioned
-    again on each one. Only the Client ID secret is org-scoped;
-    `AUTOMERGE_APP_PRIVATE_KEY` stays a repo secret.
+    again on each one. Only the Client ID secret's scope is fixed by
+    that reasoning: `secrets.<NAME>` resolves a repo or an org secret
+    alike, so `AUTOMERGE_APP_PRIVATE_KEY` may sit at either scope — in
+    this org it is an org secret, since this repo carries no repo-level
+    Actions secrets at all.
     The repo-own workflows that mint an App token (`sweep.yml`,
     `assets-pin-bump.yml`) carry no `assets/` counterpart and still
     mint with `app-id:`, so the deprecation warning survives on this
@@ -644,12 +647,11 @@ npm run lint:md
   the push itself.
   The commit/push/PR step mints a short-lived GitHub App
   installation token from the `AUTOMERGE_APP_ID` /
-  `AUTOMERGE_APP_PRIVATE_KEY` repo secrets — the same PR-operations App
-  the rendered `auto-rebase-prs.yml` / `auto-enable-automerge.yml`
-  authenticate as, though those identify it by Client ID
-  (`AUTOMERGE_APP_CLIENT_ID`) while this one still uses the numeric App
-  ID — rather than
-  the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
+  `AUTOMERGE_APP_PRIVATE_KEY` secrets (org secrets in this org) — the
+  same PR-operations App the rendered `auto-rebase-prs.yml` /
+  `auto-enable-automerge.yml` authenticate as, though those identify it
+  by Client ID (`AUTOMERGE_APP_CLIENT_ID`) while this one still uses the
+  numeric App ID — rather than the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
   trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`
   would never run on its own PRs and they could never satisfy the
   `ci-required` / `pin-shape-required` required checks. That App token

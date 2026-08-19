@@ -7,8 +7,9 @@
 #   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
 #                        holding the App Client ID
 #                        (e.g. AUTOMERGE_APP_CLIENT_ID)
-#   __APP_PRIVATE_KEY_SECRET__  repo secret holding the App private key
-#                        (e.g. AUTOMERGE_APP_PRIVATE_KEY)
+#   __APP_PRIVATE_KEY_SECRET__  secret holding the App private key, at
+#                        repo or org scope — secrets.<NAME> resolves
+#                        either (e.g. AUTOMERGE_APP_PRIVATE_KEY)
 #   __BOT_SLUG__         git identity used for rebase commits, e.g.
 #                        "<repo>-auto-rebase[bot]"
 #   __REQUIRED_CHECK_WORKFLOW__  name of the repo's required-check
@@ -250,8 +251,9 @@ on:
 # GITHUB_TOKEN.
 #
 # The workflow consumes two secrets: __APP_CLIENT_ID_SECRET__, an ORG
-# secret visible to all repositories, and __APP_PRIVATE_KEY_SECRET__, a
-# repo secret. A short-lived installation token is
+# secret visible to all repositories, and __APP_PRIVATE_KEY_SECRET__,
+# which may sit at repo or org scope. A short-lived installation token
+# is
 # minted at runtime by actions/create-github-app-token (see the first
 # job step); there is no long-lived stored token.
 # Only __APP_PRIVATE_KEY_SECRET__ is seeded by
