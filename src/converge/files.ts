@@ -10,12 +10,12 @@
  * Issue #25 adds the PR-automation payload set — the auto-merge and
  * auto-rebase workflows plus the lockfile-regen script (+ its
  * self-test), rendered via {@link renderPrAutomationTemplate} for their
- * extra fixed-constant and App-identity placeholders. The write path (`writer.ts`) and the
- * render pipeline (`render.ts`) are shared, so a slice only adds entries
- * here, not a new PR-per-concern. Issue #18 adds the community/
- * governance-files payload set — literal, verbatim copies (never
- * rendered) that seed **only when the target repo has no copy of its
- * own** anywhere GitHub honors that file kind (see
+ * extra fixed-constant and App-identity placeholders. The write path
+ * (`writer.ts`) and the render pipeline (`render.ts`) are shared, so a
+ * slice only adds entries here, not a new PR-per-concern. Issue #18 adds
+ * the community/governance-files payload set — literal, verbatim
+ * copies (never rendered) that seed **only when the target repo has no
+ * copy of its own** anywhere GitHub honors that file kind (see
  * {@link COMMUNITY_FILES} and `writer.ts`'s seed-if-absent branch);
  * issue #90 moves their content out of `assets/` and into the target
  * org's own `.github` repo, read at sweep time (see

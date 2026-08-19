@@ -216,7 +216,12 @@ npm run lint:md
       caller supplies no `communityFiles` it reads them itself via
       `readOrgCommunityFiles` (so a bare call still seeds at sweep
       time), while `runSweepFromEnv` reads them once per sweep, lazily,
-      and passes the same map to every repo's converge.
+      and passes the same map to every repo's converge. That read is
+      one memoized promise, so a non-404 failure on it (auth, rate
+      limit) fails every repo's converge that tick — each recorded
+      `failed`, none stamped — and the next tick retries; only a
+      404 (no `.github` repo, or a file missing from it) is "nothing to
+      seed".
     - `ghas.ts` — `convergeGhasSettings`: read-then-write
       each GHAS/repo-security toggle and merge-button setting
       independently — one setting's failure (report-and-skip on a 422
@@ -287,7 +292,13 @@ npm run lint:md
     injectable stubs (tests supply their own) and run independently per
     repo in the same per-repo pass — one step's failure doesn't skip the
     others, but any failure marks the repo `failed` and skips stamping.
-    `runSweepFromEnv` wires the real implementations in production. The
+    `runSweepFromEnv` wires the real implementations in production. Of
+    the per-org `DesiredFilesOptions` it supplies only `communityFiles`
+    (read from the org's `.github` repo, above); it never sets
+    `namedDependabotGroups` or `prAutomationIdentity`, so a scheduled
+    sweep always renders the baked `DEFAULT_NAMED_DEPENDABOT_GROUPS`
+    and `DEFAULT_PR_AUTOMATION_IDENTITY` — no env var or config file
+    feeds those seams yet. The
     merge pass runs independently of the version-skip
     decision, over every repo the properties API returns, so an
     unmerged converger PR from a prior tick still gets picked up.
