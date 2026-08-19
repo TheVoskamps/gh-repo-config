@@ -64,8 +64,12 @@ npm run lint:md
     which carries this file as org-owned content the converger never
     converges — no sweeper-repo payload is built yet, so the seam is
     wired but nothing on GitHub uses it; `runSweepFromEnv` reads its
-    path from `GH_REPO_CONFIG_FILE` (unset → every value takes its
-    baked default and the sweep behaves exactly as it did before). The
+    path from `GH_REPO_CONFIG_FILE` (unset or empty — the shape an
+    unset Actions expression renders as — → every value takes its
+    baked default and the sweep behaves exactly as it did before,
+    whereas a path that is set but unreadable throws, since an
+    explicitly named file that is not there is a misconfiguration and
+    never a silent fall back to the defaults). The
     format is **JSON**, one top-level object, because the release
     tarball is dependency-free (no YAML parser at runtime) and the
     sweeper workflow — later work — must read the version pin out of
@@ -107,7 +111,9 @@ npm run lint:md
     (the sweeper workflow is its intended primary consumer, so this is
     the only pin enforcement that runs today): strip the leading `v`,
     compare to `CURRENT_VERSION`, throw naming both on mismatch.
-    `parseSweeperRepo` validates `GH_REPO_CONFIG_SWEEPER_REPO` — the
+    `parseSweeperRepo` validates `GH_REPO_CONFIG_SWEEPER_REPO` —
+    absent or empty means no repo is the sweeper this tick, anything
+    else must be `owner/repo` or it throws. That value is the
     sweeper repo's own `owner/repo`, which reaches the sweep via
     environment rather than this file because the invoking workflow
     states its own `$GITHUB_REPOSITORY`, so no org Actions variable (and
