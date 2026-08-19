@@ -11,3 +11,4 @@
 - [A cited guarantee has to be read](feedback-a-cited-guarantee-must-be-read.md) — "safe because test Y pins Z" is a claim about Y's assertion, not its name; open it and run the breaking value through it
 - [Generalize the level above too](feedback-generalize-the-level-above-too.md) — after replacing a hardcoded list with a loop, check what SELECTS the things you loop over; it is usually hardcoded the same way
 - [Stale worktree holds the branch claim](project-stale-worktree-holds-branch-claim.md) — checkout fails on a leftover sibling worktree; work detached at the remote tip and push `HEAD:refs/heads/<branch>`
+- [State once means once per audience](project-state-once-means-once-per-audience.md) — a `src/` TSDoc never reaches a managed repo's maintainer; the shipped `assets/` header needs its own reasoned copy
