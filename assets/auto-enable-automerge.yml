@@ -4,8 +4,8 @@
 # Placeholders (see the github-setup plugin payload README for the convention):
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
-#   __APP_ID_SECRET__    repo secret holding the App ID
-#                        (e.g. AUTOMERGE_APP_ID)
+#   __APP_CLIENT_ID_SECRET__  repo secret holding the App Client ID
+#                        (e.g. AUTOMERGE_APP_CLIENT_ID)
 #   __APP_PRIVATE_KEY_SECRET__  repo secret holding the App private key
 #                        (e.g. AUTOMERGE_APP_PRIVATE_KEY)
 #   __MERGE_METHOD__     GraphQL merge method: MERGE | SQUASH | REBASE
@@ -62,13 +62,14 @@ on:
 # enablePullRequestAutoMerge ("FORBIDDEN: Resource not accessible by
 # integration").
 #
-# The workflow consumes two repo secrets: __APP_ID_SECRET__ and
+# The workflow consumes two repo secrets: __APP_CLIENT_ID_SECRET__ and
 # __APP_PRIVATE_KEY_SECRET__. A short-lived installation token is minted at
 # workflow runtime by actions/create-github-app-token, which signs a JWT
 # with the private key and exchanges it for an installation access token
 # via the App's installation endpoint. There is no long-lived "App token"
-# to store; the canonical pattern is App ID + private key in repo secrets,
-# token minted per-run. /gh-repo-setup-pr-automation seeds the two secrets.
+# to store; the canonical pattern is App Client ID + private key in repo
+# secrets, token minted per-run. /gh-repo-setup-pr-automation seeds the
+# two secrets.
 # Without them, actions/create-github-app-token fails fast with a clear
 # error, which is the intended behaviour: do NOT fall back to GITHUB_TOKEN.
 #
@@ -87,7 +88,7 @@ concurrency:
   cancel-in-progress: false
 
 # The privileged work uses an installation token minted at runtime from
-# __APP_ID_SECRET__ + __APP_PRIVATE_KEY_SECRET__ by
+# __APP_CLIENT_ID_SECRET__ + __APP_PRIVATE_KEY_SECRET__ by
 # actions/create-github-app-token (see header comment), not the default
 # GITHUB_TOKEN. This permissions block governs only the default
 # GITHUB_TOKEN, which no step here reads. contents: read is the
@@ -118,7 +119,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.__APP_ID_SECRET__ }}
+          client-id: ${{ secrets.__APP_CLIENT_ID_SECRET__ }}
           private-key: ${{ secrets.__APP_PRIVATE_KEY_SECRET__ }}
       - name: Enable auto-merge with custom commit message
         env:

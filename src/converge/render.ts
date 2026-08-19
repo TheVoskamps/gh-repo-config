@@ -77,11 +77,35 @@ export interface PrAutomationIdentity {
    * non-default `appName` reaches the rendered workflows only.
    */
   readonly appName: string;
-  /** Repo secret holding the App ID — substitutes `__APP_ID_SECRET__`. */
-  readonly appIdSecret: string;
   /**
-   * Repo secret holding the App private key — substitutes
-   * `__APP_PRIVATE_KEY_SECRET__`.
+   * Secret holding the App's **Client ID** — substitutes
+   * `__APP_CLIENT_ID_SECRET__`. The templates mint through
+   * `actions/create-github-app-token`'s `client-id:` input, and the
+   * `app-id:` input it replaces carries an upstream
+   * `deprecationMessage`, so shipping `app-id:` would warn on every
+   * managed repo on every run. An App's Client ID and its numeric App
+   * ID are different values, so this must not be pointed at a secret
+   * holding the App ID.
+   *
+   * Both secrets this identity names — this one and
+   * {@link PrAutomationIdentity.appPrivateKeySecret} — are provisioned
+   * as ORG secrets with all-repositories visibility, present in BOTH
+   * org secret stores: the Actions one and the Dependabot one. Neither
+   * is a repo-scoped option. Org scope is forced by fanout: the payload
+   * reaches every managed repo, including repos created after
+   * provisioning, so a per-repo copy is not feasible. Both stores are
+   * forced by Dependabot: the rendered `auto-enable-automerge.yml` runs
+   * on `pull_request`, which includes Dependabot's own PRs, and a run a
+   * Dependabot PR triggers resolves every `secrets.*` from the
+   * Dependabot store rather than the Actions store, so a secret in only
+   * one store leaves one class of runs unable to mint.
+   */
+  readonly appClientIdSecret: string;
+  /**
+   * Secret holding the App private key — substitutes
+   * `__APP_PRIVATE_KEY_SECRET__`. Provisioned exactly like
+   * {@link PrAutomationIdentity.appClientIdSecret}, whose doc states the
+   * scope and store requirement both secrets carry.
    */
   readonly appPrivateKeySecret: string;
   /**
@@ -100,13 +124,13 @@ export interface PrAutomationIdentity {
 
 /**
  * The default {@link PrAutomationIdentity} — the App identity baked in
- * before issue #89 made it a per-org input. Renders byte-for-byte what
- * the old `PR_AUTOMATION_CONSTANTS` identity entries and the hardcoded
- * `<repo>-auto-rebase[bot]` did.
+ * before issue #89 made it a per-org input, carrying the same App slug
+ * and the same `<repo>-auto-rebase[bot]` per-repo derivation the
+ * hardcoded values had.
  */
 export const DEFAULT_PR_AUTOMATION_IDENTITY: PrAutomationIdentity = {
   appName: "thevoskamps-pr-automations",
-  appIdSecret: "AUTOMERGE_APP_ID",
+  appClientIdSecret: "AUTOMERGE_APP_CLIENT_ID",
   appPrivateKeySecret: "AUTOMERGE_APP_PRIVATE_KEY",
   botSlug: "__GH_REPO__-auto-rebase[bot]",
 };
@@ -122,7 +146,7 @@ export function prAutomationIdentityTokens(
 ): Readonly<Record<string, string>> {
   return {
     __APP_NAME__: identity.appName,
-    __APP_ID_SECRET__: identity.appIdSecret,
+    __APP_CLIENT_ID_SECRET__: identity.appClientIdSecret,
     __APP_PRIVATE_KEY_SECRET__: identity.appPrivateKeySecret,
     __BOT_SLUG__: identity.botSlug,
   };
@@ -201,7 +225,8 @@ export function assertNoUnresolvedTokens(
  * dead entry here, not a silently-skipped assertion.
  *
  * NOT in this map: the App-identity slice (`__APP_NAME__`,
- * `__APP_ID_SECRET__`, `__APP_PRIVATE_KEY_SECRET__`, `__BOT_SLUG__`),
+ * `__APP_CLIENT_ID_SECRET__`, `__APP_PRIVATE_KEY_SECRET__`,
+ * `__BOT_SLUG__`),
  * which issue #89 split out into {@link PrAutomationIdentity} because
  * each org owns its own App; and `__DEFAULT_BRANCH__`, which is per-repo
  * (handled by {@link renderTemplate}'s `RepoContext`).

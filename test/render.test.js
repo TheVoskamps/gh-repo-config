@@ -445,13 +445,13 @@ test("renderPrAutomationTemplate substitutes each fixed constant to its pinned v
 });
 
 // Issue #89: the App-identity slice is a per-org input; the contract
-// constants are not. The default identity must render byte-identical to
-// the pre-#89 output; an org identity must replace every identity token
-// and nothing else.
+// constants are not. The default identity must render the baked
+// TheVoskamps App; an org identity must replace every identity token and
+// nothing else.
 
 const IDENTITY_TOKENS = [
   "__APP_NAME__",
-  "__APP_ID_SECRET__",
+  "__APP_CLIENT_ID_SECRET__",
   "__APP_PRIVATE_KEY_SECRET__",
   "__BOT_SLUG__",
 ];
@@ -480,7 +480,7 @@ test("PR_AUTOMATION_CONSTANTS carries only the org-agnostic contract constants; 
   }
 });
 
-test("renderPrAutomationTemplate with no options, {} options, or the default identity renders byte-identical output, and that output is the pre-#89 identity (issue #89)", () => {
+test("renderPrAutomationTemplate with no options, {} options, or the default identity renders byte-identical output, and that output is the default identity (issue #89)", () => {
   for (const name of ["auto-rebase-prs.yml", "auto-enable-automerge.yml"]) {
     const template = readAssetText(name);
     const bare = renderPrAutomationTemplate(template, CTX);
@@ -495,7 +495,7 @@ test("renderPrAutomationTemplate with no options, {} options, or the default ide
     if (template.includes("__APP_NAME__")) {
       assert.match(bare, /thevoskamps-pr-automations/);
     }
-    assert.match(bare, /secrets\.AUTOMERGE_APP_ID/);
+    assert.match(bare, /secrets\.AUTOMERGE_APP_CLIENT_ID/);
     assert.match(bare, /secrets\.AUTOMERGE_APP_PRIVATE_KEY/);
     for (const token of IDENTITY_TOKENS) {
       assert.equal(bare.includes(token), false, `${token} unresolved in ${name}`);
@@ -507,7 +507,7 @@ test("renderPrAutomationTemplate with no options, {} options, or the default ide
 
 const ORG_IDENTITY = {
   appName: "acme-pr-bot",
-  appIdSecret: "ACME_BOT_APP_ID",
+  appClientIdSecret: "ACME_BOT_APP_CLIENT_ID",
   appPrivateKeySecret: "ACME_BOT_APP_PRIVATE_KEY",
   botSlug: "acme-pr-bot[bot]",
 };
@@ -523,12 +523,12 @@ test("an org-supplied identity replaces every identity token and leaves the cont
     // still names the example secrets and slug shape in prose, so the
     // assertions target the substituted sites, not bare words.)
     assert.doesNotMatch(out, /thevoskamps-pr-automations/);
-    assert.doesNotMatch(out, /secrets\.AUTOMERGE_APP_ID/);
+    assert.doesNotMatch(out, /secrets\.AUTOMERGE_APP_CLIENT_ID/);
     assert.doesNotMatch(out, /secrets\.AUTOMERGE_APP_PRIVATE_KEY/);
     assert.doesNotMatch(out, /"example-auto-rebase\[bot\]/);
     // Org identity is in.
     if (template.includes("__APP_NAME__")) assert.match(out, /acme-pr-bot"/);
-    assert.match(out, /secrets\.ACME_BOT_APP_ID/);
+    assert.match(out, /secrets\.ACME_BOT_APP_CLIENT_ID/);
     assert.match(out, /secrets\.ACME_BOT_APP_PRIVATE_KEY/);
     // Contract constants render exactly as with the default identity.
     for (const [token, value] of Object.entries(PR_AUTOMATION_CONSTANTS)) {
