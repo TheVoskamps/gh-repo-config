@@ -37,3 +37,11 @@ static command, the script does its own `cd`, and nothing is refused.
 This is the same "make the command statically simple" move as
 [[git-commit-sandbox-gate]], which solves the sibling problem for
 `git commit -m` with a heredoc.
+
+The same refusal also fires on commands with **no git in them at all**:
+`npm run build && node --test test/x.test.js 2>&1 | tail -40` was
+rejected with the identical "too complex to verify that it stays inside
+the worktree" message. So the trigger is shell complexity (chaining plus
+a redirect/pipe), not the presence of git. Same remedy: split it into
+separate Bash calls, or put the sequence in a `.sh`/`.py` file under
+`.claude/tmp/<task-slug>/` and invoke that file.
