@@ -394,19 +394,17 @@ npm run lint:md
     rendered workflows opens an `app-id:` key; the assertion is anchored
     to a line-leading key, not to the bare word, because both headers
     name the deprecated input in prose, and it is scoped to these two
-    workflows, not to the whole payload. The switch also changed
-    which secret is read — an App's Client ID and its numeric App ID
-    are different values — so `AUTOMERGE_APP_CLIENT_ID` is a separate
+    workflows, not to the whole payload. The switch also changed which
+    secret is read — an App's Client ID and its numeric App ID are
+    different values — so `AUTOMERGE_APP_CLIENT_ID` is a separate
     operator-provisioned secret, not a rename of `AUTOMERGE_APP_ID`;
     `/gh-repo-setup-pr-automation` seeds only `<prefix>_APP_ID`, so the
-    Client ID secret is set by hand. BOTH
-    secrets the rendered workflows read — `AUTOMERGE_APP_CLIENT_ID` and
-    `AUTOMERGE_APP_PRIVATE_KEY` — must be ORG secrets with
-    all-repositories visibility, present in BOTH org secret stores, the
-    Actions one and the Dependabot one; the
+    Client ID secret is set by hand. BOTH secrets the rendered workflows
+    read — `AUTOMERGE_APP_CLIENT_ID` and `AUTOMERGE_APP_PRIVATE_KEY` —
+    must be ORG secrets with all-repositories visibility, present in
+    BOTH org secret stores, the Actions one and the Dependabot one; the
     `assets/auto-enable-automerge.yml` header carries the one full
-    statement of why, and is the copy a managed repo's maintainer
-    reads.
+    statement of why, and is the copy a managed repo's maintainer reads.
   - **Job count is a first-class constraint on every fanned-out
     workflow.** GitHub bills a whole minute per JOB, rounded up, so a
     wrapper job doing three seconds of work costs the same as a real

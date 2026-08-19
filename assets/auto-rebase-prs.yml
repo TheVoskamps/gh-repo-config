@@ -258,10 +258,10 @@ on:
 # job step); there is no long-lived stored token.
 # Both must be ORG secrets with all-repositories visibility, present
 # in BOTH org secret stores, the Actions one and the Dependabot one.
-# auto-enable-automerge.yml's header
-# states why, and both reasons are properties of the secrets rather
-# than of that workflow, so they hold wherever the secrets are read
-# from. Set both by hand: the interactive /gh-repo-setup-pr-automation
+# That is one provisioning requirement on the secret objects, so
+# satisfying it once covers every workflow that reads them;
+# auto-enable-automerge.yml's header states why each half of it is
+# needed. Set both by hand: the interactive /gh-repo-setup-pr-automation
 # skill seeds an App-ID secret (<prefix>_APP_ID) and no Client-ID secret
 # at all. The mint step below feeds the Client ID to
 # actions/create-github-app-token's client-id: input, the non-deprecated
