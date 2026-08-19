@@ -1,13 +1,17 @@
-# Template for /gh-repo-setup-pr-automation. Rendered into the target
-# repo at .github/workflows/auto-enable-automerge.yml.
+# Template rendered by this repo's converger (src/converge/render.ts's
+# renderPrAutomationTemplate) into the target repo at
+# .github/workflows/auto-enable-automerge.yml.
 #
 # Placeholders (see the github-setup plugin payload README for the convention):
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
-#   __APP_ID_SECRET__    repo secret holding the App ID
-#                        (e.g. AUTOMERGE_APP_ID)
-#   __APP_PRIVATE_KEY_SECRET__  repo secret holding the App private key
-#                        (e.g. AUTOMERGE_APP_PRIVATE_KEY)
+#   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
+#                        holding the App Client ID, present in BOTH the
+#                        Actions and the Dependabot secret store
+#                        (e.g. AUTOMERGE_APP_CLIENT_ID)
+#   __APP_PRIVATE_KEY_SECRET__  ORG secret, provisioned exactly like
+#                        __APP_CLIENT_ID_SECRET__ above, holding the App
+#                        private key (e.g. AUTOMERGE_APP_PRIVATE_KEY)
 #   __MERGE_METHOD__     GraphQL merge method: MERGE | SQUASH | REBASE
 #   __DO_NOT_MERGE_LABEL__  label that opts a PR out of automation
 name: auto-enable-automerge
@@ -62,13 +66,33 @@ on:
 # enablePullRequestAutoMerge ("FORBIDDEN: Resource not accessible by
 # integration").
 #
-# The workflow consumes two repo secrets: __APP_ID_SECRET__ and
-# __APP_PRIVATE_KEY_SECRET__. A short-lived installation token is minted at
-# workflow runtime by actions/create-github-app-token, which signs a JWT
-# with the private key and exchanges it for an installation access token
-# via the App's installation endpoint. There is no long-lived "App token"
-# to store; the canonical pattern is App ID + private key in repo secrets,
-# token minted per-run. /gh-repo-setup-pr-automation seeds the two secrets.
+# The workflow consumes two secrets, __APP_CLIENT_ID_SECRET__ and
+# __APP_PRIVATE_KEY_SECRET__. A short-lived installation token is minted
+# at workflow runtime by actions/create-github-app-token, which signs a
+# JWT with the private key and exchanges it for an installation access
+# token via the App's installation endpoint. There is no long-lived "App
+# token" to store; the canonical pattern is App Client ID + private key
+# in secrets, token minted per-run.
+#
+# BOTH secrets must be ORG secrets with all-repositories visibility,
+# and BOTH must exist in BOTH org secret stores, the Actions one and
+# the Dependabot one. Org scope, because this template fans out to every
+# managed repo, including repos created after the secrets were set, so a
+# per-repo copy is not feasible. Both stores, because this workflow runs
+# on pull_request, which includes Dependabot's own PRs, and a run
+# triggered by a Dependabot PR resolves every secrets.* reference from
+# the Dependabot store rather than the Actions store — so a secret
+# present in only one store leaves one class of runs unable to mint.
+# Both reasons are properties of the secrets, so they hold for the
+# private key exactly as they do for the Client ID, and wherever else
+# these secrets are read.
+# Set both by hand, at that scope, in both stores: the interactive
+# /gh-repo-setup-pr-automation skill seeds an App-ID secret
+# (<prefix>_APP_ID) and no Client-ID secret at all. The mint step below
+# feeds the Client ID to actions/create-github-app-token's client-id:
+# input, the non-deprecated one; its app-id: input carries an upstream
+# deprecationMessage, so passing that one warns on every run on every
+# managed repo.
 # Without them, actions/create-github-app-token fails fast with a clear
 # error, which is the intended behaviour: do NOT fall back to GITHUB_TOKEN.
 #
@@ -87,7 +111,7 @@ concurrency:
   cancel-in-progress: false
 
 # The privileged work uses an installation token minted at runtime from
-# __APP_ID_SECRET__ + __APP_PRIVATE_KEY_SECRET__ by
+# __APP_CLIENT_ID_SECRET__ + __APP_PRIVATE_KEY_SECRET__ by
 # actions/create-github-app-token (see header comment), not the default
 # GITHUB_TOKEN. This permissions block governs only the default
 # GITHUB_TOKEN, which no step here reads. contents: read is the
@@ -118,7 +142,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.__APP_ID_SECRET__ }}
+          client-id: ${{ secrets.__APP_CLIENT_ID_SECRET__ }}
           private-key: ${{ secrets.__APP_PRIVATE_KEY_SECRET__ }}
       - name: Enable auto-merge with custom commit message
         env:

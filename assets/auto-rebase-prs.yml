@@ -1,13 +1,17 @@
-# Template for /gh-repo-setup-pr-automation. Rendered into the target
-# repo at .github/workflows/auto-rebase-prs.yml.
+# Template rendered by this repo's converger (src/converge/render.ts's
+# renderPrAutomationTemplate) into the target repo at
+# .github/workflows/auto-rebase-prs.yml.
 #
 # Placeholders (see the github-setup plugin payload README for the convention):
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
-#   __APP_ID_SECRET__    repo secret holding the App ID
-#                        (e.g. AUTOMERGE_APP_ID)
-#   __APP_PRIVATE_KEY_SECRET__  repo secret holding the App private key
-#                        (e.g. AUTOMERGE_APP_PRIVATE_KEY)
+#   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
+#                        holding the App Client ID, present in BOTH the
+#                        Actions and the Dependabot secret store
+#                        (e.g. AUTOMERGE_APP_CLIENT_ID)
+#   __APP_PRIVATE_KEY_SECRET__  ORG secret, provisioned exactly like
+#                        __APP_CLIENT_ID_SECRET__ above, holding the App
+#                        private key (e.g. AUTOMERGE_APP_PRIVATE_KEY)
 #   __BOT_SLUG__         git identity used for rebase commits, e.g.
 #                        "<repo>-auto-rebase[bot]"
 #   __REQUIRED_CHECK_WORKFLOW__  name of the repo's required-check
@@ -248,18 +252,27 @@ on:
 # like an external actor, so the checks do re-run. Do NOT fall back to
 # GITHUB_TOKEN.
 #
-# The workflow consumes two repo secrets: __APP_ID_SECRET__ and
+# The workflow consumes two secrets, __APP_CLIENT_ID_SECRET__ and
 # __APP_PRIVATE_KEY_SECRET__. A short-lived installation token is
 # minted at runtime by actions/create-github-app-token (see the first
 # job step); there is no long-lived stored token.
-# /gh-repo-setup-pr-automation seeds the two secrets. Until the App is
-# provisioned the first workflow run fails fast at the token-mint step
-# with a clear error from actions/create-github-app-token; that failure
-# is intended.
+# Both must be ORG secrets with all-repositories visibility, present
+# in BOTH org secret stores, the Actions one and the Dependabot one.
+# That is one provisioning requirement on the secret objects, so
+# satisfying it once covers every workflow that reads them;
+# auto-enable-automerge.yml's header states why each half of it is
+# needed. Set both by hand: the interactive /gh-repo-setup-pr-automation
+# skill seeds an App-ID secret (<prefix>_APP_ID) and no Client-ID secret
+# at all. The mint step below feeds the Client ID to
+# actions/create-github-app-token's client-id: input, the non-deprecated
+# one; its app-id: input carries an upstream deprecationMessage.
+# Until the App is provisioned the first workflow run fails fast at the
+# token-mint step with a clear error from
+# actions/create-github-app-token; that failure is intended.
 
 # All privileged git and API operations below run with a GitHub App
 # installation token minted at runtime by actions/create-github-app-token
-# from __APP_ID_SECRET__ and __APP_PRIVATE_KEY_SECRET__,
+# from __APP_CLIENT_ID_SECRET__ and __APP_PRIVATE_KEY_SECRET__,
 # not the default GITHUB_TOKEN. The block below therefore only governs
 # any implicit GITHUB_TOKEN usage (e.g. inside actions/checkout when no
 # explicit token is passed). actions/checkout here is given the minted
@@ -304,7 +317,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.__APP_ID_SECRET__ }}
+          client-id: ${{ secrets.__APP_CLIENT_ID_SECRET__ }}
           private-key: ${{ secrets.__APP_PRIVATE_KEY_SECRET__ }}
 
       # Authoritative authorization for the `/rebase` slash command. The

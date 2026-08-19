@@ -117,7 +117,7 @@ test("an org-supplied PR-automation identity reaches both PR-automation workflow
   const bare = buildDesiredFiles(CTX);
   const identity = {
     appName: "acme-pr-bot",
-    appIdSecret: "ACME_BOT_APP_ID",
+    appClientIdSecret: "ACME_BOT_APP_CLIENT_ID",
     appPrivateKeySecret: "ACME_BOT_APP_PRIVATE_KEY",
     botSlug: "acme-pr-bot[bot]",
   };
@@ -128,10 +128,10 @@ test("an org-supplied PR-automation identity reaches both PR-automation workflow
   ];
   for (const path of PR_AUTOMATION) {
     const f = overridden.find((x) => x.path === path);
-    assert.match(f.content, /secrets\.ACME_BOT_APP_ID/, path);
+    assert.match(f.content, /secrets\.ACME_BOT_APP_CLIENT_ID/, path);
     // The template's own comment header still mentions the example
     // secret names in prose, so assert on the `secrets.` reference.
-    assert.doesNotMatch(f.content, /secrets\.AUTOMERGE_APP_ID/, path);
+    assert.doesNotMatch(f.content, /secrets\.AUTOMERGE_APP_CLIENT_ID/, path);
     assert.doesNotThrow(() => assertNoUnresolvedTokens(f.content, path));
   }
   const others = (files) => files.filter((f) => !PR_AUTOMATION.includes(f.path));
@@ -196,8 +196,13 @@ test("PR-automation workflows reference the AUTOMERGE secrets, and the REST-merg
   assert.ok(rebase, "auto-rebase-prs.yml present");
 
   for (const f of [automerge, rebase]) {
-    assert.match(f.content, /secrets\.AUTOMERGE_APP_ID/);
+    assert.match(f.content, /client-id: \${{ secrets\.AUTOMERGE_APP_CLIENT_ID }}/);
     assert.match(f.content, /secrets\.AUTOMERGE_APP_PRIVATE_KEY/);
+    // actions/create-github-app-token deprecated `app-id` in favour of
+    // `client-id`; the deprecated input must not ship org-wide again.
+    // Anchored to a `with:`-block key so the headers, which name the
+    // deprecated input in prose, do not read as shipping it.
+    assert.doesNotMatch(f.content, /^ *app-id:/m);
   }
 
   // Issue #77 moved the Dependabot REST-merge sweep out of

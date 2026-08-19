@@ -134,7 +134,7 @@ npm run lint:md
       install-gate workflow names, and `__INSTALL_GATE_CHECK__` — the
       install gate's single required-check job name, which the
       lockfile-regen pass keys off) with deliberately no override path;
-      the App-identity slice (`__APP_NAME__`, `__APP_ID_SECRET__`,
+      the App-identity slice (`__APP_NAME__`, `__APP_CLIENT_ID_SECRET__`,
       `__APP_PRIVATE_KEY_SECRET__`, `__BOT_SLUG__`) is the per-org
       `OrgRenderOptions.prAutomationIdentity` (a `PrAutomationIdentity`),
       defaulting to `DEFAULT_PR_AUTOMATION_IDENTITY`, because each org
@@ -365,7 +365,7 @@ npm run lint:md
   - `ecosystem-block.yml` carries `__NAMED_GROUPS_BLOCK__` (the named
     Dependabot groups — see `render.ts`'s `NAMED_DEPENDABOT_GROUPS`
     description above). `no-back-merging-guard.yml` runs with
-    least-privilege permissions. The two PR-automation workflows are
+    least-privilege permissions. The PR-automation workflows are
     split by EVENT, not by concern (issue #77): `auto-rebase-prs.yml`
     owns everything the `workflow_run` / `workflow_dispatch` /
     `schedule` / `push` / `issue_comment` sweep does — the rebase pass
@@ -383,6 +383,28 @@ npm run lint:md
     message, since GitHub caps commit messages at 16383. Each documents
     its trigger set — including `auto-rebase-prs.yml`'s two-rationale
     cron list — inline.
+    Both mint their App installation token through
+    `actions/create-github-app-token`'s `client-id:` input, fed from
+    `__APP_CLIENT_ID_SECRET__` (`AUTOMERGE_APP_CLIENT_ID` under the
+    default identity, see `render.ts`'s
+    `DEFAULT_PR_AUTOMATION_IDENTITY`). The action still accepts
+    `app-id:` but carries a `deprecationMessage` on it, so shipping
+    that input would warn on every managed repo on every run;
+    `test/files.test.js` pins the ban by asserting no line of these two
+    rendered workflows opens an `app-id:` key; the assertion is anchored
+    to a line-leading key, not to the bare word, because both headers
+    name the deprecated input in prose, and it is scoped to these two
+    workflows, not to the whole payload. The switch also changed which
+    secret is read — an App's Client ID and its numeric App ID are
+    different values — so `AUTOMERGE_APP_CLIENT_ID` is a separate
+    operator-provisioned secret, not a rename of `AUTOMERGE_APP_ID`;
+    `/gh-repo-setup-pr-automation` seeds only `<prefix>_APP_ID`, so the
+    Client ID secret is set by hand. BOTH secrets the rendered workflows
+    read — `AUTOMERGE_APP_CLIENT_ID` and `AUTOMERGE_APP_PRIVATE_KEY` —
+    must be ORG secrets with all-repositories visibility, present in
+    BOTH org secret stores, the Actions one and the Dependabot one; the
+    `assets/auto-enable-automerge.yml` header carries the one full
+    statement of why, and is the copy a managed repo's maintainer reads.
   - **Job count is a first-class constraint on every fanned-out
     workflow.** GitHub bills a whole minute per JOB, rounded up, so a
     wrapper job doing three seconds of work costs the same as a real
@@ -621,7 +643,7 @@ npm run lint:md
   the push itself.
   The commit/push/PR step mints a short-lived GitHub App
   installation token from the `AUTOMERGE_APP_ID` /
-  `AUTOMERGE_APP_PRIVATE_KEY` repo secrets (the same PR-operations App
+  `AUTOMERGE_APP_PRIVATE_KEY` secrets (the same PR-operations App
   `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use) rather than
   the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
   trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`
