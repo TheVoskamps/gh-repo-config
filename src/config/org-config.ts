@@ -61,8 +61,8 @@ export interface OrgConfig {
    */
   readonly namedDependabotGroups?: NamedDependabotGroups;
   /**
-   * The org's own PR-automation App. All four sub-keys are required
-   * together — mixing one org's App with another's secret names is a
+   * The org's own PR-automation App. Every sub-key is required
+   * together with the rest — mixing one org's App with another's secret names is a
    * footgun, not a default.
    */
   readonly prAutomationIdentity?: PrAutomationIdentity;
@@ -102,8 +102,8 @@ const KNOWN_KEYS = [
 ] as const;
 
 /**
- * `pr-automation-identity`'s sub-keys. All four are required whenever
- * the object is present.
+ * `pr-automation-identity`'s sub-keys. All of them are required
+ * whenever the object is present.
  */
 const IDENTITY_KEYS = [
   "app-name",

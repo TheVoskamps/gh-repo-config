@@ -59,19 +59,21 @@ npm run lint:md
   - `src/config/selection.ts` — managed-or-not precedence over the
     `gh-repo-config-mode` / `gh-repo-config-default` custom properties.
   - `src/config/org-config.ts` — the per-org config file (issue #91):
-    the seam that lets one released tarball serve every org. Each org
-    runs the sweep from its own private sweeper repo, which carries this
-    file as org-owned content the converger never converges;
+    the seam that lets one released tarball serve every org. The model
+    is that each org runs the sweep from its own private sweeper repo,
+    which carries this file as org-owned content the converger never
+    converges — no sweeper-repo payload is built yet, so the seam is
+    wired but nothing on GitHub uses it;
     `runSweepFromEnv` reads its path from `GH_REPO_CONFIG_FILE` (unset →
     every value takes its baked default and the sweep behaves exactly as
     it did before). The format is **JSON**, one top-level object, because
     the release tarball is dependency-free (no YAML parser at runtime)
-    and the sweeper workflow reads the version pin out of the same file
-    in bash with `jq` before the tarball exists. Keys, all optional and
+    and the sweeper workflow — later work — must read the version pin
+    out of the same file in bash with `jq` before the tarball exists. Keys, all optional and
     all kebab-case: `named-dependabot-groups` (group name → non-empty
     pattern array; a **full replacement** of
     `DEFAULT_NAMED_DEPENDABOT_GROUPS`, so `{}` renders no named groups),
-    `pr-automation-identity` (all four of `app-name`, `app-id-secret`,
+    `pr-automation-identity` (all of `app-name`, `app-id-secret`,
     `app-private-key-secret`, `bot-slug` required together — a partial
     identity mixes one org's App with another's secret names),
     `version-pin` (`vX.Y.Z`; absent means latest, and there is
@@ -87,7 +89,8 @@ npm run lint:md
     tick. Unknown keys, top-level or inside `pr-automation-identity`,
     are one stderr warning line each and never stop the sweep.
     `assertVersionPinSatisfied` is the pin's defense-in-depth check
-    (the workflow is its primary consumer): strip the leading `v`,
+    (the sweeper workflow is its intended primary consumer, so this is
+    the only pin enforcement that runs today): strip the leading `v`,
     compare to `CURRENT_VERSION`, throw naming both on mismatch.
     `parseSweeperRepo` validates `GH_REPO_CONFIG_SWEEPER_REPO` — the
     sweeper repo's own `owner/repo`, which reaches the sweep via
