@@ -5,7 +5,8 @@
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
 #   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
-#                        holding the App Client ID
+#                        holding the App Client ID, present in BOTH the
+#                        Actions and the Dependabot secret store
 #                        (e.g. AUTOMERGE_APP_CLIENT_ID)
 #   __APP_PRIVATE_KEY_SECRET__  secret holding the App private key, at
 #                        repo or org scope — secrets.<NAME> resolves
@@ -77,7 +78,12 @@ on:
 # which client-id: cannot consume, so __APP_CLIENT_ID_SECRET__ is set by
 # hand, and must be set at ORG scope with all-repositories visibility:
 # this template fans out to every managed repo, so a repo-scoped copy
-# would have to be provisioned again on each one.
+# would have to be provisioned again on each one. It must be set that
+# way in BOTH org secret stores, the Actions one and the Dependabot one.
+# This workflow runs on pull_request, which includes Dependabot's own
+# PRs, and a run triggered by a Dependabot PR resolves secrets.* from
+# the Dependabot store rather than the Actions store, so a copy in only
+# one store leaves one class of runs unable to mint.
 # Without them, actions/create-github-app-token fails fast with a clear
 # error, which is the intended behaviour: do NOT fall back to GITHUB_TOKEN.
 #

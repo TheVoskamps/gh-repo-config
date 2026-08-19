@@ -397,14 +397,20 @@ npm run lint:md
     and a repo carrying only the latter has nothing to feed
     `client-id:` with — `/gh-repo-setup-pr-automation` seeds
     `<prefix>_APP_ID`, so the Client ID secret is set by hand, as an
-    ORG secret with all-repositories visibility. Org scope is the
+    ORG secret with all-repositories visibility, in BOTH org secret
+    stores — the Actions one and the Dependabot one. Org scope is the
     requirement, not a preference: the payload fans out to every
     managed repo, so a repo-scoped copy would have to be provisioned
-    again on each one. Only the Client ID secret's scope is fixed by
-    that reasoning: `secrets.<NAME>` resolves a repo or an org secret
-    alike, so `AUTOMERGE_APP_PRIVATE_KEY` may sit at either scope — in
-    this org it is an org secret, since this repo carries no repo-level
-    Actions secrets at all.
+    again on each one. Both stores is likewise a requirement, not
+    belt-and-braces: the rendered `auto-enable-automerge.yml` runs on
+    `pull_request`, which includes Dependabot's own PRs, and a run
+    triggered by a Dependabot PR resolves `secrets.*` from the
+    Dependabot store rather than the Actions store, so a copy in only
+    one store leaves one class of runs unable to mint. Only the Client
+    ID secret carries those two requirements: `secrets.<NAME>` resolves
+    a repo or an org secret alike, so `AUTOMERGE_APP_PRIVATE_KEY` may
+    sit at either scope — in this org it is an org secret, since this
+    repo carries no repo-level Actions secrets at all.
     The repo-own workflows that mint an App token (`sweep.yml`,
     `assets-pin-bump.yml`) carry no `assets/` counterpart and still
     mint with `app-id:`, so the deprecation warning survives on this

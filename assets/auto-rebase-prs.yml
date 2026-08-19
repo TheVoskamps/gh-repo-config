@@ -5,7 +5,8 @@
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
 #   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
-#                        holding the App Client ID
+#                        holding the App Client ID, present in BOTH the
+#                        Actions and the Dependabot secret store
 #                        (e.g. AUTOMERGE_APP_CLIENT_ID)
 #   __APP_PRIVATE_KEY_SECRET__  secret holding the App private key, at
 #                        repo or org scope — secrets.<NAME> resolves
@@ -261,10 +262,13 @@ on:
 # which client-id: cannot consume, so __APP_CLIENT_ID_SECRET__ is set by
 # hand, and must be set at ORG scope with all-repositories visibility:
 # this template fans out to every managed repo, so a repo-scoped copy
-# would have to be provisioned again on each one. Until the App is
-# provisioned the first workflow run fails fast at the token-mint step
-# with a clear error from actions/create-github-app-token; that failure
-# is intended.
+# would have to be provisioned again on each one. It must be set that
+# way in BOTH org secret stores, the Actions one and the Dependabot one;
+# auto-enable-automerge.yml's header states why, and that requirement is
+# on the secret itself, so it holds wherever the secret is read from.
+# Until the App is provisioned the first workflow run fails fast at the
+# token-mint step with a clear error from
+# actions/create-github-app-token; that failure is intended.
 
 # All privileged git and API operations below run with a GitHub App
 # installation token minted at runtime by actions/create-github-app-token
