@@ -200,7 +200,9 @@ test("PR-automation workflows reference the AUTOMERGE secrets, and the REST-merg
     assert.match(f.content, /secrets\.AUTOMERGE_APP_PRIVATE_KEY/);
     // actions/create-github-app-token deprecated `app-id` in favour of
     // `client-id`; the deprecated input must not ship org-wide again.
-    assert.doesNotMatch(f.content, /app-id:/);
+    // Anchored to a `with:`-block key so the headers, which name the
+    // deprecated input in prose, do not read as shipping it.
+    assert.doesNotMatch(f.content, /^ *app-id:/m);
   }
 
   // Issue #77 moved the Dependabot REST-merge sweep out of

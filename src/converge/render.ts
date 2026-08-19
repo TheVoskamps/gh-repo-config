@@ -84,8 +84,8 @@ export interface PrAutomationIdentity {
    * `app-id:` input it replaces carries an upstream
    * `deprecationMessage`, so shipping `app-id:` would warn on every
    * managed repo on every run. An App's Client ID and its numeric App
-   * ID are different values, so this must not be pointed at a secret
-   * holding the App ID.
+   * ID are different values, so this names a secret of its own rather
+   * than reusing whatever secret carries the App ID.
    *
    * Both secrets this identity names — this one and
    * {@link PrAutomationIdentity.appPrivateKeySecret} — must be

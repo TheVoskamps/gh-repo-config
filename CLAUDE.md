@@ -390,15 +390,16 @@ npm run lint:md
     `DEFAULT_PR_AUTOMATION_IDENTITY`). The action still accepts
     `app-id:` but carries a `deprecationMessage` on it, so shipping
     that input would warn on every managed repo on every run;
-    `test/files.test.js` pins the ban by asserting these two rendered
-    workflows carry no `app-id:` at all; the assertion is scoped to
-    them, not to the whole payload. The switch also changed
+    `test/files.test.js` pins the ban by asserting no line of these two
+    rendered workflows opens an `app-id:` key; the assertion is anchored
+    to a line-leading key, not to the bare word, because both headers
+    name the deprecated input in prose, and it is scoped to these two
+    workflows, not to the whole payload. The switch also changed
     which secret is read — an App's Client ID and its numeric App ID
     are different values — so `AUTOMERGE_APP_CLIENT_ID` is a separate
-    operator-provisioned secret, not a rename of `AUTOMERGE_APP_ID`,
-    and a repo carrying only the latter has nothing to feed
-    `client-id:` with — `/gh-repo-setup-pr-automation` seeds
-    `<prefix>_APP_ID`, so the Client ID secret is set by hand. BOTH
+    operator-provisioned secret, not a rename of `AUTOMERGE_APP_ID`;
+    `/gh-repo-setup-pr-automation` seeds only `<prefix>_APP_ID`, so the
+    Client ID secret is set by hand. BOTH
     secrets the rendered workflows read — `AUTOMERGE_APP_CLIENT_ID` and
     `AUTOMERGE_APP_PRIVATE_KEY` — must be ORG secrets with
     all-repositories visibility, present in BOTH org secret stores, the
@@ -644,9 +645,8 @@ npm run lint:md
   the push itself.
   The commit/push/PR step mints a short-lived GitHub App
   installation token from the `AUTOMERGE_APP_ID` /
-  `AUTOMERGE_APP_PRIVATE_KEY` secrets (org secrets in this org; the
-  same PR-operations App the rendered `auto-rebase-prs.yml` /
-  `auto-enable-automerge.yml` authenticate as) rather than
+  `AUTOMERGE_APP_PRIVATE_KEY` repo secrets (the same PR-operations App
+  `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use) rather than
   the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
   trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`
   would never run on its own PRs and they could never satisfy the

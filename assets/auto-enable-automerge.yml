@@ -1,5 +1,6 @@
-# Template for /gh-repo-setup-pr-automation. Rendered into the target
-# repo at .github/workflows/auto-enable-automerge.yml.
+# Template rendered by this repo's converger (src/converge/render.ts's
+# renderPrAutomationTemplate) into the target repo at
+# .github/workflows/auto-enable-automerge.yml.
 #
 # Placeholders (see the github-setup plugin payload README for the convention):
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
@@ -85,9 +86,13 @@ on:
 # Both reasons are properties of the secrets, so they hold for the
 # private key exactly as they do for the Client ID, and wherever else
 # these secrets are read.
-# /gh-repo-setup-pr-automation does not provide __APP_CLIENT_ID_SECRET__
-# at all: it seeds the App's numeric ID, which client-id: cannot
-# consume. Set both by hand, at that scope, in both stores.
+# Set both by hand, at that scope, in both stores: the interactive
+# /gh-repo-setup-pr-automation skill seeds an App-ID secret
+# (<prefix>_APP_ID) and no Client-ID secret at all. The mint step below
+# feeds the Client ID to actions/create-github-app-token's client-id:
+# input, the non-deprecated one; its app-id: input carries an upstream
+# deprecationMessage, so passing that one warns on every run on every
+# managed repo.
 # Without them, actions/create-github-app-token fails fast with a clear
 # error, which is the intended behaviour: do NOT fall back to GITHUB_TOKEN.
 #

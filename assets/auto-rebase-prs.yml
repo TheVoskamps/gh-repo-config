@@ -1,5 +1,6 @@
-# Template for /gh-repo-setup-pr-automation. Rendered into the target
-# repo at .github/workflows/auto-rebase-prs.yml.
+# Template rendered by this repo's converger (src/converge/render.ts's
+# renderPrAutomationTemplate) into the target repo at
+# .github/workflows/auto-rebase-prs.yml.
 #
 # Placeholders (see the github-setup plugin payload README for the convention):
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
@@ -260,9 +261,11 @@ on:
 # auto-enable-automerge.yml's header
 # states why, and both reasons are properties of the secrets rather
 # than of that workflow, so they hold wherever the secrets are read
-# from. /gh-repo-setup-pr-automation does not provide
-# __APP_CLIENT_ID_SECRET__ at all: it seeds the App's numeric ID, which
-# client-id: cannot consume.
+# from. Set both by hand: the interactive /gh-repo-setup-pr-automation
+# skill seeds an App-ID secret (<prefix>_APP_ID) and no Client-ID secret
+# at all. The mint step below feeds the Client ID to
+# actions/create-github-app-token's client-id: input, the non-deprecated
+# one; its app-id: input carries an upstream deprecationMessage.
 # Until the App is provisioned the first workflow run fails fast at the
 # token-mint step with a clear error from
 # actions/create-github-app-token; that failure is intended.
