@@ -645,7 +645,7 @@ npm run lint:md
   the push itself.
   The commit/push/PR step mints a short-lived GitHub App
   installation token from the `AUTOMERGE_APP_ID` /
-  `AUTOMERGE_APP_PRIVATE_KEY` repo secrets (the same PR-operations App
+  `AUTOMERGE_APP_PRIVATE_KEY` secrets (the same PR-operations App
   `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use) rather than
   the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
   trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`

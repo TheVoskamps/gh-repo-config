@@ -43,7 +43,7 @@ installation tokens in CI, not for receiving event deliveries.
 ## Secrets
 
 The App ID and private key are stored as `organization` secrets
-(visible to all repositories, matching the `AUTOMERGE_*` secrets):
+(visible to all repositories, matching the `AUTOMERGE_*` pair):
 
 | Secret | Holds |
 | --- | --- |
