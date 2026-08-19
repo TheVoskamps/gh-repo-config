@@ -390,8 +390,9 @@ npm run lint:md
     `DEFAULT_PR_AUTOMATION_IDENTITY`). The action still accepts
     `app-id:` but carries a `deprecationMessage` on it, so shipping
     that input would warn on every managed repo on every run;
-    `test/files.test.js` pins the ban by asserting the rendered
-    workflows contain no `app-id:` at all. The switch also changed
+    `test/files.test.js` pins the ban by asserting these two rendered
+    workflows carry no `app-id:` at all; the assertion is scoped to
+    them, not to the whole payload. The switch also changed
     which secret is read — an App's Client ID and its numeric App ID
     are different values — so `AUTOMERGE_APP_CLIENT_ID` is a separate
     operator-provisioned secret, not a rename of `AUTOMERGE_APP_ID`,
