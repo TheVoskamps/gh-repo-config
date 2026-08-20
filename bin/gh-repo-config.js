@@ -16,7 +16,11 @@
 //              owner/repo the sweep runs from); intended to be invoked by
 //              the scheduled + workflow_dispatch sweep workflow, which
 //              mints the App installation token.
-import { CURRENT_VERSION, runSweepFromEnv } from "../dist/index.js";
+import {
+  CURRENT_VERSION,
+  describeOrgDefaultProvenanceFailure,
+  runSweepFromEnv,
+} from "../dist/index.js";
 
 const [, , command] = process.argv;
 
@@ -91,10 +95,23 @@ switch (command) {
       for (const repo of report.rulesetDeferred) {
         console.log(`  ${repo}: protect-main ruleset deferred — file PR not yet merged (retry next tick)`);
       }
+      // The sweep ran its full tick either way — every repo decided,
+      // converged, and stamped as usual. An unprovisioned org default
+      // (#67) only changes what is reported and what is exited with,
+      // alongside the failed-repos exit path below.
+      let failure = false;
+      const provenanceFailure = describeOrgDefaultProvenanceFailure(report);
+      if (provenanceFailure) {
+        console.error(provenanceFailure);
+        failure = true;
+      }
       if (report.failed.length > 0) {
         console.error(
           `Sweep had ${report.failed.length} failed repo(s): ${report.failed.join(", ")}`,
         );
+        failure = true;
+      }
+      if (failure) {
         process.exit(1);
       }
     } catch (err) {

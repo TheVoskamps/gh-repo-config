@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   runSweep,
   runSweepFromEnv,
+  describeOrgDefaultProvenanceFailure,
   PartialStampError,
   CURRENT_VERSION,
   isBehind,
@@ -11,11 +12,15 @@ import {
 
 // A minimal fake of OrgPropertiesClient — runSweep only calls
 // readOrgDefault, readAllRepoValues, and stampVersion.
-function fakeClient({ orgDefault, repos, stampVersionImpl }) {
+// `orgDefault` is the raw property value the org carries; tests that care
+// about provenance (issue #67) pass `orgDefaultRead` instead, which is the
+// full discriminated union readOrgDefault returns.
+function fakeClient({ orgDefault, orgDefaultRead, repos, stampVersionImpl }) {
   const stamped = [];
   return {
     stamped,
-    readOrgDefault: async () => orgDefault,
+    readOrgDefault: async () =>
+      orgDefaultRead ?? { provenance: "set", raw: orgDefault },
     readAllRepoValues: async () => repos,
     stampVersion:
       stampVersionImpl ??
@@ -886,4 +891,97 @@ test("dryRun is passed through to evaluateAndMerge so the merge pass never issue
   assert.deepEqual(dryRunFlags, [true]);
   assert.equal(report.merged.length, 1);
   assert.deepEqual(report.stamped, []); // dryRun symmetry with stamping
+});
+
+// Issue #67: the org-default read reports provenance, so an operator can
+// tell a genuine opt-in org from one whose control plane was never
+// provisioned. Selection behavior is identical across all three cases.
+
+const PROVENANCE_CASES = [
+  {
+    name: "set",
+    read: { provenance: "set", raw: "opt-in" },
+    expectedProvenance: "set",
+    failsCli: false,
+  },
+  {
+    name: "defined-no-value",
+    read: { provenance: "defined-no-value" },
+    expectedProvenance: "defined-no-value",
+    failsCli: false,
+  },
+  {
+    name: "not-defined",
+    read: { provenance: "not-defined" },
+    expectedProvenance: "not-defined",
+    failsCli: true,
+  },
+];
+
+test("sweep reports org-default provenance without changing the resolved value", async () => {
+  const headers = new Map();
+  for (const testCase of PROVENANCE_CASES) {
+    const client = fakeClient({
+      orgDefaultRead: testCase.read,
+      repos: [{ repo: "fixture-unset", mode: undefined, version: undefined }],
+    });
+    const logs = [];
+    const report = await runSweep(client, "TheVoskamps", V, {
+      log: (m) => logs.push(m),
+    });
+
+    assert.equal(report.orgDefaultProvenance, testCase.expectedProvenance);
+    // The fail-safe collapse is untouched: every case resolves to opt-in,
+    // under which an unset repo is unmanaged.
+    assert.equal(report.orgDefault, "opt-in");
+    assert.equal(report.skippedUnmanaged, 1);
+    assert.deepEqual(report.converged, []);
+    headers.set(testCase.name, logs[0]);
+  }
+
+  // Each provenance renders a header line distinct from the other two —
+  // the whole point of the change.
+  assert.equal(new Set(headers.values()).size, PROVENANCE_CASES.length);
+});
+
+test("the raw org-default value is carried into the sweep header line", async () => {
+  const client = fakeClient({
+    orgDefaultRead: { provenance: "set", raw: "optout" },
+    repos: [{ repo: "fixture-unset", mode: undefined, version: undefined }],
+  });
+  const logs = [];
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: (m) => logs.push(m),
+  });
+
+  // A typo'd property value still resolves to the fail-safe opt-in, but
+  // reads as a typo in the log rather than as a clean opt-in.
+  assert.equal(report.orgDefault, "opt-in");
+  assert.match(logs[0], /optout/);
+});
+
+test("only the not-defined provenance produces the CLI's non-zero-exit line", async () => {
+  for (const testCase of PROVENANCE_CASES) {
+    const client = fakeClient({
+      orgDefaultRead: testCase.read,
+      repos: [{ repo: "fixture-unset", mode: undefined, version: undefined }],
+    });
+    const report = await runSweep(client, "TheVoskamps", V, { log: () => {} });
+    const failure = describeOrgDefaultProvenanceFailure(report);
+
+    if (testCase.failsCli) {
+      assert.ok(failure, `${testCase.name} should produce a failure line`);
+      assert.match(failure, /gh-repo-config-default/);
+      assert.match(failure, /TheVoskamps/);
+    } else {
+      assert.equal(
+        failure,
+        undefined,
+        `${testCase.name} should exit zero absent other failures`,
+      );
+    }
+    // The full tick still ran in every case — the fix is reporting and
+    // exit status, not semantics.
+    assert.equal(report.results.length, 1);
+  }
 });

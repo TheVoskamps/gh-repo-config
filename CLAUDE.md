@@ -126,7 +126,18 @@ npm run lint:md
     `converge`).
   - `src/github/properties.ts` — dependency-free `fetch`-based REST
     client for the three org custom properties (paginated read,
-    batched ≤30 stamp write).
+    batched ≤30 stamp write). `readOrgDefault` returns an
+    `OrgDefaultRead` discriminated union carrying **provenance**, not a
+    bare value (issue #67): `set` (200 with a `default_value`, whose
+    unvalidated `raw` string rides along), `defined-no-value` (200 with
+    none — legitimate, since GitHub rejects a schema `default_value`
+    unless the property is `required`), `not-defined` (404 — the
+    property does not exist on the org, the anomalous case). The
+    distinction exists because `normalizeOrgDefault`'s fail-safe
+    collapse to `opt-in` makes an unprovisioned org read exactly like a
+    genuine opt-in one, which once masked a months-long outage. Only
+    the `set` arm's `raw` is ever normalized, so selection behaviour is
+    identical for all three.
   - `src/github/merge.ts` — `MergeClient`, same dependency-free-`fetch`
     shape as `properties.ts`. Lists the converger App's own open PRs on
     a repo, resolves required checks via the rules API
@@ -623,7 +634,14 @@ npm run lint:md
   optional `GH_REPO_CONFIG_FILE` / optional
   `GH_REPO_CONFIG_SWEEPER_REPO` from
   the environment; exits non-zero when any repo's convergence or stamp
-  write failed, so a scheduled sweep run cannot fail silently). The
+  write failed, so a scheduled sweep run cannot fail silently). It
+  exits non-zero on one further condition (issue #67): a
+  `SweepReport.orgDefaultProvenance` of `not-defined`, meaning the org
+  custom properties were never created and every repo fell back to the
+  fail-safe `opt-in`. That check is `describeOrgDefaultProvenanceFailure`
+  in `src/sweep.ts` — the decision lives there, not in the CLI, so it is
+  unit-testable without spawning the CLI against the live API — and the
+  full tick still runs before it fires. The
   sweep summary also prints each repo's CodeQL default-setup and
   `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
 - `test/` — `node:test` files, run via `node --test test/**/*.test.js`.

@@ -53,6 +53,9 @@ import { decideRepo, type RepoAction } from "./stamp/decide.js";
 import {
   OrgPropertiesClient,
   PartialStampError,
+  PROPERTY_NAMES,
+  type OrgDefaultProvenance,
+  type OrgDefaultRead,
   type OrgPropertiesClientOptions,
   type RepoPropertyValues,
 } from "./github/properties.js";
@@ -139,6 +142,16 @@ export interface SweepReport {
   readonly org: string;
   readonly version: string;
   readonly orgDefault: OrgDefault;
+  /**
+   * Where {@link orgDefault} came from (issue #67). `orgDefault` alone
+   * cannot distinguish an org that genuinely opted in from one whose
+   * `gh-repo-config-default` property was never created, since both
+   * resolve to the fail-safe `opt-in`. `not-defined` is the anomalous
+   * case — the control plane is not provisioned — and is what the `sweep`
+   * CLI subcommand exits non-zero on (see
+   * {@link describeOrgDefaultProvenanceFailure}).
+   */
+  readonly orgDefaultProvenance: OrgDefaultProvenance;
   /** `true` when no stamping was performed (see {@link SweepOptions}). */
   readonly dryRun: boolean;
   readonly results: readonly SweepRepoResult[];
@@ -372,6 +385,49 @@ function describeRulesetResult(result: RulesetConvergeResult): string {
   return [head, ...extras].join("; ");
 }
 
+/**
+ * One-line human-readable summary of where the org default came from, for
+ * the sweep header line — the part that tells "nothing is opted in" apart
+ * from "the control plane is not provisioned".
+ */
+function describeOrgDefaultRead(read: OrgDefaultRead): string {
+  switch (read.provenance) {
+    case "set":
+      return `${PROPERTY_NAMES.orgDefault}="${read.raw}"`;
+    case "defined-no-value":
+      return `${PROPERTY_NAMES.orgDefault} defined with no value, fail-safe fallback`;
+    case "not-defined":
+      return `${PROPERTY_NAMES.orgDefault} NOT DEFINED on the org, fail-safe fallback`;
+  }
+}
+
+/**
+ * The operator-facing error line for a sweep whose org default was never
+ * provisioned, or `undefined` when the org default has any provenance
+ * other than `not-defined`.
+ *
+ * This is the `sweep` CLI subcommand's whole decision for the
+ * provenance exit path (`bin/gh-repo-config.js`), kept here rather than
+ * in the CLI so it is unit-testable without spawning a process against
+ * the live API.
+ */
+export function describeOrgDefaultProvenanceFailure(
+  report: SweepReport,
+): string | undefined {
+  if (report.orgDefaultProvenance !== "not-defined") {
+    return undefined;
+  }
+  return (
+    `Sweep control plane not provisioned: org custom property ` +
+    `${PROPERTY_NAMES.orgDefault} is not defined on ${report.org}. ` +
+    `Every repo therefore fell back to the fail-safe org default ` +
+    `(${report.orgDefault}), which is indistinguishable from a genuine ` +
+    `opt-in org. Define the three ${PROPERTY_NAMES.mode} / ` +
+    `${PROPERTY_NAMES.orgDefault} / ${PROPERTY_NAMES.version} org custom ` +
+    `properties, then re-run.`
+  );
+}
+
 /** How to run the sweep. */
 export interface SweepOptions {
   /**
@@ -499,11 +555,18 @@ export async function runSweep(
   const convergeRulesetStep = options.convergeRuleset;
   const dryRun = options.dryRun ?? false;
 
-  const orgDefault = normalizeOrgDefault(await client.readOrgDefault());
+  // Only a `set` read carries a value to normalize; both no-value
+  // provenances feed `undefined` to the untouched fail-safe collapse, so
+  // selection behaviour is identical to before issue #67 in every case.
+  const orgDefaultRead = await client.readOrgDefault();
+  const orgDefault = normalizeOrgDefault(
+    orgDefaultRead.provenance === "set" ? orgDefaultRead.raw : undefined,
+  );
   const repos = await client.readAllRepoValues();
 
   log(
-    `Sweep of ${org}: version=${version}, org default=${orgDefault}, ${repos.length} repo(s)`,
+    `Sweep of ${org}: version=${version}, org default=${orgDefault} ` +
+      `(${describeOrgDefaultRead(orgDefaultRead)}), ${repos.length} repo(s)`,
   );
 
   const results: SweepRepoResult[] = [];
@@ -757,6 +820,7 @@ export async function runSweep(
     org,
     version,
     orgDefault,
+    orgDefaultProvenance: orgDefaultRead.provenance,
     dryRun,
     results,
     converged: toStamp,

@@ -70,6 +70,35 @@ export interface RepoPropertyValues {
   readonly version: string | undefined;
 }
 
+/**
+ * Where the org-level `gh-repo-config-default` value came from, as
+ * distinct from the value the sweep resolves it to.
+ *
+ * `normalizeOrgDefault` collapses a missing, empty, or unrecognized value
+ * to the fail-safe `opt-in`, so a genuine `opt-in` org and an org whose
+ * control plane was never provisioned resolve identically. That collapse
+ * is deliberate for *selection*, but it once masked a real outage: the
+ * three custom properties had never been created on the org, and every
+ * scheduled sweep reported "all repos unmanaged" — indistinguishable from
+ * a correctly-configured org with nobody opted in. Provenance is what the
+ * sweep reports so an operator can tell the two apart.
+ */
+export type OrgDefaultProvenance = "set" | "defined-no-value" | "not-defined";
+
+/**
+ * The result of reading the `gh-repo-config-default` property schema:
+ * the provenance, plus the raw (unvalidated) value when there is one.
+ *
+ * `raw` is deliberately not normalized here. An unrecognized value such
+ * as `"optout"` still lands in the `set` arm and still normalizes to
+ * `opt-in`, but the sweep's log carries the raw string, so a typo'd
+ * property value is visible rather than reading as a clean `opt-in`.
+ */
+export type OrgDefaultRead =
+  | { readonly provenance: "set"; readonly raw: string }
+  | { readonly provenance: "defined-no-value" }
+  | { readonly provenance: "not-defined" };
+
 interface RawPropertyValue {
   readonly property_name: string;
   readonly value: string | string[] | null;
@@ -122,15 +151,22 @@ export class OrgPropertiesClient {
 
   /**
    * Read the org-level default value of `gh-repo-config-default` from its
-   * property schema. Returns `undefined` when the property is not defined
-   * or has no default (the caller normalizes that to the fail-safe
-   * `opt-in`).
+   * property schema, reporting {@link OrgDefaultProvenance} alongside the
+   * raw value rather than collapsing both no-value cases to `undefined`.
+   *
+   * The two no-value cases are materially different to an operator: a 404
+   * means the property does not exist on the org at all (the control
+   * plane is not provisioned — anomalous), while a 200 carrying no
+   * `default_value` is a legitimate state, since GitHub rejects a schema
+   * `default_value` unless the property is `required`. Callers still
+   * normalize `set`'s `raw` (and nothing else) through
+   * `normalizeOrgDefault`, so selection behaviour is unchanged.
    */
-  async readOrgDefault(): Promise<string | undefined> {
+  async readOrgDefault(): Promise<OrgDefaultRead> {
     const url = `${this.apiBase}/orgs/${this.org}/properties/schema/${PROPERTY_NAMES.orgDefault}`;
     const res = await this.doFetch(url, { headers: this.headers() });
     if (res.status === 404) {
-      return undefined;
+      return { provenance: "not-defined" };
     }
     if (!res.ok) {
       throw new Error(
@@ -138,7 +174,10 @@ export class OrgPropertiesClient {
       );
     }
     const body = (await res.json()) as { default_value?: string | null };
-    return body.default_value ?? undefined;
+    const raw = body.default_value;
+    return typeof raw === "string"
+      ? { provenance: "set", raw }
+      : { provenance: "defined-no-value" };
   }
 
   /**

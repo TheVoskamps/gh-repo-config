@@ -59,6 +59,8 @@ export {
   PartialStampError,
   PROPERTY_NAMES,
   MAX_REPOS_PER_BATCH,
+  type OrgDefaultProvenance,
+  type OrgDefaultRead,
   type OrgPropertiesClientOptions,
   type RepoPropertyValues,
 } from "./github/properties.js";
@@ -76,6 +78,7 @@ export {
 export {
   runSweep,
   runSweepFromEnv,
+  describeOrgDefaultProvenanceFailure,
   type SweepReport,
   type SweepRepoResult,
   type SweepConvergeResult,

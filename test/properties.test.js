@@ -5,6 +5,7 @@ import {
   PartialStampError,
   PROPERTY_NAMES,
   MAX_REPOS_PER_BATCH,
+  normalizeOrgDefault,
 } from "../dist/index.js";
 
 // Build a fake fetch that records calls and returns canned responses
@@ -30,7 +31,7 @@ function fakeFetch(routes) {
   return fn;
 }
 
-test("readOrgDefault returns the schema default_value", async () => {
+test("readOrgDefault reports provenance 'set' with the raw schema default_value", async () => {
   const fetch = fakeFetch([
     {
       match: `/properties/schema/${PROPERTY_NAMES.orgDefault}`,
@@ -38,10 +39,42 @@ test("readOrgDefault returns the schema default_value", async () => {
     },
   ]);
   const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
-  assert.equal(await client.readOrgDefault(), "opt-out");
+  assert.deepEqual(await client.readOrgDefault(), {
+    provenance: "set",
+    raw: "opt-out",
+  });
 });
 
-test("readOrgDefault returns undefined on 404", async () => {
+test("readOrgDefault reports an unrecognized value as 'set' with its raw text", async () => {
+  const fetch = fakeFetch([
+    {
+      match: `/properties/schema/${PROPERTY_NAMES.orgDefault}`,
+      body: { default_value: "optout" },
+    },
+  ]);
+  const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
+  assert.deepEqual(await client.readOrgDefault(), {
+    provenance: "set",
+    raw: "optout",
+  });
+  // The typo still normalizes to the fail-safe opt-in — the raw value is
+  // reported so the typo is visible, not so it changes selection.
+  assert.equal(normalizeOrgDefault("optout"), "opt-in");
+});
+
+test("readOrgDefault reports provenance 'defined-no-value' on a 200 with no default", async () => {
+  for (const body of [{}, { default_value: null }]) {
+    const fetch = fakeFetch([
+      { match: `/properties/schema/${PROPERTY_NAMES.orgDefault}`, body },
+    ]);
+    const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
+    assert.deepEqual(await client.readOrgDefault(), {
+      provenance: "defined-no-value",
+    });
+  }
+});
+
+test("readOrgDefault reports provenance 'not-defined' on 404", async () => {
   const fetch = fakeFetch([
     {
       match: `/properties/schema/${PROPERTY_NAMES.orgDefault}`,
@@ -51,7 +84,7 @@ test("readOrgDefault returns undefined on 404", async () => {
     },
   ]);
   const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
-  assert.equal(await client.readOrgDefault(), undefined);
+  assert.deepEqual(await client.readOrgDefault(), { provenance: "not-defined" });
 });
 
 test("readAllRepoValues projects mode and version, unset -> undefined", async () => {
