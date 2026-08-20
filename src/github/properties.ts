@@ -158,9 +158,9 @@ export class OrgPropertiesClient {
    * means the property does not exist on the org at all (the control
    * plane is not provisioned — anomalous), while a 200 carrying no
    * `default_value` is a legitimate state, since GitHub rejects a schema
-   * `default_value` unless the property is `required`. Callers still
-   * normalize `set`'s `raw` (and nothing else) through
-   * `normalizeOrgDefault`, so selection behaviour is unchanged.
+   * `default_value` unless the property is `required`. Callers normalize
+   * `set`'s `raw` and nothing else through `normalizeOrgDefault`, so
+   * selection behaviour is identical across all three provenances.
    */
   async readOrgDefault(): Promise<OrgDefaultRead> {
     const url = `${this.apiBase}/orgs/${this.org}/properties/schema/${PROPERTY_NAMES.orgDefault}`;

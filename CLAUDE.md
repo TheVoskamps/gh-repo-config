@@ -138,9 +138,8 @@ npm run lint:md
     genuine opt-in one, which once masked a real outage: the three
     properties did not exist on TheVoskamps until 2026-07-26 (issue
     #59), and every tick from the sweep workflow's first run reported
-    all repos unmanaged. Only
-    the `set` arm's `raw` is ever normalized, so selection behaviour is
-    identical for all three.
+    all repos unmanaged. Only the `set` arm's `raw` is ever normalized,
+    so selection behaviour is identical for all three.
   - `src/github/merge.ts` — `MergeClient`, same dependency-free-`fetch`
     shape as `properties.ts`. Lists the converger App's own open PRs on
     a repo, resolves required checks via the rules API
@@ -639,14 +638,14 @@ npm run lint:md
   the environment; exits non-zero when any repo's convergence or stamp
   write failed, so a scheduled sweep run cannot fail silently). It
   exits non-zero on one further condition (issue #67): a
-  `SweepReport.orgDefaultProvenance` of `not-defined`, meaning the org
-  custom properties were never created and every repo fell back to the
-  fail-safe `opt-in`. That check is `describeOrgDefaultProvenanceFailure`
-  in `src/sweep.ts` — the decision lives there, not in the CLI, so it is
-  unit-testable without spawning the CLI against the live API — and the
-  full tick still runs before it fires. The
-  sweep summary also prints each repo's CodeQL default-setup and
-  `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
+  `SweepReport.orgDefaultProvenance` of `not-defined`, meaning the
+  `gh-repo-config-default` property does not exist on the org and every
+  repo fell back to the fail-safe `opt-in`. That check is
+  `describeOrgDefaultProvenanceFailure` in `src/sweep.ts` — the decision
+  lives there, not in the CLI, so it is unit-testable without spawning
+  the CLI against the live API — and the full tick still runs before it
+  fires. The sweep summary also prints each repo's CodeQL default-setup
+  and `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
 - `test/` — `node:test` files, run via `node --test test/**/*.test.js`.
 - `.github/workflows/ci.yml` — REPO-OWN workflow, not part of the
   sweep's rendered payload (it has no `assets/` counterpart and is
@@ -775,8 +774,8 @@ npm run lint:md
   org-level custom properties to be defined
   (`gh-repo-config-mode`, `gh-repo-config-default`,
   `gh-repo-config-version`) — an operator-provisioning step, not
-  something the workflow itself creates. A missing
-  `gh-repo-config-default` now fails the run loudly (issue #67, see
+  something the workflow itself creates. A `gh-repo-config-default`
+  that is not defined on the org fails the run loudly (issue #67, see
   `bin/gh-repo-config.js`) rather than reading as a quiet
   all-unmanaged tick. On TheVoskamps that property exists but
   deliberately carries no schema `default_value` — GitHub rejects one
