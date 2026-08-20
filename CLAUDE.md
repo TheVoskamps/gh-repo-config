@@ -848,6 +848,17 @@ npm run lint:md
   with `git log --diff-filter=A -- <the file that introduced the
   behaviour>` plus whatever dated record exists, and write the dated
   fact a reader can re-check rather than the span.
+- A claim that some workflow pass "also pushes to" or "also rebases" a
+  given branch or PR is settled against that pass's CANDIDATE
+  SELECTION, not against the presence of a `git push` in its body. Two
+  passes in the same job share an identity and a push while selecting
+  disjoint PR sets — the `author.login == "dependabot"` filter
+  described under `.github/workflows/assets-pin-bump.yml` above is the
+  live instance. Read the pass's `select(...)` chain and the target
+  PR's author before such a sentence stands, especially when the
+  sentence is authored in the same commit as the code it describes:
+  the guard's described BEHAVIOUR can be correct while the stated
+  REASON is false, and no test catches that.
 - A Bash call this repo's agents make against git must be statically
   simple, or the harness refuses it before anything runs. `git -C
   <path> <cmd>` is refused outright, a single call chaining several
@@ -864,3 +875,13 @@ npm run lint:md
   `git add` was chained to. The refusal text for `git -C` suggests a
   bare `cd` in a prior call, which does not help a subagent: a
   subagent's cwd resets between Bash calls.
+- A subagent working in a worktree anchors every absolute path to
+  `git rev-parse --show-toplevel`, never to the primary clone's path
+  under `Workspaces/`. An `Edit` against the primary-clone path is
+  refused outright with a message naming the worktree, so it fails
+  loudly. A `Read` against it does not: it can return the file as the
+  PRIMARY CLONE has it — `main`'s text, with the branch's own
+  additions missing — which reads exactly like "the branch does not
+  contain that change" and invites re-adding what the branch already
+  carries. When a `Read` disagrees with a `grep` of the same file,
+  believe the `grep`, and re-read through the worktree-rooted path.
