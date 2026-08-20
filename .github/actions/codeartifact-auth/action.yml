@@ -1,0 +1,138 @@
+# codeartifact-auth composite action, fanned out by gh-repo-config.
+#
+# Installed at <repo-root>/.github/actions/codeartifact-auth/action.yml
+# (alongside its sibling script at
+# <repo-root>/.github/scripts/codeartifact-auth.sh, which holds all of
+# the logic and is covered by .github/scripts/test-codeartifact-auth.sh).
+#
+# Ships VERBATIM: this file carries no per-repo placeholders. Everything
+# repo-specific arrives at call time in the `role` input.
+#
+# WHAT IT IS FOR. `dependency-install-gate` runs real installs, which
+# resolve against whatever registry the repo declares. When that registry
+# is an AWS CodeArtifact repository, the install needs a CodeArtifact
+# authorization token, which needs AWS credentials, which in GitHub
+# Actions means OIDC. The same need exists in repo-owned CI and e2e
+# workflows that run `pnpm install`, so this is reusable auth plumbing
+# shipped to every managed repo, not a fix inside one workflow.
+#
+# USAGE -- between checkout and install, inside the installing job:
+#
+#   permissions:
+#     contents: read
+#     id-token: write
+#   steps:
+#     - uses: actions/checkout@<sha>
+#     - uses: ./.github/actions/codeartifact-auth
+#       with:
+#         role: ${{ vars.CODEARTIFACT_ROLE }}
+#     - run: pnpm install --frozen-lockfile
+#
+# WHY A COMPOSITE ACTION. A reusable workflow (`workflow_call`) runs as
+# its own job, so its credentials never reach the caller's steps -- but
+# auth has to happen between checkout and install INSIDE someone else's
+# job. A centrally published action (`<org>/codeartifact-auth@<sha>`)
+# would need a separate repo per org, plus SHA pins the converger would
+# then have to converge.
+#
+# WHY `role` IS AN INPUT AND NOT READ FROM `vars`. Composite actions
+# cannot read the `vars` context -- it is a template validation error,
+# and the enabling PR was reverted (community discussions #49689 and
+# #43878). The value therefore arrives as an input, which is why the
+# variable name must be static: set `CODEARTIFACT_ROLE` at ORGANIZATION
+# level for the CodeArtifact repository most repos consume, and at
+# REPOSITORY level on a repo that consumes a different one. GitHub
+# resolves a variable at the lowest level it is defined, so the
+# repository value replaces the organization value -- the override is
+# GitHub's own precedence, with no merge logic in the action. Unset at
+# both levels means this action no-ops.
+#
+# Hardening invariants (do not regress these):
+#   - Every action is SHA-pinned (a floating @v6 tag is a supply-chain
+#     risk; the trailing comment records the human-readable tag).
+#   - The configured endpoint is the allowlist: the action authenticates
+#     to that endpoint and no other, so a PR that redirects the registry
+#     to an attacker-controlled host receives no credentials.
+#   - The `role` input reaches the shell as an ENVIRONMENT VARIABLE, never
+#     interpolated into a `run:` body, so a crafted variable value cannot
+#     inject shell.
+#   - The minted token is `::add-mask::`-ed before it can reach any log
+#     line, and NOTHING is written into the working tree: the credential
+#     lives in job-scoped storage ($RUNNER_TEMP) reached by environment
+#     variable, so it cannot be committed and is wiped with the job.
+#
+# Operator prerequisites live in the target AWS account and are NOT built
+# by the converger -- see docs/codeartifact-auth.md in gh-repo-config for
+# the OIDC identity provider, the `ReadFromRepository` role, and the
+# trust policy (which must name consuming repositories CONCRETELY in its
+# `sub` condition, never with a wildcard).
+name: codeartifact-auth
+description: >-
+  Authenticate npm, pnpm, and yarn Berry against an AWS CodeArtifact
+  repository using GitHub OIDC. No-ops when the repo does not use
+  CodeArtifact.
+
+inputs:
+  role:
+    description: >-
+      One line of "<endpoint> <role-arn>" -- pass the CODEARTIFACT_ROLE
+      Actions variable.
+      The endpoint encodes the domain, the domain-owner account, and the
+      region, so none of the three is configured separately. Empty means
+      the action no-ops. More than one endpoint is an error.
+    required: false
+    default: ""
+
+outputs:
+  enabled:
+    description: >-
+      'true' when CodeArtifact was configured, 'false' when the action
+      no-opped because `role` was empty.
+    value: ${{ steps.parse.outputs.enabled }}
+  registry:
+    description: >-
+      The CodeArtifact registry URL that npm/pnpm/yarn were pointed at,
+      or empty when the action no-opped.
+    value: ${{ steps.parse.outputs.registry }}
+
+runs:
+  using: composite
+  steps:
+    # Stage 1: validate and decompose the configuration. Never calls AWS
+    # and never touches a credential, so an unconfigured repo pays
+    # nothing beyond one shell step.
+    - name: Parse the CodeArtifact endpoint and role
+      id: parse
+      shell: bash
+      env:
+        CODEARTIFACT_ROLE: ${{ inputs.role }}
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/codeartifact-auth.sh" parse
+
+    # Stage 2: assume the reader role via OIDC. Requires `id-token: write`
+    # on the CALLING job. Role ARNs are not secrets; the IAM trust policy
+    # is the control.
+    - name: Assume the CodeArtifact reader role via OIDC
+      if: ${{ steps.parse.outputs.enabled == 'true' }}
+      uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+      with:
+        role-to-assume: ${{ steps.parse.outputs.role_arn }}
+        aws-region: ${{ steps.parse.outputs.region }}
+
+    # Stage 3: mint the domain-scoped token and point the package
+    # managers at the endpoint. Every mechanism is JOB-SCOPED and reached
+    # by environment variable, so the configuration is independent of the
+    # working directory the install later runs from, and nothing lands in
+    # the working tree: npm and pnpm via $RUNNER_TEMP/.npmrc exported as
+    # NPM_CONFIG_USERCONFIG, yarn Berry via YARN_NPM_* -- both through
+    # $GITHUB_ENV.
+    - name: Mint the token and configure npm, pnpm, and yarn
+      if: ${{ steps.parse.outputs.enabled == 'true' }}
+      shell: bash
+      env:
+        CA_HOST: ${{ steps.parse.outputs.host }}
+        CA_PATH: ${{ steps.parse.outputs.path }}
+        CA_REGISTRY: ${{ steps.parse.outputs.registry }}
+        CA_DOMAIN: ${{ steps.parse.outputs.domain }}
+        CA_DOMAIN_OWNER: ${{ steps.parse.outputs.domain_owner }}
+        CA_REGION: ${{ steps.parse.outputs.region }}
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/codeartifact-auth.sh" configure
