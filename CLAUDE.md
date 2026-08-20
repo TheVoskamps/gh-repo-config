@@ -135,7 +135,10 @@ npm run lint:md
     property does not exist on the org, the anomalous case). The
     distinction exists because `normalizeOrgDefault`'s fail-safe
     collapse to `opt-in` makes an unprovisioned org read exactly like a
-    genuine opt-in one, which once masked a months-long outage. Only
+    genuine opt-in one, which once masked a real outage: the three
+    properties did not exist on TheVoskamps until 2026-07-26 (issue
+    #59), and every tick from the sweep workflow's first run reported
+    all repos unmanaged. Only
     the `set` arm's `raw` is ever normalized, so selection behaviour is
     identical for all three.
   - `src/github/merge.ts` — `MergeClient`, same dependency-free-`fetch`
@@ -772,7 +775,14 @@ npm run lint:md
   org-level custom properties to be defined
   (`gh-repo-config-mode`, `gh-repo-config-default`,
   `gh-repo-config-version`) — an operator-provisioning step, not
-  something the workflow itself creates. Also passes
+  something the workflow itself creates. A missing
+  `gh-repo-config-default` now fails the run loudly (issue #67, see
+  `bin/gh-repo-config.js`) rather than reading as a quiet
+  all-unmanaged tick. On TheVoskamps that property exists but
+  deliberately carries no schema `default_value` — GitHub rejects one
+  unless the property is `required`, which would materialize the value
+  on every repo in the org — so its provenance is `defined-no-value`,
+  the legitimate state, not the failing one. Also passes
   `GH_REPO_CONFIG_APP_SLUG` (read from the token-mint step's own
   `app-slug` output, not a separate secret) so the merge pass can
   match `user.login === "<slug>[bot]"` and never merge a PR authored
