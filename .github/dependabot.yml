@@ -14,6 +14,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       bundler-minor-and-patch:
         update-types:
           - "minor"
@@ -36,6 +89,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       cargo-minor-and-patch:
         update-types:
           - "minor"
@@ -58,6 +164,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       composer-minor-and-patch:
         update-types:
           - "minor"
@@ -80,6 +239,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       docker-minor-and-patch:
         update-types:
           - "minor"
@@ -92,7 +304,7 @@ updates:
     directory: "/"
     target-branch: "main"
     schedule:
-      interval: "weekly"
+      interval: "daily"
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
@@ -101,6 +313,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       github-actions-minor-and-patch:
         update-types:
           - "minor"
@@ -123,6 +388,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       gomod-minor-and-patch:
         update-types:
           - "minor"
@@ -145,6 +463,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       gradle-minor-and-patch:
         update-types:
           - "minor"
@@ -167,6 +538,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       maven-minor-and-patch:
         update-types:
           - "minor"
@@ -193,6 +617,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       npm-minor-and-patch:
         update-types:
           - "minor"
@@ -219,6 +696,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       pip-minor-and-patch:
         update-types:
           - "minor"
@@ -241,6 +771,59 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "@aws-cdk/*"
+          - "constructs"
+      vite-toolchain:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "rollup"
+          - "typescript"
+          - "vue"
+          - "@vue/*"
+          - "@vitest/*"
+          - "vitest"
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "pydantic"
+          - "pydantic-*"
+          - "pydantic_*"
+          - "uvicorn"
+          - "uvicorn-*"
+      sqlalchemy-stack:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "asyncpg"
+          - "psycopg"
+          - "psycopg2"
+          - "psycopg2-binary"
+      auth-stack:
+        patterns:
+          - "authlib"
+          - "python-jose"
+          - "python-jose[*]"
+          - "pyjwt"
+          - "cryptography"
+      aws-sdk:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "aiobotocore"
+          - "s3transfer"
+      test-stack:
+        patterns:
+          - "pytest"
+          - "pytest-*"
       terraform-minor-and-patch:
         update-types:
           - "minor"
