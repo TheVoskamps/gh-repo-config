@@ -51,6 +51,13 @@ That elevated scope is precisely why it is a
 `docs/org-repo-configuration-fanout-decomposition.md` → "Converger
 App — permission set".
 
+The pull-request surface the converger drives is not all REST: it also
+makes one GraphQL call, `convertPullRequestToDraft`, which holds the
+sweeper repo's trust-anchor PR as a draft (`src/converge/writer.ts`).
+There is no REST equivalent — `draft` is writable on the create call
+only — so narrowing whatever permission that mutation needs would break
+the hold rather than degrade it.
+
 A sentence added here of the form "GitHub gates `<endpoint>` on
 `<permission>`" stands only after that endpoint's own REST reference
 page is fetched and seen to state the mapping. Many pages state only

@@ -119,7 +119,7 @@ lint set passed.
     `manual`; its consumer is the sweeper-workflow payload, issue #92 —
     `off` drops the workflow from the payload set entirely, while
     `manual` and `auto` both render it and differ only in whether the
-    merge pass may merge the resulting PR). Every malformed value
+    resulting PR may merge unattended). Every malformed value
     is a thrown `Error` naming the key, raised before the sweep's first
     API call — a silently-ignored pin or policy is worse than a failed
     tick. Unknown keys, top-level or inside `pr-automation-identity`,
@@ -186,6 +186,11 @@ lint set passed.
     check runs BEFORE the check-state rollup, since the outcome cannot
     change with the checks, and an empty/absent list costs no extra
     request at all. `src/sweep.ts` is the only caller that populates it.
+    This is the SECOND of two locks on the same paths and covers only
+    the converger's own merge call; the one that binds every merge
+    mechanism — including GitHub-native auto-merge, which the rendered
+    `auto-enable-automerge.yml` turns on and this pass has no say over —
+    is the draft state `src/converge/writer.ts` puts the PR in.
   - `src/github/contents.ts` — `ContentsClient`, same dependency-free-
     `fetch` shape as `properties.ts` / `merge.ts`. The converger's
     file-write path: reads a target repo's default branch and current
@@ -197,6 +202,14 @@ lint set passed.
     absent-tolerant — a 404 (repo or path missing), a directory, or a
     non-file all return `undefined`; any other non-2xx throws — used
     only by the community-file seed lookup (`src/converge/community.ts`).
+    `createPullRequest` takes a `draft` flag, and
+    `convertPullRequestToDraft` is the module's ONE GraphQL call (bare
+    `fetch` to `/graphql`, so the zero-dependency shape is unchanged):
+    `draft` is writable on the REST create call only, and
+    `PATCH /repos/{o}/{r}/pulls/{n}` carries no such field, so
+    ready→draft has no REST surface at all. A GraphQL error arrives as
+    HTTP 200 with an `errors` array, so both the status and that array
+    are checked. Do not "simplify" this into a PATCH.
   - `src/github/settings.ts` — `RepoSettingsClient`, same dependency-
     free-`fetch` shape as the other `src/github/` clients. The converger's
     pure-API-mutation path (no files, no PR): read-then-PATCH
@@ -313,6 +326,15 @@ lint set passed.
       It goes through the plain three-token render path despite carrying
       no placeholder today, so a future per-repo value needs no plumbing
       change. `gh-repo-config.json` is never a payload under any policy.
+      This file also owns `sweeperHumanApprovalPaths` — the ONE
+      definition of which paths that repo's converger PRs may not reach
+      the default branch over without a human (`[SWEEPER_WORKFLOW_PATH]`
+      on the sweeper repo under `manual`, empty everywhere else). It
+      lives beside the render decision so the two halves of one policy
+      cannot disagree about what an absent key means, and BOTH
+      enforcement sites read it: `writer.ts` (draft state) and
+      `sweep.ts` (the merge pass's `humanApprovalPaths`). Do not give
+      either site a second copy of the rule.
     - `community.ts` — `readOrgCommunityFiles(client, org)`: the
       community-file seed source (issue #90). Looks each
       `COMMUNITY_FILE_PATHS` entry up at the root of the target org's
@@ -345,7 +367,17 @@ lint set passed.
       limit) fails every repo's converge that tick — each recorded
       `failed`, none stamped — and the next tick retries; only a
       404 (no `.github` repo, or a file missing from it) is "nothing to
-      seed".
+      seed". A commit whose changed paths hit
+      `sweeperHumanApprovalPaths` (issue #92) makes the PR a DRAFT:
+      opened draft, or an open non-draft one converted via
+      `ContentsClient.convertPullRequestToDraft`. Draft state IS the
+      hold — nothing merges a draft PR — so it binds GitHub-native
+      auto-merge as well as the converger's own merge pass, and does not
+      rest on a `protect-main` ruleset a first-tick sweeper repo has not
+      got yet. The decision reads THIS commit's changed paths, not the
+      PR's cumulative diff: a branch that carried the anchor on an
+      earlier tick was drafted then, and a draft is never converted back
+      to ready here — marking it ready is the human's act.
     - `ghas.ts` — `convergeGhasSettings`: read-then-write
       each GHAS/repo-security toggle and merge-button setting
       independently — one setting's failure (report-and-skip on a 422
@@ -436,14 +468,15 @@ lint set passed.
     is deliberately no baked slug constant beside it, since a second
     source would drift from the identity the rendered workflows use.
     `sweeperRepo` and `sweeperUpdatePolicy` are passed on the options,
-    echoed onto `SweepReport`, and consumed twice (issue #92): they
-    reach every repo's converge as `DesiredFilesOptions`, deciding
-    whether the sweeper workflow is a payload there, and
-    `sweeperHumanApprovalPaths` derives from them the merge pass's
-    per-repo `humanApprovalPaths`. That second half fires ONLY for the
-    sweeper repo under `manual`, and both halves default an absent
-    policy to `manual` — a disagreement between them about what an
-    absent key means would be exactly the render-then-auto-merge loop
+    echoed onto `SweepReport`, and consumed (issue #92) by reaching
+    every repo's converge as `DesiredFilesOptions` — which decides both
+    whether the sweeper workflow is a payload there and whether the
+    resulting PR is a draft — and by feeding
+    `sweeperHumanApprovalPaths` (defined in `converge/files.ts`, not
+    here) the merge pass's per-repo `humanApprovalPaths`. The hold fires
+    ONLY for the sweeper repo under `manual`, and every half defaults an
+    absent policy to `manual` — a disagreement between them about what
+    an absent key means would be exactly the render-then-auto-merge loop
     the policy exists to break. A sweeper-repo PR that bundles the
     workflow with other payload changes waits for the human as a whole,
     which is intended: those changes then ride the same human-reviewed
@@ -700,7 +733,11 @@ lint set passed.
     and the verify-before-unpack order. The sweep's own
     `assertVersionPinSatisfied` stays the defense-in-depth re-check of
     the pin against the tarball actually fetched; this workflow's `jq`
-    read is the primary enforcement.
+    read is the primary enforcement. Its header's `sweeper-update-policy`
+    bullets are the copy a sweeper repo's maintainer reads, so keep the
+    `manual` bullet's DRAFT wording in step with `writer.ts` — a bullet
+    that says only "the merge pass refuses to merge it" understates the
+    hold and invites someone to remove the draft half.
   This repo's own `.github/actions/`, `.github/scripts/`, and
   `.github/workflows/` — the
   live copies the sweep renders onto this repo itself — are **not**

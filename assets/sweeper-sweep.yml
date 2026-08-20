@@ -23,9 +23,16 @@
 # verify, change where the pin is read from — in a single unattended
 # tick. The `sweeper-update-policy` key in `gh-repo-config.json` breaks
 # that self-modification loop:
-#   - `manual` (default): the converger opens/updates the PR, and the
-#     merge pass refuses to merge any sweeper-repo PR touching this
-#     path. A human in the org merges it, having read the diff.
+#   - `manual` (default): the converger opens the PR as a DRAFT (and
+#     converts an open non-draft one to a draft the moment a change to
+#     this path lands on it), and its own merge pass additionally
+#     refuses to merge any sweeper-repo PR touching this path. Draft
+#     state is what makes the hold unconditional: nothing merges a draft
+#     PR, so the hold does not rest on a `protect-main` ruleset a
+#     first-tick sweeper repo has not got yet, and GitHub's own native
+#     auto-merge — which `auto-enable-automerge.yml` enables on this
+#     repo's other converger PRs — cannot be enabled on it. A human in
+#     the org marks it ready and merges it, having read the diff.
 #   - `auto`: merged like any other converger PR, for orgs that accept
 #     the loop.
 #   - `off`: this file is not converged at all.

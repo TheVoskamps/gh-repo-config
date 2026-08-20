@@ -160,9 +160,10 @@ const SWEEPER_WORKFLOW_ASSET = "sweeper-sweep.yml";
 
 /**
  * Where the rendered sweeper workflow lands on the sweeper repo (issue
- * #92). Exported because the merge pass reads it too: under
- * `sweeper-update-policy: manual` a converger PR whose changed files
- * include this path is left for a human to merge (`src/sweep.ts`).
+ * #92). Exported because the write path and the merge pass read it too:
+ * under `sweeper-update-policy: manual` a converger PR whose changed
+ * files include this path is opened as a draft and never merged by the
+ * sweep (see {@link sweeperHumanApprovalPaths}).
  */
 export const SWEEPER_WORKFLOW_PATH = ".github/workflows/sweep.yml";
 
@@ -273,14 +274,7 @@ export type CommunityFileContent = Readonly<Record<string, string>>;
  * at sweep time (`community.ts`), and an absent or empty map simply
  * seeds nothing.
  */
-export interface DesiredFilesOptions extends OrgRenderOptions {
-  /**
-   * The org's community-file content by path (issue #90). Only the
-   * paths in {@link COMMUNITY_FILE_PATHS} are consulted; a path absent
-   * from the map yields no `DesiredFile`. Absent altogether means no
-   * community file is seeded on this pass.
-   */
-  readonly communityFiles?: CommunityFileContent;
+export interface SweeperOptions {
   /**
    * The org's sweeper repo as `owner/repo` (issue #92), exactly as the
    * invoking workflow stated it in `GH_REPO_CONFIG_SWEEPER_REPO`. The
@@ -293,12 +287,24 @@ export interface DesiredFilesOptions extends OrgRenderOptions {
   /**
    * The org's `sweeper-update-policy` (issue #92). `off` drops the
    * sweeper workflow from the payload set entirely; `manual` and `auto`
-   * both render it, and differ only in whether the merge pass may merge
-   * the resulting PR (see {@link SWEEPER_WORKFLOW_PATH}). Absent takes
-   * {@link DEFAULT_SWEEPER_UPDATE_POLICY}, matching what the org config
-   * parse applies to an absent key.
+   * both render it, and differ only in whether the resulting PR may
+   * merge unattended (see {@link sweeperHumanApprovalPaths}). Absent
+   * takes {@link DEFAULT_SWEEPER_UPDATE_POLICY}, matching what the org
+   * config parse applies to an absent key.
    */
   readonly sweeperUpdatePolicy?: SweeperUpdatePolicy;
+}
+
+export interface DesiredFilesOptions
+  extends OrgRenderOptions,
+    SweeperOptions {
+  /**
+   * The org's community-file content by path (issue #90). Only the
+   * paths in {@link COMMUNITY_FILE_PATHS} are consulted; a path absent
+   * from the map yields no `DesiredFile`. Absent altogether means no
+   * community file is seeded on this pass.
+   */
+  readonly communityFiles?: CommunityFileContent;
 }
 
 /**
@@ -318,6 +324,47 @@ function shipsSweeperWorkflow(
     return false;
   }
   return options.sweeperRepo === `${ctx.org}/${ctx.repo}`;
+}
+
+/**
+ * The paths a given repo's converger PRs must not reach the default
+ * branch over without a human (issue #92) — the enforcement half of
+ * `sweeper-update-policy`.
+ *
+ * Only the sweeper repo has any, and only under `manual`: the sweeper
+ * workflow is where the attestation verify and the version pin live, so
+ * letting the converger both render it and land it would let one
+ * compromised release rewrite the org's trust anchor unattended. Under
+ * `auto` the org has accepted that loop, and under `off` the workflow is
+ * not a payload at all — neither reserves anything.
+ *
+ * The one definition both enforcement sites read: `writer.ts` opens (or
+ * converts) the PR as a **draft** when it touches one of these paths,
+ * and `sweep.ts` hands the same list to the merge pass, which settles
+ * such a PR as `awaiting-human`. Draft state is what makes the hold
+ * independent of any workflow's cooperation — a draft PR cannot be
+ * REST-merged and cannot have GitHub's native auto-merge enabled — so
+ * the reservation holds even on a first-tick sweeper repo where no
+ * `protect-main` ruleset exists yet.
+ *
+ * A sweeper-repo PR that bundles the anchor with other payload changes
+ * waits for the human as a whole. That is intended: those changes then
+ * ride the same human-reviewed approval rather than a lower bar.
+ */
+export function sweeperHumanApprovalPaths(
+  org: string,
+  repo: string,
+  options: SweeperOptions,
+): readonly string[] {
+  // Default the policy exactly as `shipsSweeperWorkflow` does, so the
+  // render half and the hold half of one policy can never disagree about
+  // what an absent key means: rendering the anchor while letting it
+  // merge unattended is the loop the policy exists to break.
+  const policy = options.sweeperUpdatePolicy ?? DEFAULT_SWEEPER_UPDATE_POLICY;
+  if (policy !== "manual") {
+    return [];
+  }
+  return options.sweeperRepo === `${org}/${repo}` ? [SWEEPER_WORKFLOW_PATH] : [];
 }
 
 /**

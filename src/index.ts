@@ -96,6 +96,7 @@ export {
   type TreeFile,
   type ExistingBlob,
   type PullRequestResult,
+  type OpenPullRequestRef,
 } from "./github/contents.js";
 
 export {
@@ -120,8 +121,10 @@ export {
   buildDesiredFiles,
   COMMUNITY_FILE_PATHS,
   SWEEPER_WORKFLOW_PATH,
+  sweeperHumanApprovalPaths,
   type DesiredFile,
   type DesiredFilesOptions,
+  type SweeperOptions,
   type CommunityFileContent,
 } from "./converge/files.js";
 
