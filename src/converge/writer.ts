@@ -33,10 +33,14 @@
  *   lands on it. Draft state is the hold itself: nothing merges a draft
  *   PR, so the reservation does not rest on a ruleset that a first-tick
  *   sweeper repo does not have yet, nor on any workflow's cooperation.
+ *   Under `auto` the inverse runs: a draft PR on that same branch is
+ *   marked ready, since nothing else would ever lift a hold the org has
+ *   stopped asking for.
  */
 import {
   buildDesiredFiles,
   sweeperHumanApprovalPaths,
+  sweeperUndraftsHeldPr,
   type DesiredFile,
   type DesiredFilesOptions,
 } from "./files.js";
@@ -199,7 +203,7 @@ export async function convergeRepoFiles(
 
   // This commit's own paths decide the hold, not the PR's cumulative
   // diff: a branch that carried the anchor on an earlier tick was already
-  // drafted then, and a draft is never converted back here.
+  // drafted then, and under `manual` a draft is never converted back.
   const reserved = sweeperHumanApprovalPaths(owner, repo, options);
   const holdForHuman = changedPaths.some((p) => reserved.includes(p));
 
@@ -221,8 +225,21 @@ export async function convergeRepoFiles(
   );
 
   if (existingPr) {
+    // Under `auto` a draft on this branch is a hold from a policy that
+    // no longer applies, and only the sweep can lift it — nothing else
+    // ever marks a converger PR ready.
+    const releaseHold =
+      existingPr.draft && sweeperUndraftsHeldPr(owner, repo, options);
     if (holdForHuman && !existingPr.draft) {
       await client.convertPullRequestToDraft(
+        owner,
+        repo,
+        existingPr.number,
+        existingPr.nodeId,
+      );
+    }
+    if (releaseHold) {
+      await client.markPullRequestReadyForReview(
         owner,
         repo,
         existingPr.number,
@@ -235,7 +252,7 @@ export async function convergeRepoFiles(
         number: existingPr.number,
         url: existingPr.url,
         updated: true,
-        draft: existingPr.draft || holdForHuman,
+        draft: (existingPr.draft || holdForHuman) && !releaseHold,
       },
       noop: false,
     };

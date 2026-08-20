@@ -372,6 +372,35 @@ export function sweeperHumanApprovalPaths(
 }
 
 /**
+ * Whether a draft converger PR on this repo must be converted back to
+ * ready-for-review (issue #92) — the exact inverse of the hold
+ * {@link sweeperHumanApprovalPaths} states, and the other half of one
+ * policy for the same reason those two halves live together here.
+ *
+ * It fires only on the sweeper repo under `auto`, which is the org
+ * saying its converger PRs merge when green like any other. Without it
+ * an org that ran under `manual` (or the default) and then switched to
+ * `auto` would leave the drafted anchor PR a draft forever: nothing in
+ * the sweep marks it ready, so the sweeper repo would silently stop
+ * converging its own trust anchor.
+ *
+ * The consequence a human must know: under `auto`, hand-drafting a
+ * converger PR does not hold it — the next tick marks it ready again.
+ * Holding one means flipping the policy back to `manual`.
+ */
+export function sweeperUndraftsHeldPr(
+  org: string,
+  repo: string,
+  options: SweeperOptions,
+): boolean {
+  const policy = options.sweeperUpdatePolicy ?? DEFAULT_SWEEPER_UPDATE_POLICY;
+  if (policy !== "auto") {
+    return false;
+  }
+  return options.sweeperRepo === `${org}/${repo}`;
+}
+
+/**
  * Build the full set of files the converger wants present in a target
  * repo, for the given per-repo context. Rendered templates are asserted
  * free of unresolved tokens (an unresolved token throws, failing the

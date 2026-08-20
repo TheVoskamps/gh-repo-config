@@ -100,7 +100,7 @@ function readRoutes({ treeEntries = {}, blobs = {}, community = {} }) {
 }
 
 // Write routes: blob/tree/commit creation, ref set, PR list/create, and
-// the ready-to-draft GraphQL mutation (issue #92).
+// the draft-state GraphQL mutations (issue #92).
 function writeRoutes({ openPr = [] } = {}) {
   return [
     { match: "/git/blobs", method: "POST", body: { sha: "newblob" } },
@@ -600,6 +600,72 @@ test("an already-draft converger PR is left alone, and a non-anchor update never
     assert.equal(result.pullRequest.draft, expectDraft);
     assert.deepEqual(graphqlCalls(fetch), []);
   }
+});
+
+test("under auto, a draft converger PR left by manual is marked ready for review (issue #92)", async () => {
+  // The manual→auto transition: the anchor PR was drafted under the old
+  // policy, and only the sweep can lift that hold — nothing else ever
+  // marks a converger PR ready, so without this it never merges.
+  const openPr = [
+    { number: 7, node_id: "PR_7", html_url: "https://example/pr/7", draft: true, head: { ref: CONVERGE_BRANCH } },
+  ];
+  const fetch = fakeFetch([
+    ...readRoutes({ treeEntries: {}, blobs: {} }),
+    ...writeRoutes({ openPr }),
+  ]);
+  const client = new ContentsClient({ token: "t", fetch });
+  const result = await convergeRepoFiles(client, OWNER, REPO, false, {
+    ...SWEEPER_OPTIONS,
+    sweeperUpdatePolicy: "auto",
+  });
+
+  assert.ok(result.changed.includes(SWEEPER_WORKFLOW_PATH));
+  assert.equal(result.pullRequest.draft, false);
+  const mutations = graphqlCalls(fetch);
+  assert.equal(mutations.length, 1);
+  assert.match(mutations[0].body.query, /markPullRequestReadyForReview/);
+  assert.deepEqual(mutations[0].body.variables, { id: "PR_7" });
+});
+
+test("a draft converger PR is left alone on a repo auto does not cover (issue #92)", async () => {
+  // `auto` un-drafts only the sweeper repo's own converger PR: another
+  // repo's draft is someone else's hold and is never touched.
+  const openPr = [
+    { number: 7, node_id: "PR_7", html_url: "https://example/pr/7", draft: true, head: { ref: CONVERGE_BRANCH } },
+  ];
+  for (const options of [
+    { sweeperRepo: `${OWNER}/some-other-repo`, sweeperUpdatePolicy: "auto" },
+    { ...SWEEPER_OPTIONS, sweeperUpdatePolicy: "off" },
+  ]) {
+    const fetch = fakeFetch([
+      ...readRoutes({ treeEntries: {}, blobs: {} }),
+      ...writeRoutes({ openPr }),
+    ]);
+    const client = new ContentsClient({ token: "t", fetch });
+    const result = await convergeRepoFiles(client, OWNER, REPO, false, options);
+    assert.equal(result.pullRequest.draft, true, JSON.stringify(options));
+    assert.deepEqual(graphqlCalls(fetch), []);
+  }
+});
+
+test("a GraphQL error on the ready-for-review conversion throws rather than reporting a merge that cannot happen (issue #92)", async () => {
+  const openPr = [
+    { number: 7, node_id: "PR_7", html_url: "https://example/pr/7", draft: true, head: { ref: CONVERGE_BRANCH } },
+  ];
+  const fetch = fakeFetch([
+    ...readRoutes({ treeEntries: {}, blobs: {} }),
+    ...writeRoutes({ openPr }).filter((r) => r.match !== "/graphql"),
+    { match: "/graphql", method: "POST", body: { errors: [{ message: "Resource not accessible by integration" }] } },
+  ]);
+  const client = new ContentsClient({ token: "t", fetch });
+  await assert.rejects(
+    () =>
+      convergeRepoFiles(client, OWNER, REPO, false, {
+        ...SWEEPER_OPTIONS,
+        sweeperUpdatePolicy: "auto",
+      }),
+    /Failed to mark TheVoskamps\/example#7 ready for review: Resource not accessible by integration/,
+  );
 });
 
 test("a GraphQL error on the draft conversion throws rather than reporting a hold that did not happen (issue #92)", async () => {

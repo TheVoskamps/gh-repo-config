@@ -31,11 +31,12 @@
  *   source in the org's `.github` repo, issue #90):
  *   `GET /repos/{o}/{r}/contents/{path}`.
  *
- * One operation has no REST surface at all and is the module's only
- * GraphQL call: converting an already-open PR back to a draft (issue
- * #92). `PATCH /repos/{o}/{r}/pulls/{n}` cannot set `draft` — the flag
- * is writable at creation only — so ready-to-draft goes through the
- * `convertPullRequestToDraft` mutation. It is still bare `fetch` against
+ * Two operations have no REST surface at all and are the module's only
+ * GraphQL calls: flipping an already-open PR's draft state either way
+ * (issue #92). `PATCH /repos/{o}/{r}/pulls/{n}` cannot set `draft` — the
+ * flag is writable at creation only — so ready-to-draft goes through the
+ * `convertPullRequestToDraft` mutation and draft-to-ready through
+ * `markPullRequestReadyForReview`. Both are still bare `fetch` against
  * the same host, so the zero-dependency shape is unchanged.
  */
 
@@ -140,9 +141,10 @@ export interface OpenPullRequestRef {
   readonly number: number;
   readonly url: string;
   /**
-   * The PR's GraphQL node ID. Carried because converting a PR back to a
-   * draft has no REST surface — see
-   * {@link ContentsClient.convertPullRequestToDraft}.
+   * The PR's GraphQL node ID. Carried because flipping an open PR's
+   * draft state has no REST surface — see
+   * {@link ContentsClient.convertPullRequestToDraft} and
+   * {@link ContentsClient.markPullRequestReadyForReview}.
    */
   readonly nodeId: string;
   /** `true` when the PR is already a draft. */
@@ -496,18 +498,43 @@ export class ContentsClient {
   }
 
   /**
+   * Run one of the two draft-state mutations against a PR node ID.
+   *
+   * A GraphQL error arrives as HTTP 200 with an `errors` array, so both
+   * the status and that array are checked; either throws, carrying
+   * `what` as the message prefix.
+   */
+  private async pullRequestDraftMutation(
+    mutation: string,
+    nodeId: string,
+    what: string,
+  ): Promise<void> {
+    const res = await this.doFetch(`${this.apiBase}/graphql`, {
+      method: "POST",
+      headers: { ...this.headers(), "content-type": "application/json" },
+      body: JSON.stringify({
+        query: `mutation($id: ID!) { ${mutation}(input: { pullRequestId: $id }) { pullRequest { isDraft } } }`,
+        variables: { id: nodeId },
+      }),
+    });
+    const body = await this.json<RawGraphQlResponse>(res, what);
+    if (body.errors && body.errors.length > 0) {
+      throw new Error(
+        `${what}: ${body.errors.map((e) => e.message).join("; ")}`,
+      );
+    }
+  }
+
+  /**
    * Convert an already-open, ready-for-review PR back to a draft (issue
    * #92), addressed by its GraphQL node ID.
    *
-   * This is the module's one GraphQL call, and it is GraphQL because
-   * there is no REST equivalent: `draft` is writable only on the create
-   * call, and `PATCH /repos/{o}/{r}/pulls/{n}` silently carries no such
-   * field. The mutation is what lets a PR opened before the anchor
-   * appeared in it — or opened by an earlier converger version — still
-   * be held once an anchor-touching commit lands on its branch.
-   *
-   * A GraphQL error arrives as HTTP 200 with an `errors` array, so both
-   * the status and that array are checked; either throws.
+   * This is GraphQL because there is no REST equivalent: `draft` is
+   * writable only on the create call, and
+   * `PATCH /repos/{o}/{r}/pulls/{n}` silently carries no such field. The
+   * mutation is what lets a PR opened before the anchor appeared in it —
+   * or opened by an earlier converger version — still be held once an
+   * anchor-touching commit lands on its branch.
    */
   async convertPullRequestToDraft(
     owner: string,
@@ -515,25 +542,32 @@ export class ContentsClient {
     number: number,
     nodeId: string,
   ): Promise<void> {
-    const res = await this.doFetch(`${this.apiBase}/graphql`, {
-      method: "POST",
-      headers: { ...this.headers(), "content-type": "application/json" },
-      body: JSON.stringify({
-        query:
-          "mutation($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { pullRequest { isDraft } } }",
-        variables: { id: nodeId },
-      }),
-    });
-    const body = await this.json<RawGraphQlResponse>(
-      res,
+    await this.pullRequestDraftMutation(
+      "convertPullRequestToDraft",
+      nodeId,
       `Failed to convert ${owner}/${repo}#${number} to a draft`,
     );
-    if (body.errors && body.errors.length > 0) {
-      throw new Error(
-        `Failed to convert ${owner}/${repo}#${number} to a draft: ${body.errors
-          .map((e) => e.message)
-          .join("; ")}`,
-      );
-    }
+  }
+
+  /**
+   * Mark an already-open draft PR ready for review (issue #92), the
+   * mirror of {@link ContentsClient.convertPullRequestToDraft} and
+   * GraphQL-only for the same reason.
+   *
+   * It is what lets a hold placed under `sweeper-update-policy: manual`
+   * be released when the org switches that policy to `auto`; without it
+   * the drafted PR stays a draft forever and can never merge.
+   */
+  async markPullRequestReadyForReview(
+    owner: string,
+    repo: string,
+    number: number,
+    nodeId: string,
+  ): Promise<void> {
+    await this.pullRequestDraftMutation(
+      "markPullRequestReadyForReview",
+      nodeId,
+      `Failed to mark ${owner}/${repo}#${number} ready for review`,
+    );
   }
 }

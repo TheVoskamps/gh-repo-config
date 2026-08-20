@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MergeClient } from "../dist/index.js";
+import { MergeClient, SWEEPER_WORKFLOW_PATH } from "../dist/index.js";
 
 // Build a fake fetch that records calls and returns canned responses
 // keyed by URL substring + method, mirroring test/properties.test.js.
@@ -401,23 +401,21 @@ const GREEN_ROUTES = [
 
 const OPEN_PR = { number: 1, headSha: "sha1", headRef: "work", baseRef: "main" };
 
-const SWEEP_PATH = ".github/workflows/sweep.yml";
-
 test("evaluateAndMerge: a green PR touching a reserved path is awaiting-human and is never merged (issue #92)", async () => {
   const fetch = fakeFetch([
     ...GREEN_ROUTES,
     {
       match: "/pulls/1/files",
-      body: [{ filename: ".github/dependabot.yml" }, { filename: SWEEP_PATH }],
+      body: [{ filename: ".github/dependabot.yml" }, { filename: SWEEPER_WORKFLOW_PATH }],
     },
   ]);
   const client = new MergeClient({ token: "t", fetch });
   const result = await client.evaluateAndMerge("Org", "repo", OPEN_PR, false, {
-    humanApprovalPaths: [SWEEP_PATH],
+    humanApprovalPaths: [SWEEPER_WORKFLOW_PATH],
   });
 
   assert.equal(result.outcome, "awaiting-human");
-  assert.match(result.reason, new RegExp(SWEEP_PATH.replace(/[.]/g, "\\.")));
+  assert.match(result.reason, new RegExp(SWEEPER_WORKFLOW_PATH.replace(/[.]/g, "\\.")));
   assert.equal(
     fetch.calls.some((c) => c.method === "PUT"),
     false,
@@ -440,7 +438,7 @@ test("evaluateAndMerge: a sweeper-repo PR that does not touch the reserved path 
   ]);
   const client = new MergeClient({ token: "t", fetch });
   const result = await client.evaluateAndMerge("Org", "repo", OPEN_PR, false, {
-    humanApprovalPaths: [SWEEP_PATH],
+    humanApprovalPaths: [SWEEPER_WORKFLOW_PATH],
   });
 
   assert.equal(result.outcome, "merged");

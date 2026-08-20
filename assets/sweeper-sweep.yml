@@ -34,7 +34,12 @@
 #     repo's other converger PRs — cannot be enabled on it. A human in
 #     the org marks it ready and merges it, having read the diff.
 #   - `auto`: merged like any other converger PR, for orgs that accept
-#     the loop.
+#     the loop. Switching to it also RELEASES a hold `manual` already
+#     placed: the sweep marks the drafted PR ready for review, since
+#     nothing else would, and a draft left behind by the old policy
+#     could otherwise never merge. Drafting a converger PR by hand is
+#     therefore not a hold under `auto` — the next tick marks it ready
+#     again. Flip the policy back to `manual` to hold one.
 #   - `off`: this file is not converged at all.
 # The policy lives in the config file rather than a UI-editable
 # variable, so changing it is itself a PR through the org's own gates.

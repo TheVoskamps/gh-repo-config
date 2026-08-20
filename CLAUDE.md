@@ -203,13 +203,15 @@ lint set passed.
     non-file all return `undefined`; any other non-2xx throws — used
     only by the community-file seed lookup (`src/converge/community.ts`).
     `createPullRequest` takes a `draft` flag, and
-    `convertPullRequestToDraft` is the module's ONE GraphQL call (bare
-    `fetch` to `/graphql`, so the zero-dependency shape is unchanged):
-    `draft` is writable on the REST create call only, and
-    `PATCH /repos/{o}/{r}/pulls/{n}` carries no such field, so
-    ready→draft has no REST surface at all. A GraphQL error arrives as
+    `convertPullRequestToDraft` / `markPullRequestReadyForReview` are the
+    module's ONLY GraphQL calls (bare `fetch` to `/graphql`, so the
+    zero-dependency shape is unchanged), sharing one private
+    `pullRequestDraftMutation` helper: `draft` is writable on the REST
+    create call only, and `PATCH /repos/{o}/{r}/pulls/{n}` carries no
+    such field, so flipping an open PR's draft state EITHER way has no
+    REST surface at all. A GraphQL error arrives as
     HTTP 200 with an `errors` array, so both the status and that array
-    are checked. Do not "simplify" this into a PATCH.
+    are checked. Do not "simplify" either into a PATCH.
   - `src/github/settings.ts` — `RepoSettingsClient`, same dependency-
     free-`fetch` shape as the other `src/github/` clients. The converger's
     pure-API-mutation path (no files, no PR): read-then-PATCH
@@ -334,7 +336,10 @@ lint set passed.
       cannot disagree about what an absent key means, and BOTH
       enforcement sites read it: `writer.ts` (draft state) and
       `sweep.ts` (the merge pass's `humanApprovalPaths`). Do not give
-      either site a second copy of the rule.
+      either site a second copy of the rule. Its inverse,
+      `sweeperUndraftsHeldPr` (true on the sweeper repo under `auto`,
+      false everywhere else), lives here for the same reason and has the
+      one consumer `writer.ts`.
     - `community.ts` — `readOrgCommunityFiles(client, org)`: the
       community-file seed source (issue #90). Looks each
       `COMMUNITY_FILE_PATHS` entry up at the root of the target org's
@@ -376,8 +381,18 @@ lint set passed.
       rest on a `protect-main` ruleset a first-tick sweeper repo has not
       got yet. The decision reads THIS commit's changed paths, not the
       PR's cumulative diff: a branch that carried the anchor on an
-      earlier tick was drafted then, and a draft is never converted back
-      to ready here — marking it ready is the human's act.
+      earlier tick was drafted then, and under `manual` a draft is never
+      converted back to ready here — marking it ready is the human's act.
+      Under `auto` the exact inverse runs (`sweeperUndraftsHeldPr`, the
+      sibling of `sweeperHumanApprovalPaths` and defined beside it): an
+      already-draft converger PR on the sweeper repo is marked ready via
+      `ContentsClient.markPullRequestReadyForReview`. Without it the
+      manual→auto transition would strand the drafted anchor PR as a
+      draft forever — nothing else in the system ever marks a converger
+      PR ready — and the sweeper repo would silently stop converging its
+      own trust anchor. The consequence for a human is that hand-drafting
+      a converger PR is NOT a hold under `auto`; flipping the policy back
+      to `manual` is.
     - `ghas.ts` — `convergeGhasSettings`: read-then-write
       each GHAS/repo-security toggle and merge-button setting
       independently — one setting's failure (report-and-skip on a 422
@@ -737,7 +752,10 @@ lint set passed.
     bullets are the copy a sweeper repo's maintainer reads, so keep the
     `manual` bullet's DRAFT wording in step with `writer.ts` — a bullet
     that says only "the merge pass refuses to merge it" understates the
-    hold and invites someone to remove the draft half.
+    hold and invites someone to remove the draft half — and keep the
+    `auto` bullet's un-drafting half, which is the only warning a
+    maintainer gets that hand-drafting a converger PR does not hold it
+    under that policy.
   This repo's own `.github/actions/`, `.github/scripts/`, and
   `.github/workflows/` — the
   live copies the sweep renders onto this repo itself — are **not**
