@@ -126,7 +126,20 @@ npm run lint:md
     `converge`).
   - `src/github/properties.ts` — dependency-free `fetch`-based REST
     client for the three org custom properties (paginated read,
-    batched ≤30 stamp write).
+    batched ≤30 stamp write). `readOrgDefault` returns an
+    `OrgDefaultRead` discriminated union carrying **provenance**, not a
+    bare value (issue #67): `set` (200 with a `default_value`, whose
+    unvalidated `raw` string rides along), `defined-no-value` (200 with
+    none — legitimate, since GitHub rejects a schema `default_value`
+    unless the property is `required`), `not-defined` (404 — the
+    property does not exist on the org, the anomalous case). The
+    distinction exists because `normalizeOrgDefault`'s fail-safe
+    collapse to `opt-in` makes an unprovisioned org read exactly like a
+    genuine opt-in one, which once masked a real outage: the three
+    properties did not exist on TheVoskamps until 2026-07-26 (issue
+    #59), and every tick from the sweep workflow's first run reported
+    all repos unmanaged. Only the `set` arm's `raw` is ever normalized,
+    so selection behaviour is identical for all three.
   - `src/github/merge.ts` — `MergeClient`, same dependency-free-`fetch`
     shape as `properties.ts`. Lists the converger App's own open PRs on
     a repo, resolves required checks via the rules API
@@ -623,9 +636,16 @@ npm run lint:md
   optional `GH_REPO_CONFIG_FILE` / optional
   `GH_REPO_CONFIG_SWEEPER_REPO` from
   the environment; exits non-zero when any repo's convergence or stamp
-  write failed, so a scheduled sweep run cannot fail silently). The
-  sweep summary also prints each repo's CodeQL default-setup and
-  `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
+  write failed, so a scheduled sweep run cannot fail silently). It
+  exits non-zero on one further condition (issue #67): a
+  `SweepReport.orgDefaultProvenance` of `not-defined`, meaning the
+  `gh-repo-config-default` property does not exist on the org and every
+  repo fell back to the fail-safe `opt-in`. That check is
+  `describeOrgDefaultProvenanceFailure` in `src/sweep.ts` — the decision
+  lives there, not in the CLI, so it is unit-testable without spawning
+  the CLI against the live API — and the full tick still runs before it
+  fires. The sweep summary also prints each repo's CodeQL default-setup
+  and `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
 - `test/` — `node:test` files, run via `node --test test/**/*.test.js`.
 - `.github/workflows/ci.yml` — REPO-OWN workflow, not part of the
   sweep's rendered payload (it has no `assets/` counterpart and is
@@ -754,7 +774,14 @@ npm run lint:md
   org-level custom properties to be defined
   (`gh-repo-config-mode`, `gh-repo-config-default`,
   `gh-repo-config-version`) — an operator-provisioning step, not
-  something the workflow itself creates. Also passes
+  something the workflow itself creates. A `gh-repo-config-default`
+  that is not defined on the org fails the run loudly (issue #67, see
+  `bin/gh-repo-config.js`) rather than reading as a quiet
+  all-unmanaged tick. On TheVoskamps that property exists but
+  deliberately carries no schema `default_value` — GitHub rejects one
+  unless the property is `required`, which would materialize the value
+  on every repo in the org — so its provenance is `defined-no-value`,
+  the legitimate state, not the failing one. Also passes
   `GH_REPO_CONFIG_APP_SLUG` (read from the token-mint step's own
   `app-slug` output, not a separate secret) so the merge pass can
   match `user.login === "<slug>[bot]"` and never merge a PR authored
@@ -804,3 +831,57 @@ npm run lint:md
   couple `npm test` — and therefore the `ci-required` check — to another
   package's dependency graph. Declare the dependency first if a real
   parser is ever warranted.
+- A claim in prose or a doc comment about a package's presence,
+  dependents, version, or export shape is checked only after `npm ci`.
+  A subagent worktree starts with no `node_modules`, and the primary
+  clone often carries prod deps only, so `npm ls <pkg>` answers
+  `(empty)` for every dev-tree package — which reads as evidence the
+  package is absent and is not. Cite `package-lock.json` and the
+  pinned version in the prose itself, since that file is present
+  whatever the install state, and settle an export-shape claim
+  empirically (`node --input-type=module -e "import ..."`).
+- A claim about how long something lasted, or about a date range, is
+  settled against `git log` before it stands. Duration prose
+  ("a months-long outage", "broken since the first release") is a
+  structural claim with no test behind it: no suite fails when the
+  described behaviour is right and only the span is invented. Check it
+  with `git log --diff-filter=A -- <the file that introduced the
+  behaviour>` plus whatever dated record exists, and write the dated
+  fact a reader can re-check rather than the span.
+- A claim that some workflow pass "also pushes to" or "also rebases" a
+  given branch or PR is settled against that pass's CANDIDATE
+  SELECTION, not against the presence of a `git push` in its body. Two
+  passes in the same job share an identity and a push while selecting
+  disjoint PR sets — the `author.login == "dependabot"` filter
+  described under `.github/workflows/assets-pin-bump.yml` above is the
+  live instance. Read the pass's `select(...)` chain and the target
+  PR's author before such a sentence stands, especially when the
+  sentence is authored in the same commit as the code it describes:
+  the guard's described BEHAVIOUR can be correct while the stated
+  REASON is false, and no test catches that.
+- A Bash call this repo's agents make against git must be statically
+  simple, or the harness refuses it before anything runs. `git -C
+  <path> <cmd>` is refused outright, a single call chaining several
+  `cd`/`git` steps is refused as too complex to prove it stays inside
+  the worktree, and so is a heredoc redirect into a repo file — the
+  classification is static, so it cannot prove the target of a dynamic
+  token and declines instead of guessing. The moves that pass: put a
+  multi-step git sequence in a `.sh` file under `.claude/tmp/<task
+  slug>/` and run `bash <abs path>`, which does its own `cd`; write a
+  commit message to a file and use `git commit -F <file>` instead of
+  `git commit -m "$(cat <<'EOF' … EOF)"`; and edit a repo file with
+  `Edit` or `Write` rather than a shell redirect. A refused call
+  executes none of its parts, so re-stage anything a blocked
+  `git add` was chained to. The refusal text for `git -C` suggests a
+  bare `cd` in a prior call, which does not help a subagent: a
+  subagent's cwd resets between Bash calls.
+- A subagent working in a worktree anchors every absolute path to
+  `git rev-parse --show-toplevel`, never to the primary clone's path
+  under `Workspaces/`. An `Edit` against the primary-clone path is
+  refused outright with a message naming the worktree, so it fails
+  loudly. A `Read` against it does not: it can return the file as the
+  PRIMARY CLONE has it — `main`'s text, with the branch's own
+  additions missing — which reads exactly like "the branch does not
+  contain that change" and invites re-adding what the branch already
+  carries. When a `Read` disagrees with a `grep` of the same file,
+  believe the `grep`, and re-read through the worktree-rooted path.

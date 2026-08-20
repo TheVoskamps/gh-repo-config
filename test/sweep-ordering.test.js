@@ -13,7 +13,7 @@ function fakeClient({ repos }) {
   const stamped = [];
   return {
     stamped,
-    readOrgDefault: async () => "opt-in",
+    readOrgDefault: async () => ({ provenance: "set", raw: "opt-in" }),
     readAllRepoValues: async () => repos,
     stampVersion: async (names, version) => {
       stamped.push({ names: [...names], version });
