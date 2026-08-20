@@ -73,6 +73,7 @@ export {
   type RequiredCheckResult,
   type MergeOutcome,
   type MergeAttemptResult,
+  type EvaluateAndMergeOptions,
 } from "./github/merge.js";
 
 export {
@@ -118,6 +119,7 @@ export {
 export {
   buildDesiredFiles,
   COMMUNITY_FILE_PATHS,
+  SWEEPER_WORKFLOW_PATH,
   type DesiredFile,
   type DesiredFilesOptions,
   type CommunityFileContent,

@@ -22,7 +22,11 @@
  * {@link DesiredFilesOptions.communityFiles} and `community.ts`).
  * Issue #39 adds the `codeartifact-auth` composite action — the first
  * payload that is verbatim (no placeholders) yet lands at a bespoke
- * non-workflow path (see {@link VERBATIM_AT_PATH}).
+ * non-workflow path (see {@link VERBATIM_AT_PATH}). Issue #92 adds the
+ * sweeper workflow — the first payload that is **conditional on which
+ * repo is being converged**: it lands only on the org's sweeper repo,
+ * and only when the org's `sweeper-update-policy` is not `off` (see
+ * {@link SWEEPER_WORKFLOW_PATH}).
  *
  * Production modes:
  *
@@ -54,6 +58,10 @@
  *   no-external-source-of-truth contract, confined to this payload kind.
  */
 import { readAssetText } from "./assets.js";
+import {
+  DEFAULT_SWEEPER_UPDATE_POLICY,
+  type SweeperUpdatePolicy,
+} from "../config/org-config.js";
 import {
   assertNoUnresolvedTokens,
   renderDependabotYml,
@@ -140,6 +148,23 @@ const RENDERED_PR_AUTOMATION_WORKFLOWS: readonly string[] = [
   "auto-enable-automerge.yml",
   "auto-rebase-prs.yml",
 ];
+
+/**
+ * The sweeper workflow's asset name (issue #92). Rendered through the
+ * plain three-token {@link renderTemplate} path even though it carries
+ * no placeholder today: a zero-placeholder template renders
+ * byte-identical and trivially passes the unresolved-token assertion,
+ * so adding a per-repo value later needs no plumbing change.
+ */
+const SWEEPER_WORKFLOW_ASSET = "sweeper-sweep.yml";
+
+/**
+ * Where the rendered sweeper workflow lands on the sweeper repo (issue
+ * #92). Exported because the merge pass reads it too: under
+ * `sweeper-update-policy: manual` a converger PR whose changed files
+ * include this path is left for a human to merge (`src/sweep.ts`).
+ */
+export const SWEEPER_WORKFLOW_PATH = ".github/workflows/sweep.yml";
 
 /**
  * A rendered `.yml` asset that lands at a fixed non-workflow path (not
@@ -256,6 +281,43 @@ export interface DesiredFilesOptions extends OrgRenderOptions {
    * community file is seeded on this pass.
    */
   readonly communityFiles?: CommunityFileContent;
+  /**
+   * The org's sweeper repo as `owner/repo` (issue #92), exactly as the
+   * invoking workflow stated it in `GH_REPO_CONFIG_SWEEPER_REPO`. The
+   * sweeper workflow is a payload for that one repo and no other, so
+   * this is compared against the converging repo's own `owner/repo`.
+   * Absent means no repo is the sweeper this tick and the workflow is
+   * not a payload anywhere.
+   */
+  readonly sweeperRepo?: string;
+  /**
+   * The org's `sweeper-update-policy` (issue #92). `off` drops the
+   * sweeper workflow from the payload set entirely; `manual` and `auto`
+   * both render it, and differ only in whether the merge pass may merge
+   * the resulting PR (see {@link SWEEPER_WORKFLOW_PATH}). Absent takes
+   * {@link DEFAULT_SWEEPER_UPDATE_POLICY}, matching what the org config
+   * parse applies to an absent key.
+   */
+  readonly sweeperUpdatePolicy?: SweeperUpdatePolicy;
+}
+
+/**
+ * Whether the repo being converged gets the sweeper workflow: it must
+ * be the repo named by `sweeperRepo`, and the policy must not be `off`.
+ *
+ * The `gh-repo-config.json` the workflow reads is org-owned content and
+ * is deliberately absent from every payload under every policy — this
+ * decides the workflow only.
+ */
+function shipsSweeperWorkflow(
+  ctx: RepoContext,
+  options: DesiredFilesOptions,
+): boolean {
+  const policy = options.sweeperUpdatePolicy ?? DEFAULT_SWEEPER_UPDATE_POLICY;
+  if (policy === "off") {
+    return false;
+  }
+  return options.sweeperRepo === `${ctx.org}/${ctx.repo}`;
 }
 
 /**
@@ -265,6 +327,7 @@ export interface DesiredFilesOptions extends OrgRenderOptions {
  * repo's converge); verbatim scripts are shipped as-is.
  *
  * The returned list is stable-ordered (dependabot, then workflows, then
+ * the sweeper workflow when this repo is the sweeper, then
  * rendered-at-path config, then verbatim-at-path YAML, then scripts,
  * then community files, each in declaration order) so a diff / commit is
  * deterministic.
@@ -320,6 +383,21 @@ export function buildDesiredFiles(
     assertNoUnresolvedTokens(rendered, `.github/workflows/${name}`);
     files.push({
       path: `.github/workflows/${name}`,
+      content: rendered,
+      executable: false,
+    });
+  }
+
+  // The sweeper workflow (issue #92): a payload for the org's sweeper
+  // repo only, and only when the policy is `manual` or `auto`.
+  if (shipsSweeperWorkflow(ctx, options)) {
+    const rendered = renderTemplate(
+      readAssetText(SWEEPER_WORKFLOW_ASSET),
+      ctx,
+    );
+    assertNoUnresolvedTokens(rendered, SWEEPER_WORKFLOW_PATH);
+    files.push({
+      path: SWEEPER_WORKFLOW_PATH,
       content: rendered,
       executable: false,
     });

@@ -71,7 +71,10 @@ import {
 } from "./github/contents.js";
 import { convergeRepoFiles, type ConvergeResult } from "./converge/writer.js";
 import { readOrgCommunityFiles } from "./converge/community.js";
-import type { CommunityFileContent } from "./converge/files.js";
+import {
+  SWEEPER_WORKFLOW_PATH,
+  type CommunityFileContent,
+} from "./converge/files.js";
 import {
   RepoSettingsClient,
   type RepoSettingsClientOptions,
@@ -100,6 +103,7 @@ import {
 } from "./converge/render.js";
 import {
   DEFAULT_ORG_CONFIG,
+  DEFAULT_SWEEPER_UPDATE_POLICY,
   assertVersionPinSatisfied,
   parseSweeperRepo,
   readOrgConfig,
@@ -248,24 +252,25 @@ export interface SweepReport {
   /**
    * Converger-authored PRs left open this tick: a required check is red
    * (the escalation-to-human path), a required check is still pending
-   * (not yet, retried next tick), or the merge call itself was rejected
+   * (not yet, retried next tick), the merge call itself was rejected
    * with a 405/409 between the read and the merge attempt (head moved /
-   * no-longer-mergeable — also retried next tick). None of these count
-   * as a sweep failure.
+   * no-longer-mergeable — also retried next tick), or the PR changes a
+   * path reserved for human approval (issue #92's `awaiting-human`,
+   * which no later tick resolves on its own — a human merges it). None
+   * of these count as a sweep failure.
    */
   readonly awaitingChecks: readonly MergeAttemptResult[];
   /**
    * The sweeper repo (`owner/repo`) the invoking workflow named, echoed
    * from {@link SweepOptions.sweeperRepo}. `undefined` when no repo is
-   * the sweeper this tick. Nothing consumes it yet (issue #91).
+   * the sweeper this tick.
    */
   readonly sweeperRepo?: string;
   /**
    * The org's `sweeper-update-policy`, echoed from
    * {@link SweepOptions.sweeperUpdatePolicy}. `undefined` when the
    * caller supplied none — `runSweepFromEnv` always supplies one, since
-   * the config parse applies the policy's default. Nothing consumes it
-   * yet (issue #91).
+   * the config parse applies the policy's default.
    */
   readonly sweeperUpdatePolicy?: SweeperUpdatePolicy;
 }
@@ -439,6 +444,37 @@ export function describeDefaultModeProvenanceFailure(
   );
 }
 
+/**
+ * The paths a given repo's converger PRs must not be auto-merged over
+ * (issue #92) — the merge pass's half of `sweeper-update-policy`.
+ *
+ * Only the sweeper repo has any, and only under `manual`: the sweeper
+ * workflow is where the attestation verify and the version pin live, so
+ * letting the converger both render it and merge it would let one
+ * compromised release rewrite the org's trust anchor unattended. Under
+ * `auto` the org has accepted that loop, and under `off` the workflow is
+ * not a payload at all — neither reserves anything.
+ *
+ * A sweeper-repo PR that bundles the anchor with other payload changes
+ * waits for the human as a whole. That is intended: those changes then
+ * ride the same human-reviewed approval rather than a lower bar.
+ */
+function sweeperHumanApprovalPaths(
+  org: string,
+  repo: string,
+  options: SweepOptions,
+): readonly string[] {
+  // Default the policy exactly as `buildDesiredFiles` does, so the two
+  // halves of one policy can never disagree about what an absent key
+  // means: rendering the anchor while auto-merging it is the loop the
+  // policy exists to break.
+  const policy = options.sweeperUpdatePolicy ?? DEFAULT_SWEEPER_UPDATE_POLICY;
+  if (policy !== "manual") {
+    return [];
+  }
+  return options.sweeperRepo === `${org}/${repo}` ? [SWEEPER_WORKFLOW_PATH] : [];
+}
+
 /** How to run the sweep. */
 export interface SweepOptions {
   /**
@@ -533,15 +569,19 @@ export interface SweepOptions {
   /**
    * The sweeper repo (`owner/repo`) this sweep is running from, as the
    * invoking workflow stated it (issue #91). Absent means no repo is the
-   * sweeper this tick. Carried through to
-   * {@link SweepReport.sweeperRepo}; no sweep step consumes it yet — its
-   * consumer is the sweeper-workflow payload, which is later work.
+   * sweeper this tick. `runSweep` itself consumes it only in the merge
+   * pass (issue #92, {@link sweeperHumanApprovalPaths}); the payload
+   * half is the caller's, since `converge` is injected — see
+   * `DesiredFilesOptions.sweeperRepo`. Also carried through to
+   * {@link SweepReport.sweeperRepo}.
    */
   readonly sweeperRepo?: string;
   /**
-   * The org's `sweeper-update-policy` (issue #91). Carried through to
-   * {@link SweepReport.sweeperUpdatePolicy}; like {@link sweeperRepo},
-   * no sweep step consumes it yet.
+   * The org's `sweeper-update-policy` (issue #91). Absent takes
+   * {@link DEFAULT_SWEEPER_UPDATE_POLICY}, matching what the org config
+   * parse and `buildDesiredFiles` apply. Consumed alongside
+   * {@link sweeperRepo}, and carried through to
+   * {@link SweepReport.sweeperUpdatePolicy}.
    */
   readonly sweeperUpdatePolicy?: SweeperUpdatePolicy;
 }
@@ -714,12 +754,25 @@ export async function runSweep(
           repo.repo,
           appSlug,
         );
+        // Under `sweeper-update-policy: manual` the sweeper repo's own
+        // trust-anchor workflow is reserved for a human: a PR of this
+        // repo's that touches it is left open, however green it is. The
+        // reservation is per repo, so every other repo's PRs — and the
+        // sweeper repo's PRs that do not touch the anchor — merge as
+        // usual. Empty on every repo but the sweeper, which is what
+        // keeps the extra file-listing request off the common path.
+        const humanApprovalPaths = sweeperHumanApprovalPaths(
+          org,
+          repo.repo,
+          options,
+        );
         for (const pr of prs) {
           const attempt = await mergeClient.evaluateAndMerge(
             org,
             repo.repo,
             pr,
             dryRun,
+            { humanApprovalPaths },
           );
           log(
             `  ${repo.repo}#${pr.number}: ${attempt.outcome} — ${attempt.reason}`,
@@ -1015,6 +1068,10 @@ export async function runSweepFromEnv(
       convergeRepoFiles(contentsClient, org, repo, dryRun, {
         ...renderOptions,
         communityFiles: await resolveCommunityFiles(),
+        // The sweeper-workflow payload (issue #92) lands on the one repo
+        // named here, and only when the policy is not `off`.
+        ...(sweeperRepo !== undefined ? { sweeperRepo } : {}),
+        sweeperUpdatePolicy: config.sweeperUpdatePolicy,
       }),
     // The real GHAS/merge-button settings-convergence step (issue #15):
     // pure API mutations, no files, no PR. Throws on an unexpected

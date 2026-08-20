@@ -85,8 +85,9 @@ lint set passed.
     the seam that lets one released tarball serve every org. The model
     is that each org runs the sweep from its own private sweeper repo,
     which carries this file as org-owned content the converger never
-    converges — no sweeper-repo payload is built yet, so the seam is
-    wired but nothing on GitHub uses it; `runSweepFromEnv` reads its
+    converges (the sweeper repo's own workflow IS a payload — issue #92,
+    see `assets/sweeper-sweep.yml` — but `gh-repo-config.json` itself
+    never is, under any policy); `runSweepFromEnv` reads its
     path from `GH_REPO_CONFIG_FILE` (unset or empty — the shape an
     unset Actions expression renders as — → every value takes its
     baked default and the sweep behaves exactly as it did before,
@@ -114,8 +115,10 @@ lint set passed.
     skew the stamp/`isBehind` model has no endpoint for — the escape
     hatch for one repo is `gh-repo-config-mode: opt-out`), and
     `sweeper-update-policy` (`manual` | `auto` | `off`, default
-    `manual`; parsed and exposed here, its consumer is the
-    sweeper-workflow payload and is later work). Every malformed value
+    `manual`; its consumer is the sweeper-workflow payload, issue #92 —
+    `off` drops the workflow from the payload set entirely, while
+    `manual` and `auto` both render it and differ only in whether the
+    merge pass may merge the resulting PR). Every malformed value
     is a thrown `Error` naming the key, raised before the sweep's first
     API call — a silently-ignored pin or policy is worse than a failed
     tick. Unknown keys, top-level or inside `pr-automation-identity`,
@@ -174,7 +177,14 @@ lint set passed.
     (`GET /repos/{o}/{r}/rules/branches/{branch}`, not legacy branch
     protection), and REST-merges (merge-commit only) whichever are
     green. A 405/409 from the merge call itself is `awaiting-retry`,
-    not a failure.
+    not a failure. `evaluateAndMerge`'s `humanApprovalPaths` option
+    (issue #92) reserves target paths for a human: when the PR's changed
+    files (`GET /repos/{o}/{r}/pulls/{n}/files`, paginated) include one,
+    the attempt settles as `awaiting-human` — never merged, not a
+    failure, and not something a later tick resolves on its own. The
+    check runs BEFORE the check-state rollup, since the outcome cannot
+    change with the checks, and an empty/absent list costs no extra
+    request at all. `src/sweep.ts` is the only caller that populates it.
   - `src/github/contents.ts` — `ContentsClient`, same dependency-free-
     `fetch` shape as `properties.ts` / `merge.ts`. The converger's
     file-write path: reads a target repo's default branch and current
@@ -293,7 +303,15 @@ lint set passed.
       nothing. `DesiredFilesOptions` extends `OrgRenderOptions`, so the
       same object carries the render inputs (`namedDependabotGroups`,
       `prAutomationIdentity`, each with a baked default);
-      `communityFiles` is the one field with no baked default.
+      `communityFiles` is the one field with no baked default. The
+      sweeper workflow (issue #92, `assets/sweeper-sweep.yml` →
+      `SWEEPER_WORKFLOW_PATH`, `.github/workflows/sweep.yml`) is the one
+      payload CONDITIONAL on which repo is being converged: it renders
+      only when `DesiredFilesOptions.sweeperRepo` equals the converging
+      repo's own `<org>/<repo>` AND `sweeperUpdatePolicy` is not `off`.
+      It goes through the plain three-token render path despite carrying
+      no placeholder today, so a future per-repo value needs no plumbing
+      change. `gh-repo-config.json` is never a payload under any policy.
     - `community.ts` — `readOrgCommunityFiles(client, org)`: the
       community-file seed source (issue #90). Looks each
       `COMMUNITY_FILE_PATHS` entry up at the root of the target org's
@@ -416,8 +434,21 @@ lint set passed.
     the bypass actor rather than a default it has not installed; there
     is deliberately no baked slug constant beside it, since a second
     source would drift from the identity the rendered workflows use.
-    `sweeperRepo` and `sweeperUpdatePolicy` are passed on the options
-    and echoed onto `SweepReport`; nothing consumes either yet. The
+    `sweeperRepo` and `sweeperUpdatePolicy` are passed on the options,
+    echoed onto `SweepReport`, and consumed twice (issue #92): they
+    reach every repo's converge as `DesiredFilesOptions`, deciding
+    whether the sweeper workflow is a payload there, and
+    `sweeperHumanApprovalPaths` derives from them the merge pass's
+    per-repo `humanApprovalPaths`. That second half fires ONLY for the
+    sweeper repo under `manual`, and both halves default an absent
+    policy to `manual` — a disagreement between them about what an
+    absent key means would be exactly the render-then-auto-merge loop
+    the policy exists to break. A sweeper-repo PR that bundles the
+    workflow with other payload changes waits for the human as a whole,
+    which is intended: those changes then ride the same human-reviewed
+    approval rather than a lower bar. The repo is also not stamped while
+    that PR sits open, since the existing ruleset ordering gate already
+    defers on an unmerged file PR. The
     merge pass runs independently of the version-skip decision, over
     every repo the properties API returns, so an unmerged converger PR
     from a prior tick still gets picked up.
@@ -448,10 +479,11 @@ lint set passed.
   `protect-main-ruleset.json` ruleset body template, the `auto-enable-
   automerge.yml` + `auto-rebase-prs.yml` workflows, the
   `auto-rebase-lockfile-regen.sh` script + its
-  `test-auto-rebase-lockfile-regen.sh` self-test, and the
+  `test-auto-rebase-lockfile-regen.sh` self-test, the
   CodeArtifact-auth payload set (`codeartifact-auth-action.yml` composite
   action, `codeartifact-auth.sh` + its `test-codeartifact-auth.sh`
-  self-test). All `.sh` scripts ship verbatim and executable.
+  self-test), and `sweeper-sweep.yml` (the per-org sweeper workflow,
+  issue #92). All `.sh` scripts ship verbatim and executable.
   - `dependency-pinned-gate.sh` matches workspace-covering dependency
     globs order-independently (a negation before a positive glob still
     excludes the match). A pnpm `catalog:`/`catalog:<name>` reference is
@@ -594,12 +626,19 @@ lint set passed.
       hour the weekday window opens, which leaves no gap in the week
       longer than 24 h. Do not fold the weekend entry into the weekday
       window's justification.
+    - `sweeper-sweep.yml` (issue #92) is ONE job named `sweep`. Its
+      resolve / download / verify / unpack / mint / run stages are
+      STEPS, which is where their ordering guarantee already comes from;
+      splitting them into jobs would multiply the sweeper repo's daily
+      cost for isolation the ordering already provides.
     - The constraint is PINNED, not just documented:
       `test/files.test.js`'s `EXPECTED_JOBS` table names every rendered
       workflow's exact job-id list, and the test asserts the table's key
       set equals the set of rendered `.github/workflows/` paths — so a
       new workflow cannot escape the constraint by omission, and a
-      re-split fails `npm test`. Adding a job means editing that table,
+      re-split fails `npm test`. That test builds the payload AS THE
+      SWEEPER REPO, since the sweeper workflow is otherwise not in the
+      set and would escape the constraint by being conditional. Adding a job means editing that table,
       which is the point: the edit is where the billing cost gets
       argued. Job ids are read with the file's `workflowJobIds` helper,
       which slices the top-level `jobs:` mapping before matching job-id
@@ -640,6 +679,28 @@ lint set passed.
     `docs/codeartifact-auth.md`, including the hard requirement that an
     org-level `CODEARTIFACT_ROLE` be scoped to exactly the repositories
     the IAM trust policy names.
+  - `sweeper-sweep.yml` is the per-org SWEEPER workflow (issue #92),
+    rendered to `.github/workflows/sweep.yml` on the org's sweeper repo
+    and nowhere else. It is a payload rather than a template-repo file
+    because a template COPY cannot pull from its template (unrelated
+    histories, no upstream), and the converger's render-PR-merge channel
+    already does exactly that job. Step order is load-bearing: resolve
+    `version-pin` out of `gh-repo-config.json` with `jq` (absent → the
+    latest release, resolved to a concrete tag before download), fetch
+    the tarball, `gh attestation verify` it, unpack, mint the converger
+    App token, run the sweep. Nothing from the tarball is unpacked or
+    executed before the verify passes, and the App token is minted only
+    after it, so no privileged credential is live while an unverified
+    archive is being handled — the same scoping rationale
+    `assets-pin-bump.yml` applies to untrusted upstream text. The mint
+    uses `client-id:` (secret `CONVERGER_APP_CLIENT_ID`, the App's
+    Client ID — a distinct value from the numeric App ID
+    `.github/workflows/sweep.yml` here still uses), never the deprecated
+    `app-id:` input; `test/files.test.js` pins that, the SHA-pinning,
+    and the verify-before-unpack order. The sweep's own
+    `assertVersionPinSatisfied` stays the defense-in-depth re-check of
+    the pin against the tarball actually fetched; this workflow's `jq`
+    read is the primary enforcement.
   This repo's own `.github/actions/`, `.github/scripts/`, and
   `.github/workflows/` — the
   live copies the sweep renders onto this repo itself — are **not**
@@ -822,9 +883,11 @@ lint set passed.
   by anyone else. It sets neither `GH_REPO_CONFIG_FILE` nor
   `GH_REPO_CONFIG_SWEEPER_REPO` (issue #91): this repo is not a
   per-org sweeper repo, so its own sweep runs on the baked defaults.
-  The env-side plumbing exists for the sweeper-workflow payload that
-  is later work — do not read its absence here as the seam being
-  unwired.
+  No repo is therefore the sweeper on its ticks, which is also why the
+  issue-#92 sweeper-workflow payload never lands on any repo this
+  workflow converges. A sweeper repo's own copy of this concern is
+  `assets/sweeper-sweep.yml` and is a payload; this file is
+  hand-maintained here and has no `assets/` counterpart.
 
 ## Conventions
 

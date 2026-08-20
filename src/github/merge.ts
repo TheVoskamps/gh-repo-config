@@ -19,6 +19,9 @@
  *   /repos/{owner}/{repo}/commits/{ref}/check-runs` (GitHub Checks) plus
  *   `GET /repos/{owner}/{repo}/commits/{ref}/status` (legacy combined
  *   status, for any check that only posts a commit status).
+ * - PR changed files: `GET /repos/{owner}/{repo}/pulls/{number}/files`,
+ *   read only when the caller reserves paths for human approval (issue
+ *   #92).
  * - Merge: `PUT /repos/{owner}/{repo}/pulls/{number}/merge`, merge
  *   method `merge` (merge-commit only, per the org's merge-commit-only
  *   standard — never squash, never rebase).
@@ -91,11 +94,31 @@ export type MergeOutcome =
   /** All required checks are green/empty but at least one is still pending. */
   | "pending"
   /**
+   * The PR changes a path the caller reserved for human approval, so
+   * the merge pass never evaluated it (issue #92: a sweeper repo's own
+   * trust-anchor workflow under `sweeper-update-policy: manual`). Left
+   * open and updated every tick until a human merges it — expected, not
+   * a failure and not a retry.
+   */
+  | "awaiting-human"
+  /**
    * Checks were green and mergeable at read time, but the merge call
    * itself got a 405/409 (head moved, or no-longer-mergeable) between
    * the read and the merge attempt. Retry next tick, not a failure.
    */
   | "awaiting-retry";
+
+/** Per-call knobs for {@link MergeClient.evaluateAndMerge}. */
+export interface EvaluateAndMergeOptions {
+  /**
+   * Target-repo paths whose change reserves the PR for a human (issue
+   * #92). A PR touching any of them is never merged by the sweep; it
+   * settles as `awaiting-human` and stays open. Empty or absent — the
+   * ordinary case on every repo but the sweeper — costs no extra API
+   * call at all.
+   */
+  readonly humanApprovalPaths?: readonly string[];
+}
 
 /** Full result of evaluating (and possibly merging) one PR. */
 export interface MergeAttemptResult {
@@ -327,6 +350,43 @@ export class MergeClient {
   }
 
   /**
+   * List the paths one PR changes
+   * (`GET /repos/{owner}/{repo}/pulls/{number}/files`), paginated.
+   *
+   * Used only by the human-approval exclusion in
+   * {@link evaluateAndMerge}: a converger PR is one commit against a
+   * payload set of a few dozen files, so the first page all but always
+   * covers it, but the loop is written to page anyway rather than
+   * silently truncating at 100 and merging a PR whose reserved path sat
+   * on page two.
+   */
+  async listChangedFiles(
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<string[]> {
+    const perPage = 100;
+    const paths: string[] = [];
+    for (let page = 1; ; page++) {
+      const url = `${this.apiBase}/repos/${owner}/${repo}/pulls/${number}/files?per_page=${perPage}&page=${page}`;
+      const res = await this.doFetch(url, { headers: this.headers() });
+      if (!res.ok) {
+        throw new Error(
+          `Failed to list changed files for ${owner}/${repo}#${number} (page ${page}): ${res.status} ${res.statusText}`,
+        );
+      }
+      const batch = (await res.json()) as { filename: string }[];
+      for (const file of batch) {
+        paths.push(file.filename);
+      }
+      if (batch.length < perPage) {
+        break;
+      }
+    }
+    return paths;
+  }
+
+  /**
    * REST-merge one PR with the `merge` method (merge-commit only, per
    * the org's merge-commit-only standard). Returns `true` on success.
    * Returns `false` (rather than throwing) on a 405 or 409 — "head
@@ -362,13 +422,35 @@ export class MergeClient {
    * them, and merge when green. Mirrors the `dryRun` symmetry with
    * {@link OrgPropertiesClient.stampVersion} — decide and report, never
    * issue the merge, when `dryRun` is set.
+   *
+   * @param options `humanApprovalPaths` reserves paths for a human
+   *   (issue #92): when the PR changes any of them the attempt settles
+   *   as `awaiting-human` immediately, before any check-state read. The
+   *   file listing costs one request against the several the check
+   *   rollup would cost, and the outcome cannot change with the checks,
+   *   so evaluating them first would be work whose result is discarded.
    */
   async evaluateAndMerge(
     owner: string,
     repo: string,
     pr: OpenPullRequest,
     dryRun: boolean,
+    options: EvaluateAndMergeOptions = {},
   ): Promise<MergeAttemptResult> {
+    const reserved = options.humanApprovalPaths ?? [];
+    if (reserved.length > 0) {
+      const changed = await this.listChangedFiles(owner, repo, pr.number);
+      const hits = changed.filter((p) => reserved.includes(p));
+      if (hits.length > 0) {
+        return {
+          pr,
+          outcome: "awaiting-human",
+          checks: [],
+          reason: `changes path(s) reserved for human approval: ${hits.join(", ")}`,
+        };
+      }
+    }
+
     const requiredContexts = await this.getRequiredCheckContexts(
       owner,
       repo,

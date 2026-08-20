@@ -377,3 +377,109 @@ test("evaluateAndMerge: a 405/409 from the merge call itself is reported as awai
   );
   assert.equal(result.outcome, "awaiting-retry");
 });
+
+// Issue #92's merge-pass exclusion. The green routes below are the same
+// ones the "all green -> merges" case uses, so the ONLY thing separating
+// a merge from an `awaiting-human` here is the reserved path.
+const GREEN_ROUTES = [
+  {
+    match: "/rules/branches/main",
+    body: [
+      {
+        type: "required_status_checks",
+        parameters: { required_status_checks: [{ context: "ci" }] },
+      },
+    ],
+  },
+  {
+    match: "/commits/sha1/check-runs",
+    body: { check_runs: [{ name: "ci", status: "completed", conclusion: "success" }] },
+  },
+  { match: "/commits/sha1/status", body: { statuses: [] } },
+  { match: "/pulls/1/merge", method: "PUT", body: { merged: true } },
+];
+
+const OPEN_PR = { number: 1, headSha: "sha1", headRef: "work", baseRef: "main" };
+
+const SWEEP_PATH = ".github/workflows/sweep.yml";
+
+test("evaluateAndMerge: a green PR touching a reserved path is awaiting-human and is never merged (issue #92)", async () => {
+  const fetch = fakeFetch([
+    ...GREEN_ROUTES,
+    {
+      match: "/pulls/1/files",
+      body: [{ filename: ".github/dependabot.yml" }, { filename: SWEEP_PATH }],
+    },
+  ]);
+  const client = new MergeClient({ token: "t", fetch });
+  const result = await client.evaluateAndMerge("Org", "repo", OPEN_PR, false, {
+    humanApprovalPaths: [SWEEP_PATH],
+  });
+
+  assert.equal(result.outcome, "awaiting-human");
+  assert.match(result.reason, new RegExp(SWEEP_PATH.replace(/[.]/g, "\\.")));
+  assert.equal(
+    fetch.calls.some((c) => c.method === "PUT"),
+    false,
+    "no merge was issued",
+  );
+  // The exclusion short-circuits before the check rollup, so the
+  // several check-state reads are never spent on a PR whose outcome is
+  // already settled.
+  assert.deepEqual(result.checks, []);
+  assert.equal(
+    fetch.calls.some((c) => c.url.includes("/check-runs")),
+    false,
+  );
+});
+
+test("evaluateAndMerge: a sweeper-repo PR that does not touch the reserved path merges normally (issue #92)", async () => {
+  const fetch = fakeFetch([
+    ...GREEN_ROUTES,
+    { match: "/pulls/1/files", body: [{ filename: ".github/dependabot.yml" }] },
+  ]);
+  const client = new MergeClient({ token: "t", fetch });
+  const result = await client.evaluateAndMerge("Org", "repo", OPEN_PR, false, {
+    humanApprovalPaths: [SWEEP_PATH],
+  });
+
+  assert.equal(result.outcome, "merged");
+  assert.ok(fetch.calls.some((c) => c.method === "PUT"));
+});
+
+test("evaluateAndMerge: no reserved paths costs no file listing at all (issue #92)", async () => {
+  // No `/pulls/1/files` route is registered, so fakeFetch throws if the
+  // listing is attempted — which is the assertion.
+  const fetch = fakeFetch(GREEN_ROUTES);
+  const client = new MergeClient({ token: "t", fetch });
+  for (const options of [undefined, {}, { humanApprovalPaths: [] }]) {
+    const result = await client.evaluateAndMerge(
+      "Org",
+      "repo",
+      OPEN_PR,
+      false,
+      options,
+    );
+    assert.equal(result.outcome, "merged");
+  }
+});
+
+test("listChangedFiles pages until a short page (issue #92)", async () => {
+  const page = (n) =>
+    Array.from({ length: n }, (_, i) => ({ filename: `f${i}.txt` }));
+  let call = 0;
+  const fetch = async (url) => {
+    call++;
+    assert.match(url, /\/pulls\/1\/files\?per_page=100&page=/);
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => (call === 1 ? page(100) : page(3)),
+    };
+  };
+  const client = new MergeClient({ token: "t", fetch });
+  const files = await client.listChangedFiles("Org", "repo", 1);
+  assert.equal(files.length, 103);
+  assert.equal(call, 2);
+});

@@ -8,6 +8,7 @@ import {
   CURRENT_VERSION,
   isBehind,
   DEFAULT_PR_AUTOMATION_IDENTITY,
+  SWEEPER_WORKFLOW_PATH,
 } from "../dist/index.js";
 
 // A minimal fake of OrgPropertiesClient — runSweep only calls
@@ -1004,4 +1005,72 @@ test("both no-value provenances produce the CLI's non-zero-exit line", async () 
     // exit status, not semantics.
     assert.equal(report.results.length, 1);
   }
+});
+
+// Issue #92: the merge pass reserves the sweeper workflow's path for a
+// human on the sweeper repo under `manual`, and nowhere else. What the
+// exclusion then DOES with that path is MergeClient's half
+// (test/merge.test.js); these cases pin which repo gets it and when.
+async function reservedPathsPerRepo(sweepOptions) {
+  const client = fakeClient({
+    orgDefault: "opt-in",
+    repos: [
+      { repo: "the-sweeper", mode: "process", version: V },
+      { repo: "an-ordinary-repo", mode: "process", version: V },
+    ],
+  });
+  const seen = {};
+  const mergeClient = {
+    listOwnOpenPullRequests: async () => [
+      {
+        number: 1,
+        headSha: "sha1",
+        headRef: "converger/work",
+        baseRef: "main",
+        authorLogin: "test-converger[bot]",
+        authorType: "Bot",
+      },
+    ],
+    evaluateAndMerge: async (org, repo, pr, dryRun, options) => {
+      seen[repo] = [...(options?.humanApprovalPaths ?? [])];
+      return { pr, outcome: "merged", checks: [], reason: "green" };
+    },
+  };
+  await runSweep(client, "TheVoskamps", V, {
+    log: () => {},
+    mergeClient,
+    appSlug: "test-converger",
+    ...sweepOptions,
+  });
+  return seen;
+}
+
+test("under manual, only the sweeper repo's PRs reserve the sweeper workflow path (issue #92)", async () => {
+  const seen = await reservedPathsPerRepo({
+    sweeperRepo: "TheVoskamps/the-sweeper",
+    sweeperUpdatePolicy: "manual",
+  });
+  assert.deepEqual(seen, {
+    "the-sweeper": [SWEEPER_WORKFLOW_PATH],
+    "an-ordinary-repo": [],
+  });
+});
+
+test("an absent policy reserves the path exactly as manual does, matching the payload default (issue #92)", async () => {
+  const seen = await reservedPathsPerRepo({
+    sweeperRepo: "TheVoskamps/the-sweeper",
+  });
+  assert.deepEqual(seen["the-sweeper"], [SWEEPER_WORKFLOW_PATH]);
+});
+
+test("auto and off reserve nothing, and neither does a tick with no sweeper repo (issue #92)", async () => {
+  for (const policy of ["auto", "off"]) {
+    const seen = await reservedPathsPerRepo({
+      sweeperRepo: "TheVoskamps/the-sweeper",
+      sweeperUpdatePolicy: policy,
+    });
+    assert.deepEqual(seen, { "the-sweeper": [], "an-ordinary-repo": [] }, policy);
+  }
+  const noSweeper = await reservedPathsPerRepo({ sweeperUpdatePolicy: "manual" });
+  assert.deepEqual(noSweeper, { "the-sweeper": [], "an-ordinary-repo": [] });
 });
