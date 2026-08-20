@@ -941,8 +941,13 @@ lint set passed.
   No repo is therefore the sweeper on its ticks, which is also why the
   issue-#92 sweeper-workflow payload never lands on any repo this
   workflow converges. A sweeper repo's own copy of this concern is
-  `assets/sweeper-sweep.yml` and is a payload; this file is
-  hand-maintained here and has no `assets/` counterpart.
+  `assets/sweeper-sweep.yml`, which is a payload and renders to THIS
+  FILE'S OWN PATH (`SWEEPER_WORKFLOW_PATH`). So unlike `ci.yml`,
+  `pin-shape.yml`, and `assets-pin-bump.yml`, this hand-maintained file
+  is NOT protected by having no `assets/` counterpart — it is protected
+  only by the sweeper-repo condition, which holds because this repo
+  names no sweeper. Setting `GH_REPO_CONFIG_SWEEPER_REPO` to this repo
+  would have the payload converge over this file.
 
 ## Conventions
 
