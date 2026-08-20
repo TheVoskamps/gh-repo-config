@@ -52,11 +52,13 @@ That elevated scope is precisely why it is a
 App — permission set".
 
 The pull-request surface the converger drives is not all REST: it also
-makes one GraphQL call, `convertPullRequestToDraft`, which holds the
-sweeper repo's trust-anchor PR as a draft (`src/converge/writer.ts`).
-There is no REST equivalent — `draft` is writable on the create call
-only — so narrowing whatever permission that mutation needs would break
-the hold rather than degrade it.
+issues one GraphQL call, the `convertPullRequestToDraft` mutation,
+issued by `ContentsClient` (`src/github/contents.ts`) and driven by
+`src/converge/writer.ts` to hold the sweeper repo's trust-anchor PR as a
+draft. There is no REST equivalent — `draft` is writable on the create
+call only. Narrowing whatever permission that mutation needs would
+leave it failing and the trust-anchor hold resting on the merge pass
+alone, which does not bind GitHub-native auto-merge.
 
 A sentence added here of the form "GitHub gates `<endpoint>` on
 `<permission>`" stands only after that endpoint's own REST reference

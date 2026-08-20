@@ -160,10 +160,14 @@ const SWEEPER_WORKFLOW_ASSET = "sweeper-sweep.yml";
 
 /**
  * Where the rendered sweeper workflow lands on the sweeper repo (issue
- * #92). Exported because the write path and the merge pass read it too:
+ * #92), and the one path {@link sweeperHumanApprovalPaths} reserves:
  * under `sweeper-update-policy: manual` a converger PR whose changed
- * files include this path is opened as a draft and never merged by the
- * sweep (see {@link sweeperHumanApprovalPaths}).
+ * files include it is opened as a draft and never merged by the sweep.
+ *
+ * The enforcement sites reach that rule through
+ * {@link sweeperHumanApprovalPaths}, not through this constant — it is
+ * exported for callers that need to address the payload itself, such as
+ * the tests.
  */
 export const SWEEPER_WORKFLOW_PATH = ".github/workflows/sweep.yml";
 

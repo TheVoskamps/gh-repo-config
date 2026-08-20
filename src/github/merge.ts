@@ -97,8 +97,9 @@ export type MergeOutcome =
    * The PR changes a path the caller reserved for human approval, so
    * the merge pass never evaluated it (issue #92: a sweeper repo's own
    * trust-anchor workflow under `sweeper-update-policy: manual`). Left
-   * open and updated every tick until a human merges it — expected, not
-   * a failure and not a retry.
+   * open and updated every tick until a human merges it — in that case,
+   * after marking the draft ready. Expected, not a failure and not a
+   * retry.
    */
   | "awaiting-human"
   /**
@@ -116,6 +117,12 @@ export interface EvaluateAndMergeOptions {
    * settles as `awaiting-human` and stays open. Empty or absent — the
    * ordinary case on every repo but the sweeper — costs no extra API
    * call at all.
+   *
+   * This binds the converger's own merge call and nothing else. The lock
+   * that also binds GitHub-native auto-merge is the draft state
+   * `converge/writer.ts` puts such a PR in, off the same path list
+   * (`converge/files.ts`'s `sweeperHumanApprovalPaths`). Keep both:
+   * neither one covers the other's mechanism.
    */
   readonly humanApprovalPaths?: readonly string[];
 }
