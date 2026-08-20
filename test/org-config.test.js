@@ -38,6 +38,17 @@ async function withConfigFile(text, body) {
   }
 }
 
+/**
+ * `assert.rejects` matcher for the unreadable-config error naming `path`.
+ * A predicate rather than a `RegExp`, because a filesystem path can carry
+ * any RegExp metacharacter and there is nothing here a pattern buys.
+ */
+function unreadableConfigError(path) {
+  return (error) =>
+    error instanceof Error &&
+    error.message.includes(`org config file ${path} could not be read`);
+}
+
 // ---------------------------------------------------------------------
 // parseOrgConfig — defaults and the populated shapes
 // ---------------------------------------------------------------------
@@ -262,10 +273,7 @@ test("readOrgConfig reads and parses a file, passing its sink through", async ()
 
 test("readOrgConfig on a missing file is a hard error naming the path", async () => {
   const path = join(tmpdir(), "gh-repo-config-does-not-exist.json");
-  await assert.rejects(
-    () => readOrgConfig(path),
-    new RegExp(`org config file ${path.replace(/[.]/g, "\\.")} could not be read`),
-  );
+  await assert.rejects(() => readOrgConfig(path), unreadableConfigError(path));
 });
 
 // ---------------------------------------------------------------------
@@ -608,9 +616,7 @@ test(
           throw new Error("no API call should have been made");
         },
         async () => {
-          const named = new RegExp(
-            `org config file ${path.replace(/[.]/g, "\\.")} could not be read`,
-          );
+          const named = unreadableConfigError(path);
           await assert.rejects(() => readOrgConfig(path), named);
           await assert.rejects(
             () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path }),
