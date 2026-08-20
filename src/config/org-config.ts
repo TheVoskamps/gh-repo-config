@@ -7,7 +7,10 @@
  * The sweep reads its path from `GH_REPO_CONFIG_FILE` and feeds the
  * parsed values into the pipeline seams that already exist
  * (`OrgRenderOptions.namedDependabotGroups`,
- * `OrgRenderOptions.prAutomationIdentity`).
+ * `OrgRenderOptions.prAutomationIdentity`). The resolved identity's
+ * `appName` is also the slug the sweep ensures as a `protect-main`
+ * bypass actor (`src/sweep.ts`), so the org's own App reaches the
+ * ruleset and the rendered workflows from this one source.
  *
  * The format is JSON, not YAML, because the release tarball is
  * dependency-free and runs under bare `node bin/gh-repo-config.js
@@ -86,7 +89,10 @@ export interface OrgConfig {
   readonly sweeperUpdatePolicy: SweeperUpdatePolicy;
 }
 
-/** The config a sweep runs with when `GH_REPO_CONFIG_FILE` is unset. */
+/**
+ * The config a sweep runs with when `GH_REPO_CONFIG_FILE` is unset or
+ * empty — the shape an unset Actions expression renders as.
+ */
 export const DEFAULT_ORG_CONFIG: OrgConfig = {
   sweeperUpdatePolicy: DEFAULT_SWEEPER_UPDATE_POLICY,
 };
