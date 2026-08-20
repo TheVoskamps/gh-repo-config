@@ -556,8 +556,7 @@ export async function runSweep(
   const dryRun = options.dryRun ?? false;
 
   // Only a `set` read carries a value to normalize; both no-value
-  // provenances feed `undefined` to the untouched fail-safe collapse, so
-  // selection behaviour is identical to before issue #67 in every case.
+  // provenances feed `undefined` to the fail-safe collapse.
   const orgDefaultRead = await client.readOrgDefault();
   const orgDefault = normalizeOrgDefault(
     orgDefaultRead.provenance === "set" ? orgDefaultRead.raw : undefined,
