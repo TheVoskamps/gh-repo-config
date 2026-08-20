@@ -31,6 +31,19 @@ export {
   type OrgDefault,
 } from "./config/selection.js";
 
+export {
+  parseOrgConfig,
+  readOrgConfig,
+  assertVersionPinSatisfied,
+  parseSweeperRepo,
+  SWEEPER_UPDATE_POLICIES,
+  DEFAULT_SWEEPER_UPDATE_POLICY,
+  DEFAULT_ORG_CONFIG,
+  type OrgConfig,
+  type OrgConfigWarningSink,
+  type SweeperUpdatePolicy,
+} from "./config/org-config.js";
+
 export { isBehind } from "./version-compare.js";
 
 export {
@@ -167,7 +180,6 @@ export {
   orgRulesetGoverns,
   rulesetSemanticDiff,
   RULESET_NAME,
-  AUTOMERGE_APP_SLUG,
   type AppBypass,
   type RulesetOutcome,
   type RulesetConvergeResult,

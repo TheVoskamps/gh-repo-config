@@ -37,8 +37,8 @@
  * Optional per-org inputs to the render pipeline. Each field defaults
  * to the value baked into this module when absent, so `{}` (or no
  * options at all) renders exactly as the single-org converger did. The
- * per-org sweeper's config file is the intended source of these values;
- * this module only defines the seam.
+ * per-org sweeper's config file (`../config/org-config.ts`) is the
+ * source of these values; this module only defines the seam.
  */
 export interface OrgRenderOptions {
   /**
@@ -71,10 +71,10 @@ export interface OrgRenderOptions {
  */
 export interface PrAutomationIdentity {
   /**
-   * The App's slug — substitutes `__APP_NAME__`. The default's value also
-   * seeds `AUTOMERGE_APP_SLUG` in `ruleset.ts` (the `protect-main` bypass
-   * actor); the ruleset step does not yet read a per-org identity, so a
-   * non-default `appName` reaches the rendered workflows only.
+   * The App's slug — substitutes `__APP_NAME__`. It is also the slug the
+   * sweep ensures as a `protect-main` bypass actor (`src/sweep.ts`), so
+   * an org's own `appName` reaches both the rendered workflows and the
+   * ruleset.
    */
   readonly appName: string;
   /**

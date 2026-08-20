@@ -87,10 +87,20 @@ import {
 } from "./github/rulesets.js";
 import {
   convergeProtectMainRuleset,
-  AUTOMERGE_APP_SLUG,
   type AppBypass,
   type RulesetConvergeResult,
 } from "./converge/ruleset.js";
+import {
+  DEFAULT_PR_AUTOMATION_IDENTITY,
+  type OrgRenderOptions,
+} from "./converge/render.js";
+import {
+  DEFAULT_ORG_CONFIG,
+  assertVersionPinSatisfied,
+  parseSweeperRepo,
+  readOrgConfig,
+  type SweeperUpdatePolicy,
+} from "./config/org-config.js";
 import { CURRENT_VERSION } from "./version.js";
 
 /** One repo's outcome in a sweep run. */
@@ -229,6 +239,20 @@ export interface SweepReport {
    * as a sweep failure.
    */
   readonly awaitingChecks: readonly MergeAttemptResult[];
+  /**
+   * The sweeper repo (`owner/repo`) the invoking workflow named, echoed
+   * from {@link SweepOptions.sweeperRepo}. `undefined` when no repo is
+   * the sweeper this tick. Nothing consumes it yet (issue #91).
+   */
+  readonly sweeperRepo?: string;
+  /**
+   * The org's `sweeper-update-policy`, echoed from
+   * {@link SweepOptions.sweeperUpdatePolicy}. `undefined` when the
+   * caller supplied none — `runSweepFromEnv` always supplies one, since
+   * the config parse applies the policy's default. Nothing consumes it
+   * yet (issue #91).
+   */
+  readonly sweeperUpdatePolicy?: SweeperUpdatePolicy;
 }
 
 /**
@@ -439,6 +463,20 @@ export interface SweepOptions {
    * Required whenever `mergeClient` is supplied.
    */
   readonly appSlug?: string;
+  /**
+   * The sweeper repo (`owner/repo`) this sweep is running from, as the
+   * invoking workflow stated it (issue #91). Absent means no repo is the
+   * sweeper this tick. Carried through to
+   * {@link SweepReport.sweeperRepo}; no sweep step consumes it yet — its
+   * consumer is the sweeper-workflow payload, which is later work.
+   */
+  readonly sweeperRepo?: string;
+  /**
+   * The org's `sweeper-update-policy` (issue #91). Carried through to
+   * {@link SweepReport.sweeperUpdatePolicy}; like {@link sweeperRepo},
+   * no sweep step consumes it yet.
+   */
+  readonly sweeperUpdatePolicy?: SweeperUpdatePolicy;
 }
 
 /**
@@ -733,6 +771,12 @@ export async function runSweep(
     skippedCurrent: results.filter((r) => r.action === "skip-current").length,
     merged,
     awaitingChecks,
+    ...(options.sweeperRepo !== undefined
+      ? { sweeperRepo: options.sweeperRepo }
+      : {}),
+    ...(options.sweeperUpdatePolicy !== undefined
+      ? { sweeperUpdatePolicy: options.sweeperUpdatePolicy }
+      : {}),
   };
 }
 
@@ -751,6 +795,16 @@ export async function runSweep(
  * Optional env:
  * - `GH_REPO_CONFIG_DRY_RUN` — `true` to decide/log without stamping or
  *   merging.
+ * - `GH_REPO_CONFIG_FILE` — path to the org config file (issue #91,
+ *   `./config/org-config.js`), the per-org source of the named
+ *   Dependabot groups, the PR-automation App identity, the converger
+ *   version pin, and the sweeper update policy. Unset or empty — the
+ *   shape an unset Actions expression renders as — means every value
+ *   takes its baked default. Set but missing, unreadable, or malformed
+ *   is a hard error before the first API call.
+ * - `GH_REPO_CONFIG_SWEEPER_REPO` — the sweeper repo (`owner/repo`) this
+ *   sweep runs from, as the invoking workflow states it. Absent or empty
+ *   means no repo is the sweeper this tick; malformed is a hard error.
  * - `GITHUB_API_URL` — API base (GitHub Actions sets this).
  */
 export async function runSweepFromEnv(
@@ -768,6 +822,30 @@ export async function runSweepFromEnv(
   if (!appSlug) {
     throw new Error("GH_REPO_CONFIG_APP_SLUG is required");
   }
+
+  // The org config file and the sweeper-repo identity are resolved and
+  // validated up front, before any client is built or any API call is
+  // made: a pin or a policy that was silently ignored is worse than a
+  // tick that failed loudly.
+  const configFile = env.GH_REPO_CONFIG_FILE;
+  const config = configFile
+    ? await readOrgConfig(configFile)
+    : DEFAULT_ORG_CONFIG;
+  assertVersionPinSatisfied(config.versionPin, CURRENT_VERSION);
+  const sweeperRepo = parseSweeperRepo(env.GH_REPO_CONFIG_SWEEPER_REPO);
+
+  // The render inputs the org config supplies, as one object handed to
+  // every repo's converge alongside the community files. Each is
+  // optional in `OrgConfig` and optional in `DesiredFilesOptions`, so an
+  // org with no config file renders the baked defaults byte-for-byte.
+  const renderOptions: OrgRenderOptions = {
+    ...(config.namedDependabotGroups
+      ? { namedDependabotGroups: config.namedDependabotGroups }
+      : {}),
+    ...(config.prAutomationIdentity
+      ? { prAutomationIdentity: config.prAutomationIdentity }
+      : {}),
+  };
 
   const apiBase = env.GITHUB_API_URL;
   const clientOptions: OrgPropertiesClientOptions = {
@@ -809,6 +887,15 @@ export async function runSweepFromEnv(
 
   const dryRun = env.GH_REPO_CONFIG_DRY_RUN === "true";
 
+  // The `protect-main` bypass actors are the converger App and the
+  // org's PR-automation App. The latter's slug is the RESOLVED
+  // identity's `appName` (issue #91), not a baked constant: an org that
+  // supplies its own PR-automation App must get that App as the bypass
+  // actor, since it has not installed the default's.
+  const prAutomationSlug = (
+    config.prAutomationIdentity ?? DEFAULT_PR_AUTOMATION_IDENTITY
+  ).appName;
+
   // Resolve every installed App's slug -> app_id once for the whole
   // sweep (the installation set is org-wide, not per-repo). Memoized so
   // the ruleset step reuses the same lookup across all repos. An App
@@ -819,7 +906,7 @@ export async function runSweepFromEnv(
     if (!appIdsBySlug) {
       appIdsBySlug = await rulesetsClient.readAppIdsBySlug(org);
     }
-    return [appSlug, AUTOMERGE_APP_SLUG].map((slug) => ({
+    return [appSlug, prAutomationSlug].map((slug) => ({
       slug,
       appId: appIdsBySlug!.get(slug),
     }));
@@ -852,6 +939,7 @@ export async function runSweepFromEnv(
     dryRun,
     converge: async (repo: string) =>
       convergeRepoFiles(contentsClient, org, repo, dryRun, {
+        ...renderOptions,
         communityFiles: await resolveCommunityFiles(),
       }),
     // The real GHAS/merge-button settings-convergence step (issue #15):
@@ -887,5 +975,7 @@ export async function runSweepFromEnv(
     },
     mergeClient,
     appSlug,
+    ...(sweeperRepo !== undefined ? { sweeperRepo } : {}),
+    sweeperUpdatePolicy: config.sweeperUpdatePolicy,
   });
 }

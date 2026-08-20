@@ -10,9 +10,12 @@
 //              stamping processed repos (slice 2, #13), and merging the
 //              converger's own green open PRs (#24). Reads config from
 //              the environment (GH_REPO_CONFIG_ORG, GH_REPO_CONFIG_TOKEN,
-//              GH_REPO_CONFIG_APP_SLUG, optional GH_REPO_CONFIG_DRY_RUN);
-//              intended to be invoked by the scheduled + workflow_dispatch
-//              sweep workflow, which mints the App installation token.
+//              GH_REPO_CONFIG_APP_SLUG, optional GH_REPO_CONFIG_DRY_RUN,
+//              optional GH_REPO_CONFIG_FILE — the per-org config file
+//              (#91) — and optional GH_REPO_CONFIG_SWEEPER_REPO, the
+//              owner/repo the sweep runs from); intended to be invoked by
+//              the scheduled + workflow_dispatch sweep workflow, which
+//              mints the App installation token.
 import { CURRENT_VERSION, runSweepFromEnv } from "../dist/index.js";
 
 const [, , command] = process.argv;

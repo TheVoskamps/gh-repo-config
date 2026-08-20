@@ -13,7 +13,6 @@
  * top.
  */
 import { readAssetText } from "./assets.js";
-import { DEFAULT_PR_AUTOMATION_IDENTITY } from "./render.js";
 import type {
   BypassActor,
   ExistingRuleset,
@@ -25,22 +24,6 @@ import type {
 
 /** The ruleset name this converger owns. */
 export const RULESET_NAME = "protect-main";
-
-/**
- * The pr-automation App slug the ruleset step ensures as a `pull_request`
- * bypass actor alongside the converger App. This is the DEFAULT of the
- * per-org `PrAutomationIdentity.appName` (issue #89) — derived from
- * {@link DEFAULT_PR_AUTOMATION_IDENTITY} so there is one source of truth
- * for the default identity, not a second literal. It is not a fixed org
- * constant: an org whose pr-automation App has another slug needs that
- * slug here too, or the ruleset never adds its actual App as a bypass
- * actor. The ruleset step does not yet take a per-org identity —
- * `runSweepFromEnv` never supplies one, so the default is what every
- * shipped sweep uses today — and threading it through arrives with the
- * sweep-wiring issue, the same place the file-render seams get their
- * per-org sources.
- */
-export const AUTOMERGE_APP_SLUG: string = DEFAULT_PR_AUTOMATION_IDENTITY.appName;
 
 /** The built-in Repository-admin role id (documented GitHub value). */
 const ADMIN_ACTOR_ID = 5;
