@@ -96,8 +96,9 @@ lint set passed.
     never a silent fall back to the defaults). The
     format is **JSON**, one top-level object, because the release
     tarball is dependency-free (no YAML parser at runtime) and the
-    sweeper workflow — later work — must read the version pin out of
-    the same file in bash with `jq` before the tarball exists. Keys,
+    sweeper workflow (`assets/sweeper-sweep.yml`) must read the version
+    pin out of the same file in bash with `jq` before the tarball
+    exists. Keys,
     all optional and all kebab-case: `named-dependabot-groups` (group
     name → non-empty pattern array; a **full replacement** of
     `DEFAULT_NAMED_DEPENDABOT_GROUPS`, so `{}` renders no named groups),
@@ -134,9 +135,9 @@ lint set passed.
     `version` is bumped (or those repos' stamps are cleared) — the same
     hazard Conventions documents for an un-bumped `assets/` change.
     `assertVersionPinSatisfied` is the pin's defense-in-depth check
-    (the sweeper workflow is its intended primary consumer, so this is
-    the only pin enforcement that runs today): strip the leading `v`,
-    compare to `CURRENT_VERSION`, throw naming both on mismatch.
+    (the sweeper workflow's own `jq` read is the primary enforcement):
+    strip the leading `v`, compare to `CURRENT_VERSION`, throw naming
+    both on mismatch.
     `parseSweeperRepo` validates `GH_REPO_CONFIG_SWEEPER_REPO` —
     absent or empty means no repo is the sweeper this tick, anything
     else must be `owner/repo` or it throws. That value is the
@@ -448,11 +449,10 @@ lint set passed.
     which is intended: those changes then ride the same human-reviewed
     approval rather than a lower bar. The repo is also not stamped while
     that PR sits open, since the existing ruleset ordering gate already
-    defers on an unmerged file PR. The
-    merge pass runs independently of the version-skip decision, over
-    every repo the properties API returns, so an unmerged converger PR
-    from a prior tick still gets picked up.
-    The `convergeRuleset` step runs in a separate pass
+    defers on an unmerged file PR. The merge pass runs independently of
+    the version-skip decision, over every repo the properties API
+    returns, so an unmerged converger PR from a prior tick still gets
+    picked up. The `convergeRuleset` step runs in a separate pass
     **after** the merge pass, gated by an ordering rule: for a given
     repo, the ruleset is asserted only once that repo's file
     convergence has reached the default branch this tick (file
@@ -638,9 +638,9 @@ lint set passed.
       new workflow cannot escape the constraint by omission, and a
       re-split fails `npm test`. That test builds the payload AS THE
       SWEEPER REPO, since the sweeper workflow is otherwise not in the
-      set and would escape the constraint by being conditional. Adding a job means editing that table,
-      which is the point: the edit is where the billing cost gets
-      argued. Job ids are read with the file's `workflowJobIds` helper,
+      set and would escape the constraint by being conditional. Adding
+      a job means editing that table, which is the point: the edit is
+      where the billing cost gets argued. Job ids are read with the file's `workflowJobIds` helper,
       which slices the top-level `jobs:` mapping before matching job-id
       syntax — counting keys BY INDENT does not work, since `on:`'s own
       keys sit at the same indent (and `codeql.yml`'s jobs block opens

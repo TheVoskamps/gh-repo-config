@@ -23,7 +23,11 @@
  * repos are never probed at all: the converger has no business on a
  * repo selection ruled out — whether by its own `opt-out` value or by
  * an `opt-out` default it never overrode — so scoping is explicit in
- * the iteration rather than resting on the author filter alone.
+ * the iteration rather than resting on the author filter alone. One PR
+ * the merge pass leaves alone however green it is: on the sweeper repo
+ * under `sweeper-update-policy: manual`, a PR touching the sweeper
+ * workflow itself is reserved for a human (issue #92,
+ * {@link sweeperHumanApprovalPaths}).
  *
  * The GHAS / merge-button settings convergence step (issue #15) is
  * pure API mutations (no files, no PR) and runs alongside the file
@@ -236,8 +240,9 @@ export interface SweepReport {
    * the next sweep. A non-empty `failed` means the sweep as a whole did
    * not fully succeed; see `runSweepFromEnv`'s exit-code contract in
    * `bin/gh-repo-config.js`. Does NOT include repos whose PRs are simply
-   * `awaitingChecks` (red/pending/405-409) — that is expected, retried
-   * next tick, and not a failure.
+   * `awaitingChecks` (red/pending/405-409/reserved for a human) — that
+   * is expected and not a failure. Every one of those but the reserved
+   * case is retried next tick; a reserved PR waits for a human instead.
    */
   readonly failed: readonly string[];
   readonly skippedUnmanaged: number;
