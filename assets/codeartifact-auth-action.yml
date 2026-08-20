@@ -75,7 +75,8 @@ description: >-
 inputs:
   role:
     description: >-
-      One line of "<endpoint> <role-arn>" -- pass ${{ vars.CODEARTIFACT_ROLE }}.
+      One line of "<endpoint> <role-arn>" -- pass the CODEARTIFACT_ROLE
+      Actions variable.
       The endpoint encodes the domain, the domain-owner account, and the
       region, so none of the three is configured separately. Empty means
       the action no-ops. More than one endpoint is an error.
