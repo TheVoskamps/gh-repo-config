@@ -2,9 +2,9 @@
 #
 # Slice 2 of the org-wide repo-configuration fan-out (issue #13): the
 # scheduled + manual sweep. It runs the converger's `sweep` subcommand,
-# which reads the three selection/stamp org custom properties
-# (gh-repo-config-mode, gh-repo-config-default, gh-repo-config-version),
-# applies the precedence table + version-skip, converges each due repo's
+# which reads the selection/stamp org custom properties
+# (gh-repo-config-mode, gh-repo-config-version), applies the
+# precedence table + version-skip, converges each due repo's
 # files (#14) and GHAS/repo-security + merge-button settings (#15), and
 # stamps the processed repos with the current release version. Ruleset
 # management remains a later slice's scope (#18).
@@ -37,11 +37,12 @@
 # secrets exist, the token-mint step below fails fast with a clear error
 # from actions/create-github-app-token; that failure is intended.
 #
-# The three org custom properties must also be defined at the org level
-# (gh-repo-config-mode: single-select process|ignore;
-# gh-repo-config-default: single-select opt-in|opt-out with the org-level
-# default set; gh-repo-config-version: string). Defining them is an
-# operator step, not this workflow's job.
+# The org custom properties must also be defined at the org level
+# (gh-repo-config-mode: single-select opt-in|opt-out, required: true,
+# with a default_value — GitHub accepts a default only on a required
+# property, and the sweep exits non-zero on a mode property that carries
+# none; gh-repo-config-version: string). Defining them is an operator
+# step, not this workflow's job — see docs/repo-selection.md.
 name: sweep
 
 on:

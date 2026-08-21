@@ -11,42 +11,56 @@ import { decideRepo, decideRepoFromRaw } from "../dist/index.js";
 // is convention rather than a live hole being closed.
 const V = "9.9.9";
 
-test("ignore is skip-unmanaged even when behind", () => {
-  const d = decideRepo({ mode: "ignore", version: "0.1.0" }, "opt-out", V);
+test("opt-out is skip-unmanaged even when behind", () => {
+  const d = decideRepo({ mode: "opt-out", version: "0.1.0" }, "opt-in", V);
   assert.equal(d.action, "skip-unmanaged");
 });
 
-test("unset under opt-in is skip-unmanaged", () => {
-  const d = decideRepo({ mode: undefined, version: undefined }, "opt-in", V);
+test("unset under an opt-out default is skip-unmanaged", () => {
+  const d = decideRepo({ mode: undefined, version: undefined }, "opt-out", V);
   assert.equal(d.action, "skip-unmanaged");
 });
 
-test("process + missing stamp converges", () => {
-  const d = decideRepo({ mode: "process", version: undefined }, "opt-in", V);
+test("opt-in + missing stamp converges", () => {
+  const d = decideRepo({ mode: "opt-in", version: undefined }, "opt-out", V);
   assert.equal(d.action, "converge");
 });
 
-test("process + behind stamp converges", () => {
-  const d = decideRepo({ mode: "process", version: "0.1.0" }, "opt-in", V);
+test("opt-in + behind stamp converges", () => {
+  const d = decideRepo({ mode: "opt-in", version: "0.1.0" }, "opt-out", V);
   assert.equal(d.action, "converge");
 });
 
-test("process + current stamp is skip-current", () => {
-  const d = decideRepo({ mode: "process", version: V }, "opt-in", V);
+test("opt-in + current stamp is skip-current", () => {
+  const d = decideRepo({ mode: "opt-in", version: V }, "opt-out", V);
   assert.equal(d.action, "skip-current");
 });
 
-test("unset under opt-out + behind converges", () => {
-  const d = decideRepo({ mode: undefined, version: "0.1.0" }, "opt-out", V);
+test("unset under an opt-in default + behind converges", () => {
+  const d = decideRepo({ mode: undefined, version: "0.1.0" }, "opt-in", V);
   assert.equal(d.action, "converge");
 });
 
-test("unset under opt-out + current is skip-current", () => {
-  const d = decideRepo({ mode: undefined, version: V }, "opt-out", V);
+test("unset under an opt-in default + current is skip-current", () => {
+  const d = decideRepo({ mode: undefined, version: V }, "opt-in", V);
   assert.equal(d.action, "skip-current");
 });
 
-test("decideRepoFromRaw normalizes a garbage org default to opt-in", () => {
+test("a repo still carrying the retired 'process' token follows the default", () => {
+  // The token is not recognized, so it collapses to unset — under an
+  // opt-out default that means unmanaged, which is the fail-safe read of
+  // a value the new vocabulary has no meaning for.
+  assert.equal(
+    decideRepo({ mode: "process", version: "0.1.0" }, "opt-out", V).action,
+    "skip-unmanaged",
+  );
+  assert.equal(
+    decideRepo({ mode: "process", version: "0.1.0" }, "opt-in", V).action,
+    "converge",
+  );
+});
+
+test("decideRepoFromRaw normalizes a garbage default to opt-out", () => {
   const d = decideRepoFromRaw(
     { mode: undefined, version: undefined },
     "garbage",

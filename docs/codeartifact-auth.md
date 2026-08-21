@@ -24,9 +24,9 @@ step's `node` output guards the auth step). Do not set
 
 Everything below is provisioned by an operator in the target AWS account
 and in GitHub. None of it is built by this repo, in the same way the
-three org custom properties the sweep requires
-(`gh-repo-config-mode`, `gh-repo-config-default`,
-`gh-repo-config-version`) are an operator-provisioning step.
+org custom properties the sweep requires (`gh-repo-config-mode`,
+`gh-repo-config-version`) are an operator-provisioning step — see
+`docs/repo-selection.md`.
 
 ## 1. The GitHub OIDC identity provider
 

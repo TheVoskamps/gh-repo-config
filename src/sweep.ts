@@ -2,7 +2,7 @@
  * The selection-loop walking skeleton (issue #13, slice 2), plus the
  * merge pass that makes fan-out runs unattended end to end (issue #24).
  *
- * Reads the three selection/stamp org custom properties, applies the
+ * Reads the selection/stamp org custom properties, applies the
  * precedence table + version-skip to every repo, converges each due
  * repo, and re-stamps the converged repos with the current release
  * version. `runSweep`'s `converge` step is an injectable callback — the
@@ -21,8 +21,9 @@
  * decision is `converge` or `skip-current` — not just the ones
  * selected for `converge` this tick. Unmanaged (`skip-unmanaged`)
  * repos are never probed at all: the converger has no business on a
- * repo that opted out, so scoping is explicit in the iteration rather
- * than resting on the author filter alone.
+ * repo selection ruled out — whether by its own `opt-out` value or by
+ * an `opt-out` default it never overrode — so scoping is explicit in
+ * the iteration rather than resting on the author filter alone.
  *
  * The GHAS / merge-button settings convergence step (issue #15) is
  * pure API mutations (no files, no PR) and runs alongside the file
@@ -46,16 +47,16 @@
  * as before issue #16.
  */
 import {
-  normalizeOrgDefault,
-  type OrgDefault,
+  normalizeDefaultMode,
+  type DefaultMode,
 } from "./config/selection.js";
 import { decideRepo, type RepoAction } from "./stamp/decide.js";
 import {
   OrgPropertiesClient,
   PartialStampError,
   PROPERTY_NAMES,
-  type OrgDefaultProvenance,
-  type OrgDefaultRead,
+  type DefaultModeProvenance,
+  type DefaultModeRead,
   type OrgPropertiesClientOptions,
   type RepoPropertyValues,
 } from "./github/properties.js";
@@ -141,17 +142,18 @@ export interface SweepRulesetResult {
 export interface SweepReport {
   readonly org: string;
   readonly version: string;
-  readonly orgDefault: OrgDefault;
+  readonly defaultMode: DefaultMode;
   /**
-   * Where {@link orgDefault} came from (issue #67). `orgDefault` alone
-   * cannot distinguish an org that genuinely opted in from one whose
-   * `gh-repo-config-default` property was never created, since both
-   * resolve to the fail-safe `opt-in`. `not-defined` is the anomalous
-   * case — the control plane is not provisioned — and is what the `sweep`
-   * CLI subcommand exits non-zero on (see
-   * {@link describeOrgDefaultProvenanceFailure}).
+   * Where {@link defaultMode} came from (issues #67, #68).
+   * {@link defaultMode} alone cannot distinguish an org that genuinely
+   * declared `opt-out` from one whose `gh-repo-config-mode` property was
+   * never provisioned with a `default_value`, since both resolve to the
+   * fail-safe `opt-out`. `defined-no-value` and `not-defined` are both
+   * anomalous — the required-with-default contract is unmet — and are
+   * what the `sweep` CLI subcommand exits non-zero on (see
+   * {@link describeDefaultModeProvenanceFailure}).
    */
-  readonly orgDefaultProvenance: OrgDefaultProvenance;
+  readonly defaultModeProvenance: DefaultModeProvenance;
   /** `true` when no stamping was performed (see {@link SweepOptions}). */
   readonly dryRun: boolean;
   readonly results: readonly SweepRepoResult[];
@@ -271,15 +273,15 @@ export interface SweepReport {
 /**
  * Record a repo's outcome as `failed` in `results`, in place.
  *
- * The three call sites in {@link runSweep} (convergence-loop catch,
- * `PartialStampError` downgrade, merge-loop catch) all need to encode
- * "this repo did not end the sweep successfully, here's why" into the
- * same `results` array, so a re-sweep retries it. This is the one
- * canonical way to do that:
+ * Every per-step catch in {@link runSweep} — file converge, GHAS,
+ * default setup, merge pass, ruleset, and the `PartialStampError`
+ * downgrade — needs to encode "this repo did not end the sweep
+ * successfully, here's why" into the same `results` array, so a
+ * re-sweep retries it. This is the one canonical way to do that:
  *
  * - Finds the repo's existing entry by name (every repo already got a
  *   `results.push` from the initial selection loop, so an entry always
- *   exists by the time any of the three call sites run).
+ *   exists by the time any caller runs).
  * - Leaves a prior `failed` entry alone rather than clobbering it with a
  *   less-specific reason — e.g. a repo whose `converge` step already
  *   threw this tick must not have that recorded failure overwritten by a
@@ -386,45 +388,54 @@ function describeRulesetResult(result: RulesetConvergeResult): string {
 }
 
 /**
- * One-line human-readable summary of where the org default came from, for
- * the sweep header line — the part that tells "nothing is opted in" apart
- * from "the control plane is not provisioned".
+ * One-line human-readable summary of where the declared default came
+ * from, for the sweep header line — the part that tells "nothing is
+ * opted in" apart from "the control plane is not provisioned".
  */
-function describeOrgDefaultRead(read: OrgDefaultRead): string {
+function describeDefaultModeRead(read: DefaultModeRead): string {
   switch (read.provenance) {
     case "set":
-      return `${PROPERTY_NAMES.orgDefault}="${read.raw}"`;
+      return `${PROPERTY_NAMES.mode} default_value="${read.raw}"`;
     case "defined-no-value":
-      return `${PROPERTY_NAMES.orgDefault} defined with no value, fail-safe fallback`;
+      return `${PROPERTY_NAMES.mode} defined with no default_value, fail-safe fallback`;
     case "not-defined":
-      return `${PROPERTY_NAMES.orgDefault} NOT DEFINED on the org, fail-safe fallback`;
+      return `${PROPERTY_NAMES.mode} NOT DEFINED on the org, fail-safe fallback`;
   }
 }
 
 /**
- * The operator-facing error line for a sweep whose org default was never
- * provisioned, or `undefined` when the org default has any provenance
- * other than `not-defined`.
+ * The operator-facing error line for a sweep whose selection default was
+ * never provisioned, or `undefined` when the read carried a declared
+ * default.
+ *
+ * Both no-value provenances fail: GitHub accepts a schema
+ * `default_value` only on a `required: true` property, so a
+ * `gh-repo-config-mode` carrying no default is provisioning drift rather
+ * than a steady state (issue #68).
  *
  * This is the `sweep` CLI subcommand's whole decision for the
  * provenance exit path (`bin/gh-repo-config.js`), kept here rather than
  * in the CLI so it is unit-testable without spawning a process against
  * the live API.
  */
-export function describeOrgDefaultProvenanceFailure(
+export function describeDefaultModeProvenanceFailure(
   report: SweepReport,
 ): string | undefined {
-  if (report.orgDefaultProvenance !== "not-defined") {
+  if (report.defaultModeProvenance === "set") {
     return undefined;
   }
+  const state =
+    report.defaultModeProvenance === "not-defined"
+      ? `is not defined on ${report.org}`
+      : `is defined on ${report.org} but carries no default_value`;
   return (
     `Sweep control plane not provisioned: org custom property ` +
-    `${PROPERTY_NAMES.orgDefault} is not defined on ${report.org}. ` +
-    `Every repo therefore fell back to the fail-safe org default ` +
-    `(${report.orgDefault}), which is indistinguishable from a genuine ` +
-    `opt-in org. Define the three ${PROPERTY_NAMES.mode} / ` +
-    `${PROPERTY_NAMES.orgDefault} / ${PROPERTY_NAMES.version} org custom ` +
-    `properties, then re-run.`
+    `${PROPERTY_NAMES.mode} ${state}. Every repo with no value of its ` +
+    `own therefore fell back to the fail-safe default ` +
+    `(${report.defaultMode}), which is indistinguishable from a genuine ` +
+    `declared opt-out. Define ${PROPERTY_NAMES.mode} as a required ` +
+    `single-select over opt-in|opt-out with a default_value, alongside ` +
+    `the ${PROPERTY_NAMES.version} property, then re-run.`
   );
 }
 
@@ -557,15 +568,15 @@ export async function runSweep(
 
   // Only a `set` read carries a value to normalize; both no-value
   // provenances feed `undefined` to the fail-safe collapse.
-  const orgDefaultRead = await client.readOrgDefault();
-  const orgDefault = normalizeOrgDefault(
-    orgDefaultRead.provenance === "set" ? orgDefaultRead.raw : undefined,
+  const defaultModeRead = await client.readDefaultMode();
+  const defaultMode = normalizeDefaultMode(
+    defaultModeRead.provenance === "set" ? defaultModeRead.raw : undefined,
   );
   const repos = await client.readAllRepoValues();
 
   log(
-    `Sweep of ${org}: version=${version}, org default=${orgDefault} ` +
-      `(${describeOrgDefaultRead(orgDefaultRead)}), ${repos.length} repo(s)`,
+    `Sweep of ${org}: version=${version}, default=${defaultMode} ` +
+      `(${describeDefaultModeRead(defaultModeRead)}), ${repos.length} repo(s)`,
   );
 
   const results: SweepRepoResult[] = [];
@@ -592,7 +603,7 @@ export async function runSweep(
   for (const repo of repos) {
     const decision = decideRepo(
       { mode: repo.mode, version: repo.version },
-      orgDefault,
+      defaultMode,
       version,
     );
     results.push({ repo: repo.repo, action: decision.action, reason: decision.reason });
@@ -818,8 +829,8 @@ export async function runSweep(
   return {
     org,
     version,
-    orgDefault,
-    orgDefaultProvenance: orgDefaultRead.provenance,
+    defaultMode,
+    defaultModeProvenance: defaultModeRead.provenance,
     dryRun,
     results,
     converged: toStamp,

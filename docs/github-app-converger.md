@@ -30,12 +30,38 @@ This set is deliberately broader than the pr-automation App
 (`thevoskamps-pr-automations`), which holds only Contents / Pull
 requests / Workflows / Actions. The converger additionally holds
 Administration, Organization administration, and Organization custom
-properties because it converges repo protection settings, writes the
-org `~ALL` ruleset, and reads/writes the three selection + stamp
-custom properties. That elevated scope is precisely why it is a
+properties, each for its own reason: Administration to converge repo
+protection settings and each managed repo's own `protect-main` ruleset;
+Organization administration for the `GET /orgs/{org}/installations`
+call in `src/github/rulesets.ts` (`readAppIdsBySlug`), which resolves an
+App slug to the `app_id` every `protect-main` bypass-actor entry is
+written with — an org-owner-only endpoint, and the converger's only
+call that needs org-administration scope; Organization
+custom properties to read the selection property `gh-repo-config-mode`
+(both its schema `default_value` and every repo's own value) and to read
+and write the `gh-repo-config-version` stamp — write is needed for the
+stamp alone, since the converger never writes a repo's mode. See
+`docs/repo-selection.md`. The
+org-level `~ALL` ruleset the design moves `protect-main` to is not
+built: every ruleset endpoint `src/github/rulesets.ts` calls is
+repo-scoped, under `/repos/{o}/{r}/rulesets`, and that installations
+call is the only org-level one it makes — a read that writes nothing.
+That elevated scope is precisely why it is a
 **separate** App — the pr-automation App must never hold it. See
 `docs/org-repo-configuration-fanout-decomposition.md` → "Converger
 App — permission set".
+
+A sentence added here of the form "GitHub gates `<endpoint>` on
+`<permission>`" stands only after that endpoint's own REST reference
+page is fetched and seen to state the mapping. Many pages state only
+the classic-PAT / OAuth scope and the account role required — the
+installations call above documents `admin:read` and organization
+ownership, and names no fine-grained or App permission at all — so the
+mapping is unstated upstream and the sentence would be a training-data
+prior dressed as a citation, in the one document whose whole purpose is
+to record why each scope is held. Write what the page does say, plus
+what this repo can prove about which calls need the scope, and leave
+the exact permission mapping unasserted.
 
 No webhook is configured: this App is used only for minting
 installation tokens in CI, not for receiving event deliveries.

@@ -1,6 +1,6 @@
 /**
- * A thin GitHub REST client for the three org custom properties the
- * sweep's control plane reads and writes (issue #13, slice 2).
+ * A thin GitHub REST client for the org custom properties the sweep's
+ * control plane reads and writes (issue #13, slice 2).
  *
  * Zero runtime dependencies: it uses the built-in `fetch` (Node >=22) so
  * the release asset stays dependency-free. Authentication is by a bearer
@@ -18,12 +18,14 @@
  *   `PATCH /orgs/{org}/properties/values`.
  */
 
-/** Names of the three selection/stamp custom properties, in one place. */
+/** Names of the selection/stamp custom properties, in one place. */
 export const PROPERTY_NAMES = {
-  /** Per-repo `process`/`ignore`/unset override. */
+  /**
+   * Selection, at both levels: a repo's own `opt-in`/`opt-out`/unset
+   * value, and — in this same property's schema — the `default_value` an
+   * unset repo falls back to.
+   */
   mode: "gh-repo-config-mode",
-  /** Org-level default applied to repos with no `mode` set. */
-  orgDefault: "gh-repo-config-default",
   /** Per-repo applied-release stamp. */
   version: "gh-repo-config-version",
 } as const;
@@ -71,30 +73,38 @@ export interface RepoPropertyValues {
 }
 
 /**
- * Where the org-level `gh-repo-config-default` value came from, as
+ * Where the `gh-repo-config-mode` schema's `default_value` came from, as
  * distinct from the value the sweep resolves it to.
  *
- * `normalizeOrgDefault` collapses a missing, empty, or unrecognized value
- * to the fail-safe `opt-in`, so a genuine `opt-in` org and an org whose
- * control plane was never provisioned resolve identically. That collapse
- * is deliberate for *selection*, but it once masked a real outage: the
- * three custom properties had never been created on the org, and every
- * scheduled sweep reported "all repos unmanaged" — indistinguishable from
- * a correctly-configured org with nobody opted in. Provenance is what the
- * sweep reports so an operator can tell the two apart.
+ * `normalizeDefaultMode` collapses a missing, empty, or unrecognized
+ * value to the fail-safe `opt-out`, so a genuine `opt-out` default and an
+ * org whose control plane was never provisioned resolve identically. That
+ * collapse is deliberate for *selection*, but it once masked a real
+ * outage: the selection custom properties had never been created on the
+ * org, and every scheduled sweep reported "all repos unmanaged" —
+ * indistinguishable from a correctly-configured org with nobody opted in.
+ * Provenance is what the sweep reports so an operator can tell the two
+ * apart.
+ *
+ * Both `defined-no-value` and `not-defined` are anomalous under the
+ * required-with-default provisioning contract (issue #68): GitHub accepts
+ * a schema `default_value` only on a `required: true` property, so a
+ * property carrying no default was not provisioned as the contract
+ * requires.
  */
-export type OrgDefaultProvenance = "set" | "defined-no-value" | "not-defined";
+export type DefaultModeProvenance = "set" | "defined-no-value" | "not-defined";
 
 /**
- * The result of reading the `gh-repo-config-default` property schema:
- * the provenance, plus the raw (unvalidated) value when there is one.
+ * The result of reading the `gh-repo-config-mode` property schema: the
+ * provenance, plus the raw (unvalidated) `default_value` when there is
+ * one.
  *
  * `raw` is deliberately not normalized here. An unrecognized value such
- * as `"optout"` still lands in the `set` arm and still normalizes to
- * `opt-in`, but the sweep's log carries the raw string, so a typo'd
- * property value is visible rather than reading as a clean `opt-in`.
+ * as `"optin"` still lands in the `set` arm and still normalizes to
+ * `opt-out`, but the sweep's log carries the raw string, so a typo'd
+ * default is visible rather than reading as a clean `opt-out`.
  */
-export type OrgDefaultRead =
+export type DefaultModeRead =
   | { readonly provenance: "set"; readonly raw: string }
   | { readonly provenance: "defined-no-value" }
   | { readonly provenance: "not-defined" };
@@ -126,7 +136,7 @@ export interface OrgPropertiesClientOptions {
  *
  * The read path collapses the API's per-property array into the two
  * per-repo values the control plane cares about (`mode`, `version`); the
- * org-level default is read separately from the property schema.
+ * fallback default is read separately from the `mode` property's schema.
  */
 export class OrgPropertiesClient {
   private readonly org: string;
@@ -150,27 +160,31 @@ export class OrgPropertiesClient {
   }
 
   /**
-   * Read the org-level default value of `gh-repo-config-default` from its
-   * property schema, reporting {@link OrgDefaultProvenance} alongside the
-   * raw value rather than collapsing both no-value cases to `undefined`.
+   * Read the `gh-repo-config-mode` schema's `default_value` — the value
+   * every repo with no value of its own falls back to — reporting
+   * {@link DefaultModeProvenance} alongside the raw value rather than
+   * collapsing both no-value cases to `undefined`.
    *
-   * The two no-value cases are materially different to an operator: a 404
-   * means the property does not exist on the org at all (the control
-   * plane is not provisioned — anomalous), while a 200 carrying no
-   * `default_value` is a legitimate state, since GitHub rejects a schema
-   * `default_value` unless the property is `required`. Callers normalize
-   * `set`'s `raw` and nothing else through `normalizeOrgDefault`, so
-   * selection behaviour is identical across all three provenances.
+   * The read-through is applied in the sweep's own code rather than
+   * assumed of the API, so a repo whose own value read returns the
+   * inherited default resolves to the same verdict an unset repo does.
+   *
+   * Callers normalize `set`'s `raw` and nothing else through
+   * `normalizeDefaultMode`, so the provenance never decides selection on
+   * its own: both no-value arms feed the same fail-safe collapse and
+   * therefore resolve alike, and only a `set` arm's `raw` moves the
+   * verdict. Those two arms additionally fail the run loudly (see
+   * `describeDefaultModeProvenanceFailure`).
    */
-  async readOrgDefault(): Promise<OrgDefaultRead> {
-    const url = `${this.apiBase}/orgs/${this.org}/properties/schema/${PROPERTY_NAMES.orgDefault}`;
+  async readDefaultMode(): Promise<DefaultModeRead> {
+    const url = `${this.apiBase}/orgs/${this.org}/properties/schema/${PROPERTY_NAMES.mode}`;
     const res = await this.doFetch(url, { headers: this.headers() });
     if (res.status === 404) {
       return { provenance: "not-defined" };
     }
     if (!res.ok) {
       throw new Error(
-        `Failed to read ${PROPERTY_NAMES.orgDefault} schema: ${res.status} ${res.statusText}`,
+        `Failed to read ${PROPERTY_NAMES.mode} schema: ${res.status} ${res.statusText}`,
       );
     }
     const body = (await res.json()) as { default_value?: string | null };

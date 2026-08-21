@@ -5,7 +5,7 @@ import {
   PartialStampError,
   PROPERTY_NAMES,
   MAX_REPOS_PER_BATCH,
-  normalizeOrgDefault,
+  normalizeDefaultMode,
 } from "../dist/index.js";
 
 // Build a fake fetch that records calls and returns canned responses
@@ -31,60 +31,69 @@ function fakeFetch(routes) {
   return fn;
 }
 
-test("readOrgDefault reports provenance 'set' with the raw schema default_value", async () => {
+test("readDefaultMode reports provenance 'set' with the raw schema default_value", async () => {
   const fetch = fakeFetch([
     {
-      match: `/properties/schema/${PROPERTY_NAMES.orgDefault}`,
-      body: { default_value: "opt-out" },
+      match: `/properties/schema/${PROPERTY_NAMES.mode}`,
+      body: { default_value: "opt-in" },
     },
   ]);
   const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
-  assert.deepEqual(await client.readOrgDefault(), {
+  assert.deepEqual(await client.readDefaultMode(), {
     provenance: "set",
-    raw: "opt-out",
+    raw: "opt-in",
   });
 });
 
-test("readOrgDefault reports an unrecognized value as 'set' with its raw text", async () => {
+test("readDefaultMode reports an unrecognized value as 'set' with its raw text", async () => {
   const fetch = fakeFetch([
     {
-      match: `/properties/schema/${PROPERTY_NAMES.orgDefault}`,
-      body: { default_value: "optout" },
+      match: `/properties/schema/${PROPERTY_NAMES.mode}`,
+      body: { default_value: "optin" },
     },
   ]);
   const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
-  assert.deepEqual(await client.readOrgDefault(), {
+  assert.deepEqual(await client.readDefaultMode(), {
     provenance: "set",
-    raw: "optout",
+    raw: "optin",
   });
-  // The typo still normalizes to the fail-safe opt-in — the raw value is
+  // The typo still normalizes to the fail-safe opt-out — the raw value is
   // reported so the typo is visible, not so it changes selection.
-  assert.equal(normalizeOrgDefault("optout"), "opt-in");
+  assert.equal(normalizeDefaultMode("optin"), "opt-out");
 });
 
-test("readOrgDefault reports provenance 'defined-no-value' on a 200 with no default", async () => {
+test("readDefaultMode reports provenance 'defined-no-value' on a 200 with no default", async () => {
   for (const body of [{}, { default_value: null }]) {
     const fetch = fakeFetch([
-      { match: `/properties/schema/${PROPERTY_NAMES.orgDefault}`, body },
+      { match: `/properties/schema/${PROPERTY_NAMES.mode}`, body },
     ]);
     const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
-    assert.deepEqual(await client.readOrgDefault(), {
+    assert.deepEqual(await client.readDefaultMode(), {
       provenance: "defined-no-value",
     });
   }
 });
 
-test("readOrgDefault reports provenance 'not-defined' on 404", async () => {
+test("readDefaultMode reports provenance 'not-defined' on 404", async () => {
   const fetch = fakeFetch([
     {
-      match: `/properties/schema/${PROPERTY_NAMES.orgDefault}`,
+      match: `/properties/schema/${PROPERTY_NAMES.mode}`,
       status: 404,
       statusText: "Not Found",
       body: {},
     },
   ]);
   const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
-  assert.deepEqual(await client.readOrgDefault(), { provenance: "not-defined" });
+  assert.deepEqual(await client.readDefaultMode(), {
+    provenance: "not-defined",
+  });
+});
+
+test("PROPERTY_NAMES no longer carries a separate org-default property", () => {
+  // Issue #68 retired the org-level default property: selection reads one
+  // property at both levels, so a second name here would be a second
+  // source of truth to drift.
+  assert.deepEqual(Object.keys(PROPERTY_NAMES).sort(), ["mode", "version"]);
 });
 
 test("readAllRepoValues projects mode and version, unset -> undefined", async () => {
@@ -95,7 +104,7 @@ test("readAllRepoValues projects mode and version, unset -> undefined", async ()
         {
           repository_name: "r1",
           properties: [
-            { property_name: PROPERTY_NAMES.mode, value: "process" },
+            { property_name: PROPERTY_NAMES.mode, value: "opt-in" },
             { property_name: PROPERTY_NAMES.version, value: "0.1.0" },
           ],
         },
@@ -111,7 +120,7 @@ test("readAllRepoValues projects mode and version, unset -> undefined", async ()
   const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
   const values = await client.readAllRepoValues();
   assert.deepEqual(values, [
-    { repo: "r1", mode: "process", version: "0.1.0" },
+    { repo: "r1", mode: "opt-in", version: "0.1.0" },
     { repo: "r2", mode: undefined, version: undefined },
   ]);
 });
