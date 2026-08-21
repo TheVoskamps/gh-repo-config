@@ -383,6 +383,13 @@ lint set passed.
       PR's cumulative diff: a branch that carried the anchor on an
       earlier tick was drafted then, and under `manual` a draft is never
       converted back to ready here — marking it ready is the human's act.
+      The body note explaining the hold is written by the CREATE path
+      only: a converger PR's body is never rewritten on a later tick, so
+      a PR converted mid-life keeps the body it opened with. That is
+      accepted rather than papered over with a body-update call — the
+      standing explanation a maintainer reads is
+      `assets/sweeper-sweep.yml`'s own header, which covers the
+      conversion case explicitly.
       Under `auto` the exact inverse runs (`sweeperUndraftsHeldPr`, the
       sibling of `sweeperHumanApprovalPaths` and defined beside it): an
       already-draft converger PR on the sweeper repo is marked ready via

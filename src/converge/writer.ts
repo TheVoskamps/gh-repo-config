@@ -286,9 +286,15 @@ function commitMessage(paths: readonly string[]): string {
 /**
  * The PR body for a converge PR, listing the changed paths.
  *
+ * Only the create path renders a body: a converger PR's body is never
+ * rewritten on a later tick, so a PR converted to a draft mid-life
+ * keeps whatever body it opened with.
+ *
  * @param heldForHuman append the note explaining the draft state, so
- *   the reviewer who finds a draft converger PR learns why it is one
- *   without going to read the converger's source.
+ *   the reviewer of a PR OPENED as a draft learns why it is one
+ *   without going to read the converger's source. The standing
+ *   explanation, which covers the mid-life conversion too, is
+ *   `assets/sweeper-sweep.yml`'s own header on the sweeper repo.
  */
 function pullRequestBody(
   paths: readonly string[],
