@@ -57,8 +57,25 @@ Read-through is implemented in the sweep's own code, not assumed of the
 API: the sweep reads the schema's `default_value` once per tick and each
 repo's own value through the bulk values read, then applies the table.
 Whether GitHub materializes the default into per-repo value reads is
-deliberately irrelevant — a repo whose read returns the default resolves
-identically either way.
+irrelevant to any one resolution at a fixed default — a repo whose read
+returns the default resolves exactly as an unset repo does, since both
+arms of the table agree there.
+
+It is not irrelevant to a *change* of default, which the runbook's
+step-8 flip is. If step 3's `required: true` with
+`default_value=opt-out` persists an explicit `opt-out` onto every
+previously-unset repo, `resolveManaged` takes that explicit `opt-out`
+arm and never consults the default, so step 8 converts nothing. Which
+of the two GitHub does is unsettled here: the org carries no
+required-with-default property to observe, and GitHub's documentation
+does not say whether inheritance is recomputed when a `default_value`
+changes. Either remedy closes it — clear the materialized values (step
+2's `value=null` PATCH, over the repos step 1 listed as unset) so they
+read through the new default again, or skip the intermediate default
+entirely by doing step 7's per-repo `opt-out` flagging first and
+defining the property with `default_value=opt-in` in step 3. The flip
+verification below is what makes the inert case visible; this paragraph
+is why it can happen.
 
 ## Semantic inversion from the retired vocabulary
 
@@ -170,7 +187,11 @@ Flip verification: the summary header names `opt-in` as the declared
 default, and repos previously reported `skip-unmanaged` appear as
 converge candidates. A run whose header still names `opt-out` — or
 reports the property undefined or valueless — is a failed flip, not a
-quiet success.
+quiet success. A run whose header names `opt-in` while the same repos
+still report `skip-unmanaged` is the materialization case described
+under "Truth table" above: step 3's default was written onto those
+repos as an explicit value, and clearing it (step 2's `value=null`
+PATCH, per repo) is what makes them read through the new default.
 
 ## Where this lives in the code
 

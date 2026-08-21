@@ -30,15 +30,20 @@ This set is deliberately broader than the pr-automation App
 (`thevoskamps-pr-automations`), which holds only Contents / Pull
 requests / Workflows / Actions. The converger additionally holds
 Administration, Organization administration, and Organization custom
-properties because it converges repo protection settings and each
-managed repo's own `protect-main` ruleset, and reads/writes the
-selection + stamp custom properties (`gh-repo-config-mode`,
-`gh-repo-config-version` — see `docs/repo-selection.md`). The
+properties, each for its own reason: Administration to converge repo
+protection settings and each managed repo's own `protect-main` ruleset;
+Organization administration for the `GET /orgs/{org}/installations`
+call in `src/github/rulesets.ts` (`readAppIdsBySlug`), which resolves an
+App slug to the `app_id` every `protect-main` bypass-actor entry is
+written with — an org-owner-only endpoint, and the converger's only
+call that needs org-administration scope; Organization
+custom properties to read/write the selection + stamp custom properties
+(`gh-repo-config-mode`, `gh-repo-config-version` — see
+`docs/repo-selection.md`). The
 org-level `~ALL` ruleset the design moves `protect-main` to is not
 built: every ruleset endpoint `src/github/rulesets.ts` calls is
-repo-scoped, under `/repos/{o}/{r}/rulesets`, and the one org-level
-call it makes, `GET /orgs/{org}/installations`, resolves an App slug
-to its `app_id` and writes nothing.
+repo-scoped, under `/repos/{o}/{r}/rulesets`, and that installations
+call is the only org-level one it makes — a read that writes nothing.
 That elevated scope is precisely why it is a
 **separate** App — the pr-automation App must never hold it. See
 `docs/org-repo-configuration-fanout-decomposition.md` → "Converger
