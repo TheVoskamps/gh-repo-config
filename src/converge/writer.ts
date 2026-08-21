@@ -33,14 +33,17 @@
  *   lands on it. Draft state is the hold itself: nothing merges a draft
  *   PR, so the reservation does not rest on a ruleset that a first-tick
  *   sweeper repo does not have yet, nor on any workflow's cooperation.
- *   Under `auto` the inverse runs: a draft PR on that same branch is
- *   marked ready, since nothing else would ever lift a hold the org has
+ *   The hold is re-asserted on every tick that commits, so marking such
+ *   a PR ready without merging it holds only until the next one.
+ *   Under a policy that stops reserving that path — `auto` or `off` —
+ *   the release runs instead: a draft PR on that same branch is marked
+ *   ready, since nothing else would ever lift a hold the org has
  *   stopped asking for.
  */
 import {
   buildDesiredFiles,
   sweeperHumanApprovalPaths,
-  sweeperUndraftsHeldPr,
+  sweeperPolicyReleasesHold,
   type DesiredFile,
   type DesiredFilesOptions,
 } from "./files.js";
@@ -201,9 +204,13 @@ export async function convergeRepoFiles(
     baseSha,
   );
 
-  // This commit's own paths decide the hold, not the PR's cumulative
-  // diff: a branch that carried the anchor on an earlier tick was already
-  // drafted then, and under `manual` a draft is never converted back.
+  // This commit's own paths decide the hold. They are diffed against the
+  // DEFAULT branch, so the anchor is in every tick's changed set for as
+  // long as the PR is unmerged, and the hold is therefore re-asserted
+  // each tick: a maintainer who marks the held PR ready and then waits
+  // has it drafted again on the next one. Landing it means marking it
+  // ready and merging it in one sitting. The failure direction is
+  // deliberate — more holding, never an unattended merge.
   const reserved = sweeperHumanApprovalPaths(owner, repo, options);
   const holdForHuman = changedPaths.some((p) => reserved.includes(p));
 
@@ -225,11 +232,14 @@ export async function convergeRepoFiles(
   );
 
   if (existingPr) {
-    // Under `auto` a draft on this branch is a hold from a policy that
-    // no longer applies, and only the sweep can lift it — nothing else
-    // ever marks a converger PR ready.
+    // Under a policy that no longer reserves the anchor (`auto`, or
+    // `off`), a draft on this branch is a hold the sweep itself placed
+    // and whose justification is gone, and only the sweep can lift it —
+    // nothing else ever marks a converger PR ready. It is lifted here,
+    // after the branch reset above, because under `off` that reset is
+    // what drops the anchor from the branch.
     const releaseHold =
-      existingPr.draft && sweeperUndraftsHeldPr(owner, repo, options);
+      existingPr.draft && sweeperPolicyReleasesHold(owner, repo, options);
     if (holdForHuman && !existingPr.draft) {
       await client.convertPullRequestToDraft(
         owner,
@@ -314,6 +324,8 @@ function pullRequestBody(
     "anchor, where the release attestation verify and the version pin\n" +
     "live. Under `sweeper-update-policy: manual` the converger opens such\n" +
     "a PR as a **draft** so that nothing can merge it unattended. Read the\n" +
-    "diff, mark it ready for review, and merge it yourself.\n"
+    "diff, then mark it ready for review and merge it in one sitting: every\n" +
+    "sweep re-applies the draft, so marking it ready and leaving it open\n" +
+    "gets it drafted again on the next one.\n"
   );
 }

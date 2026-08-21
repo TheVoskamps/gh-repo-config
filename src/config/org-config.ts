@@ -64,8 +64,8 @@ export const DEFAULT_SWEEPER_UPDATE_POLICY: SweeperUpdatePolicy = "manual";
  * The resolved per-org configuration. Every render input is optional —
  * absent means the baked default applies, exactly as a sweep with no
  * config file behaves — while `sweeperUpdatePolicy` always carries a
- * value because its default is applied here rather than at its (still
- * unwritten) consumer.
+ * value: the default is applied at the parse, so a consumer reading an
+ * `OrgConfig` never has to.
  */
 export interface OrgConfig {
   /**

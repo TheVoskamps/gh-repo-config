@@ -122,7 +122,7 @@ export {
   COMMUNITY_FILE_PATHS,
   SWEEPER_WORKFLOW_PATH,
   sweeperHumanApprovalPaths,
-  sweeperUndraftsHeldPr,
+  sweeperPolicyReleasesHold,
   type DesiredFile,
   type DesiredFilesOptions,
   type SweeperOptions,

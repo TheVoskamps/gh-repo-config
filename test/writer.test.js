@@ -627,15 +627,83 @@ test("under auto, a draft converger PR left by manual is marked ready for review
   assert.deepEqual(mutations[0].body.variables, { id: "PR_7" });
 });
 
-test("a draft converger PR is left alone on a repo auto does not cover (issue #92)", async () => {
-  // `auto` un-drafts only the sweeper repo's own converger PR: another
-  // repo's draft is someone else's hold and is never touched.
+test("under off, a draft converger PR left by manual is marked ready for review too (issue #92)", async () => {
+  // The manual→off transition: `off` withdraws the reservation that
+  // justified the draft, so the leftover draft is litter the sweep left
+  // behind and the sweep clears it — otherwise this repo's file
+  // convergence stalls behind a PR no tick can ever lift. The commit
+  // this tick writes carries no anchor (`off` drops it from the payload)
+  // and resets the branch, so the PR that goes ready no longer offers
+  // the anchor for an unattended merge.
+  const openPr = [
+    { number: 7, node_id: "PR_7", html_url: "https://example/pr/7", draft: true, head: { ref: CONVERGE_BRANCH } },
+  ];
+  const fetch = fakeFetch([
+    ...readRoutes({ treeEntries: {}, blobs: {} }),
+    ...writeRoutes({ openPr }),
+  ]);
+  const client = new ContentsClient({ token: "t", fetch });
+  const result = await convergeRepoFiles(client, OWNER, REPO, false, {
+    ...SWEEPER_OPTIONS,
+    sweeperUpdatePolicy: "off",
+  });
+
+  assert.equal(result.changed.includes(SWEEPER_WORKFLOW_PATH), false);
+  assert.equal(result.pullRequest.draft, false);
+  const mutations = graphqlCalls(fetch);
+  assert.equal(mutations.length, 1);
+  assert.match(mutations[0].body.query, /markPullRequestReadyForReview/);
+  assert.deepEqual(mutations[0].body.variables, { id: "PR_7" });
+});
+
+test("under off, a tick with nothing to commit leaves the draft standing (issue #92)", async () => {
+  // The release rides on the commit that resets the work branch, and
+  // under `off` that reset is what drops the anchor from the branch.
+  // With nothing to commit the branch still carries the anchor, so
+  // marking the PR ready would offer exactly the file the org switched
+  // off to an unattended merge.
+  const options = { ...SWEEPER_OPTIONS, sweeperUpdatePolicy: "off" };
+  const desired = buildDesiredFiles(CTX, {
+    ...options,
+    communityFiles: ORG_COMMUNITY,
+  });
+  const treeEntries = {};
+  const blobs = {};
+  for (const f of desired) {
+    const sha = "sha-" + f.path;
+    treeEntries[f.path] = {
+      sha,
+      mode: f.executable ? FILE_MODE.executable : FILE_MODE.regular,
+    };
+    blobs[sha] = f.content;
+  }
+  const fetch = fakeFetch([
+    ...readRoutes({ treeEntries, blobs }),
+    ...writeRoutes({
+      openPr: [
+        { number: 7, node_id: "PR_7", html_url: "https://example/pr/7", draft: true, head: { ref: CONVERGE_BRANCH } },
+      ],
+    }),
+  ]);
+  const client = new ContentsClient({ token: "t", fetch });
+  const result = await convergeRepoFiles(client, OWNER, REPO, false, options);
+
+  assert.equal(result.noop, true);
+  assert.deepEqual(graphqlCalls(fetch), []);
+  assert.equal(fetch.calls.some((c) => c.method !== "GET"), false);
+});
+
+test("a draft converger PR is left alone on a repo the release does not cover (issue #92)", async () => {
+  // The release touches only the sweeper repo's own converger PR:
+  // another repo's draft is someone else's hold, and the sweeper repo's
+  // own draft under `manual` is the hold still standing.
   const openPr = [
     { number: 7, node_id: "PR_7", html_url: "https://example/pr/7", draft: true, head: { ref: CONVERGE_BRANCH } },
   ];
   for (const options of [
     { sweeperRepo: `${OWNER}/some-other-repo`, sweeperUpdatePolicy: "auto" },
-    { ...SWEEPER_OPTIONS, sweeperUpdatePolicy: "off" },
+    { sweeperRepo: `${OWNER}/some-other-repo`, sweeperUpdatePolicy: "off" },
+    { ...SWEEPER_OPTIONS, sweeperUpdatePolicy: "manual" },
   ]) {
     const fetch = fakeFetch([
       ...readRoutes({ treeEntries: {}, blobs: {} }),

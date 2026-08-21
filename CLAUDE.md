@@ -193,7 +193,8 @@ lint set passed.
     `auto-enable-automerge.yml` turns on and this pass has no say over —
     is the draft state `src/converge/writer.ts` puts the PR in. Keep
     both: a human who marks the held PR ready without merging it clears
-    the draft lock and leaves the path list standing.
+    the draft lock until the next tick that commits re-applies it, and
+    the path list is what holds the PR in that window.
     A DRAFT PR is `awaiting-human` too, on every repo and with no
     reserved paths in play: `OpenPullRequest` carries the list
     endpoint's own `draft` flag, and `evaluateAndMerge` settles on it
@@ -352,8 +353,9 @@ lint set passed.
       cannot disagree about what an absent key means, and BOTH
       enforcement sites read it: `writer.ts` (draft state) and
       `sweep.ts` (the merge pass's `humanApprovalPaths`). Do not give
-      either site a second copy of the rule. Its inverse,
-      `sweeperUndraftsHeldPr` (true on the sweeper repo under `auto`,
+      either site a second copy of the rule. Its release,
+      `sweeperPolicyReleasesHold` (true on the sweeper repo under any
+      policy that no longer reserves the anchor — `auto` AND `off` —
       false everywhere else), lives here for the same reason and has the
       one consumer `writer.ts`.
     - `community.ts` — `readOrgCommunityFiles(client, org)`: the
@@ -395,10 +397,16 @@ lint set passed.
       hold — nothing merges a draft PR — so it binds GitHub-native
       auto-merge as well as the converger's own merge pass, and does not
       rest on a `protect-main` ruleset a first-tick sweeper repo has not
-      got yet. The decision reads THIS commit's changed paths, not the
-      PR's cumulative diff: a branch that carried the anchor on an
-      earlier tick was drafted then, and under `manual` a draft is never
-      converted back to ready here — marking it ready is the human's act.
+      got yet. The decision reads THIS commit's changed paths, which are
+      diffed against the DEFAULT branch — so the anchor is in every
+      tick's changed set until the PR merges, and the draft is
+      re-asserted on every tick that commits. A maintainer who marks the
+      held PR ready and then waits has it drafted again; landing it means
+      marking it ready and merging it in one sitting. That failure
+      direction is deliberate (more holding, never an unattended merge),
+      and both `writer.ts`'s own PR-body note and `merge.ts`'s
+      `humanApprovalPaths` doc say so — do not restore prose claiming a
+      readied PR stays ready.
       The body note explaining the hold is written by the CREATE path
       only: a converger PR's body is never rewritten on a later tick, so
       a PR converted mid-life keeps the body it opened with. That is
@@ -406,16 +414,23 @@ lint set passed.
       standing explanation a maintainer reads is
       `assets/sweeper-sweep.yml`'s own header, which covers the
       conversion case explicitly.
-      Under `auto` the exact inverse runs (`sweeperUndraftsHeldPr`, the
+      Under a policy that no longer reserves the anchor — `auto` or
+      `off` — the release runs instead (`sweeperPolicyReleasesHold`, the
       sibling of `sweeperHumanApprovalPaths` and defined beside it): an
       already-draft converger PR on the sweeper repo is marked ready via
       `ContentsClient.markPullRequestReadyForReview`. Without it the
       manual→auto transition would strand the drafted anchor PR as a
       draft forever — nothing else in the system ever marks a converger
       PR ready — and the sweeper repo would silently stop converging its
-      own trust anchor. The consequence for a human is that hand-drafting
-      a converger PR is NOT a hold under `auto`; flipping the policy back
-      to `manual` is.
+      own trust anchor; manual→off would strand it the same way, with
+      the sweep's own litter then blocking every later payload change on
+      that branch. The release runs AFTER the branch reset and only on a
+      tick that commits, which is load-bearing under `off`: the reset is
+      what drops the anchor from the branch, so marking a PR ready
+      without one would offer an unattended merge exactly the anchor the
+      org just switched off. The consequence for a human is that
+      hand-drafting a converger PR is NOT a hold under `auto` or `off`;
+      flipping the policy back to `manual` is.
     - `ghas.ts` — `convergeGhasSettings`: read-then-write
       each GHAS/repo-security toggle and merge-button setting
       independently — one setting's failure (report-and-skip on a 422
@@ -776,9 +791,9 @@ lint set passed.
     `manual` bullet's DRAFT wording in step with `writer.ts` — a bullet
     that says only "the merge pass refuses to merge it" understates the
     hold and invites someone to remove the draft half — and keep the
-    `auto` bullet's un-drafting half, which is the only warning a
-    maintainer gets that hand-drafting a converger PR does not hold it
-    under that policy.
+    release half on BOTH the `auto` and the `off` bullet, which is the
+    only warning a maintainer gets that hand-drafting a converger PR
+    does not hold it under either policy.
   This repo's own `.github/actions/`, `.github/scripts/`, and
   `.github/workflows/` — the
   live copies the sweep renders onto this repo itself — are **not**

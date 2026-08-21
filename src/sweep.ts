@@ -267,8 +267,10 @@ export interface SweepReport {
    * with a 405/409 between the read and the merge attempt (head moved /
    * no-longer-mergeable — also retried next tick), or the PR is held for
    * a person (issue #92's `awaiting-human` — it changes a reserved path
-   * or it is a draft; no later tick resolves that one on its own, a
-   * human does). None of these count as a sweep failure.
+   * or it is a draft; a human resolves that one, except where the
+   * reservation is withdrawn and the converge pass releases its own
+   * hold, see `converge/files.ts`'s `sweeperPolicyReleasesHold`). None
+   * of these count as a sweep failure.
    */
   readonly awaitingChecks: readonly MergeAttemptResult[];
   /**

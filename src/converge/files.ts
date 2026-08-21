@@ -373,28 +373,40 @@ export function sweeperHumanApprovalPaths(
 
 /**
  * Whether a draft converger PR on this repo must be converted back to
- * ready-for-review (issue #92) — the exact inverse of the hold
+ * ready-for-review (issue #92) — the release of the hold
  * {@link sweeperHumanApprovalPaths} states, and the other half of one
  * policy for the same reason those two halves live together here.
  *
- * It fires only on the sweeper repo under `auto`, which is the org
- * saying its converger PRs merge when green like any other. Without it
- * an org that ran under `manual` (or the default) and then switched to
- * `auto` would leave the drafted anchor PR a draft forever: nothing in
- * the sweep marks it ready, so the sweeper repo would silently stop
- * converging its own trust anchor.
+ * The predicate is "this repo's policy no longer reserves the anchor
+ * path", not "the policy is `auto`": on the sweeper repo both `auto`
+ * (the org saying its converger PRs merge when green like any other)
+ * and `off` (the anchor is not a payload at all) release it. A draft
+ * left by an earlier `manual` tick is then a hold the sweep itself
+ * placed and whose justification is gone, and only the sweep can lift
+ * it — nothing else ever marks a converger PR ready. Without the
+ * release, `manual`→`auto` would strand the sweeper repo's own trust
+ * anchor as a draft forever, and `manual`→`off` would leave the sweep's
+ * own litter blocking every later payload change on the same branch.
  *
- * The consequence a human must know: under `auto`, hand-drafting a
- * converger PR does not hold it — the next tick marks it ready again.
- * Holding one means flipping the policy back to `manual`.
+ * The release rides on the commit the calling tick writes, and must
+ * keep doing so: under `off` the work branch stops carrying the anchor
+ * only when that commit resets it onto the default head, so marking a
+ * PR ready without one would offer an unattended merge exactly the
+ * anchor the org just switched off. A tick with nothing to commit
+ * therefore leaves the draft standing.
+ *
+ * The consequence a human must know: on the sweeper repo under `auto`
+ * or `off`, hand-drafting a converger PR does not hold it — the next
+ * tick that commits marks it ready again. Holding one means flipping
+ * the policy back to `manual`.
  */
-export function sweeperUndraftsHeldPr(
+export function sweeperPolicyReleasesHold(
   org: string,
   repo: string,
   options: SweeperOptions,
 ): boolean {
   const policy = options.sweeperUpdatePolicy ?? DEFAULT_SWEEPER_UPDATE_POLICY;
-  if (policy !== "auto") {
+  if (policy === "manual") {
     return false;
   }
   return options.sweeperRepo === `${org}/${repo}`;

@@ -32,7 +32,9 @@
 #     first-tick sweeper repo has not got yet, and GitHub's own native
 #     auto-merge — which `auto-enable-automerge.yml` enables on this
 #     repo's other converger PRs — cannot be enabled on it. A human in
-#     the org marks it ready and merges it, having read the diff.
+#     the org reads the diff, then marks it ready and merges it in one
+#     sitting: every sweep re-applies the draft, so marking it ready and
+#     leaving it open gets it drafted again on the next tick.
 #   - `auto`: merged like any other converger PR, for orgs that accept
 #     the loop. Switching to it also RELEASES a hold `manual` already
 #     placed: the sweep marks the drafted PR ready for review, since
@@ -40,7 +42,13 @@
 #     could otherwise never merge. Drafting a converger PR by hand is
 #     therefore not a hold under `auto` — the next tick marks it ready
 #     again. Flip the policy back to `manual` to hold one.
-#   - `off`: this file is not converged at all.
+#   - `off`: this file is not converged at all. Switching to it releases
+#     a `manual` hold the same way `auto` does, and for the same reason:
+#     the reservation is gone, so a drafted PR left over from the old
+#     policy is litter the sweep placed and clears. The release lands on
+#     the next tick that has something to commit — which is also the
+#     tick whose commit drops this file from the work branch, so the PR
+#     that goes ready no longer carries the anchor.
 # The policy lives in the config file rather than a UI-editable
 # variable, so changing it is itself a PR through the org's own gates.
 #

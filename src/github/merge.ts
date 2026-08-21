@@ -107,8 +107,13 @@ export type MergeOutcome =
    * `sweeper-update-policy: manual`), or it is a draft — including one a
    * maintainer drafted by hand on any managed repo. Left open and
    * updated every tick until a human marks it ready and merges it.
-   * Expected, not a failure and not a retry: unlike the other
-   * left-open outcomes, no later tick resolves this one on its own.
+   * Expected, not a failure and not a retry: while the reservation
+   * stands, no later tick resolves this one on its own, unlike the
+   * other left-open outcomes. The one exception is the reservation
+   * being withdrawn — a sweeper repo moved to `auto` or `off` has its
+   * drafted PR marked ready by the next tick that commits (see
+   * `converge/files.ts`'s `sweeperPolicyReleasesHold`), which is the
+   * sweep releasing its own hold rather than resolving the outcome.
    */
   | "awaiting-human"
   /**
@@ -132,9 +137,9 @@ export interface EvaluateAndMergeOptions {
    * `converge/writer.ts` puts such a PR in, off the same path list
    * (`converge/files.ts`'s `sweeperHumanApprovalPaths`). Keep both: a
    * human who marks the held PR ready without merging it clears the
-   * draft lock and leaves this one standing, which is the whole reason
-   * this list is still consulted on a PR the draft check would also
-   * catch.
+   * draft lock until the next tick that commits re-applies it, and this
+   * list is what holds the PR in that window — which is the whole reason
+   * it is still consulted on a PR the draft check would also catch.
    */
   readonly humanApprovalPaths?: readonly string[];
 }
@@ -479,10 +484,14 @@ export class MergeClient {
     if (pr.draft) {
       // GitHub rejects a merge of a draft PR outright, so evaluating one
       // would spend the check-state reads to earn a doomed merge call
-      // and a cycling `awaiting-retry` every tick. Only a person can
-      // clear it, which is what makes this `awaiting-human` rather than
+      // and a cycling `awaiting-retry` every tick. No pass of this sweep
+      // clears it, which is what makes this `awaiting-human` rather than
       // a retry — the same settled-by-a-person shape the reserved-path
-      // case has, and the same one a PR held by both must land in.
+      // case has, and the same one a PR held by both must land in. The
+      // converge pass does mark a draft ready on a sweeper repo whose
+      // policy stopped reserving the anchor (`converge/files.ts`'s
+      // `sweeperPolicyReleasesHold`); that is the sweep withdrawing its
+      // own hold, and every other draft waits for a person.
       return {
         pr,
         outcome: "awaiting-human",

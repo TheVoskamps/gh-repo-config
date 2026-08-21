@@ -555,8 +555,9 @@ export class ContentsClient {
    * GraphQL-only for the same reason.
    *
    * It is what lets a hold placed under `sweeper-update-policy: manual`
-   * be released when the org switches that policy to `auto`; without it
-   * the drafted PR stays a draft forever and can never merge.
+   * be released when the org switches that policy to one that no longer
+   * reserves the anchor path — `auto` or `off`; without it the drafted
+   * PR stays a draft forever and can never merge.
    */
   async markPullRequestReadyForReview(
     owner: string,
