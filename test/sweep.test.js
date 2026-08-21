@@ -239,7 +239,7 @@ test("a file-converge failure marks the repo failed even when convergeGhas succe
   assert.equal(report.ghasResults[0].repo, "fixture-opt-in");
 });
 
-test("flipping org default to opt-out converges the unset repo", async () => {
+test("a declared default of opt-in converges the unset repo", async () => {
   const client = fakeClient({
     defaultMode: "opt-in",
     repos: [{ repo: "fixture-unset", mode: undefined, version: undefined }],

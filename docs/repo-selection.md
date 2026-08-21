@@ -46,8 +46,7 @@ means managed; `opt-out` means not managed.
 | unset / unrecognized | `opt-in`               | yes      |
 | unset / unrecognized | `opt-out`              | no       |
 
-Two fail-safe collapses feed that table, both biased toward "don't
-touch":
+Fail-safe collapses feed that table, each biased toward "don't touch":
 
 - A repo value that is not exactly `opt-in` or `opt-out` — missing,
   empty, or a typo — normalizes to unset, and then follows the default.
