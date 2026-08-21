@@ -31,6 +31,7 @@ function pr(overrides = {}) {
     user: { login: "my-converger[bot]", type: "Bot" },
     head: { sha: "sha1", ref: "converger/work" },
     base: { ref: "main" },
+    draft: false,
     ...overrides,
   };
 }
@@ -53,6 +54,24 @@ test("listOwnOpenPullRequests matches login AND type, filtering out other author
   assert.deepEqual(
     prs.map((p) => p.number),
     [1],
+  );
+});
+
+test("listOwnOpenPullRequests carries each PR's draft flag (issue #92)", async () => {
+  const fetch = fakeFetch([
+    {
+      match: "/pulls?state=open",
+      body: [pr({ number: 1, draft: true }), pr({ number: 2, draft: false })],
+    },
+  ]);
+  const client = new MergeClient({ token: "t", fetch });
+  const prs = await client.listOwnOpenPullRequests("Org", "repo", "my-converger");
+  assert.deepEqual(
+    prs.map((p) => [p.number, p.draft]),
+    [
+      [1, true],
+      [2, false],
+    ],
   );
 });
 
@@ -460,6 +479,46 @@ test("evaluateAndMerge: no reserved paths costs no file listing at all (issue #9
     );
     assert.equal(result.outcome, "merged");
   }
+});
+
+test("evaluateAndMerge: a green DRAFT PR is awaiting-human and costs no API call at all (issue #92)", async () => {
+  // Same green routes as the "all green -> merges" case, and no reserved
+  // paths, so the draft flag is the only thing separating this from a
+  // merge. `fakeFetch` records every call, so an empty call list is the
+  // assertion that no check-state read and no merge PUT was spent.
+  const fetch = fakeFetch(GREEN_ROUTES);
+  const client = new MergeClient({ token: "t", fetch });
+  const result = await client.evaluateAndMerge(
+    "Org",
+    "repo",
+    { ...OPEN_PR, draft: true },
+    false,
+  );
+
+  assert.equal(result.outcome, "awaiting-human");
+  assert.match(result.reason, /draft/);
+  assert.deepEqual(result.checks, []);
+  assert.deepEqual(fetch.calls, []);
+});
+
+test("evaluateAndMerge: a PR that is BOTH drafted and reserved reports the reserved path (issue #92)", async () => {
+  // The drafted anchor PR on the sweeper repo under `manual` is both, and
+  // the reserved-path reason names what is held, so it must win.
+  const fetch = fakeFetch([
+    ...GREEN_ROUTES,
+    { match: "/pulls/1/files", body: [{ filename: SWEEPER_WORKFLOW_PATH }] },
+  ]);
+  const client = new MergeClient({ token: "t", fetch });
+  const result = await client.evaluateAndMerge(
+    "Org",
+    "repo",
+    { ...OPEN_PR, draft: true },
+    false,
+    { humanApprovalPaths: [SWEEPER_WORKFLOW_PATH] },
+  );
+
+  assert.equal(result.outcome, "awaiting-human");
+  assert.match(result.reason, /reserved for human approval/);
 });
 
 test("listChangedFiles pages until a short page (issue #92)", async () => {

@@ -23,14 +23,18 @@
  * repos are never probed at all: the converger has no business on a
  * repo selection ruled out — whether by its own `opt-out` value or by
  * an `opt-out` default it never overrode — so scoping is explicit in
- * the iteration rather than resting on the author filter alone. One PR
- * the merge pass leaves alone however green it is: on the sweeper repo
- * under `sweeper-update-policy: manual`, a PR touching the sweeper
+ * the iteration rather than resting on the author filter alone. Two
+ * kinds of PR the merge pass leaves alone however green they are, both
+ * settled as `awaiting-human` before a single check is read: on the
+ * sweeper repo
+ * under `sweeper-update-policy: manual`, one touching the sweeper
  * workflow itself is reserved for a human (issue #92,
- * {@link sweeperHumanApprovalPaths}). That reservation is the second of
- * two locks on the same path — `writer.ts` has already opened the PR as
- * a draft, which is what also stops GitHub's own native auto-merge, a
- * mechanism this pass has no say over.
+ * {@link sweeperHumanApprovalPaths}); and on any repo, a DRAFT one.
+ * Those are the two locks on the anchor path — `writer.ts` has already
+ * opened that PR as a draft, which is what also stops GitHub's own
+ * native auto-merge, a mechanism this pass has no say over — and the
+ * draft half additionally covers a PR a maintainer drafts by hand,
+ * which the reservation never sees.
  *
  * The GHAS / merge-button settings convergence step (issue #15) is
  * pure API mutations (no files, no PR) and runs alongside the file
@@ -242,9 +246,9 @@ export interface SweepReport {
    * the next sweep. A non-empty `failed` means the sweep as a whole did
    * not fully succeed; see `runSweepFromEnv`'s exit-code contract in
    * `bin/gh-repo-config.js`. Does NOT include repos whose PRs are simply
-   * `awaitingChecks` (red/pending/405-409/reserved for a human) — that
-   * is expected and not a failure. Every one of those but the reserved
-   * case is retried next tick; a reserved PR waits for a human instead.
+   * `awaitingChecks` (red/pending/405-409/held for a human) — that
+   * is expected and not a failure. Every one of those but the held case
+   * is retried next tick; a held PR waits for a human instead.
    */
   readonly failed: readonly string[];
   readonly skippedUnmanaged: number;
@@ -261,10 +265,10 @@ export interface SweepReport {
    * (the escalation-to-human path), a required check is still pending
    * (not yet, retried next tick), the merge call itself was rejected
    * with a 405/409 between the read and the merge attempt (head moved /
-   * no-longer-mergeable — also retried next tick), or the PR changes a
-   * path reserved for human approval (issue #92's `awaiting-human`,
-   * which no later tick resolves on its own — a human merges it). None
-   * of these count as a sweep failure.
+   * no-longer-mergeable — also retried next tick), or the PR is held for
+   * a person (issue #92's `awaiting-human` — it changes a reserved path
+   * or it is a draft; no later tick resolves that one on its own, a
+   * human does). None of these count as a sweep failure.
    */
   readonly awaitingChecks: readonly MergeAttemptResult[];
   /**

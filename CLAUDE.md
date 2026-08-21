@@ -191,7 +191,22 @@ lint set passed.
     the converger's own merge call; the one that binds every merge
     mechanism — including GitHub-native auto-merge, which the rendered
     `auto-enable-automerge.yml` turns on and this pass has no say over —
-    is the draft state `src/converge/writer.ts` puts the PR in.
+    is the draft state `src/converge/writer.ts` puts the PR in. Keep
+    both: a human who marks the held PR ready without merging it clears
+    the draft lock and leaves the path list standing.
+    A DRAFT PR is `awaiting-human` too, on every repo and with no
+    reserved paths in play: `OpenPullRequest` carries the list
+    endpoint's own `draft` flag, and `evaluateAndMerge` settles on it
+    right after the reserved-path check, before any check-state read.
+    Without that, a PR a maintainer hand-drafts would spend the rollup
+    reads to earn a merge PUT GitHub rejects outright, cycling
+    `awaiting-retry` every tick forever. The reserved-path check keeps
+    the earlier position deliberately: the anchor PR under `manual` is
+    both drafted and reserved, and naming the reserved path is the more
+    actionable report. Both settle as `awaiting-human` rather than a
+    new outcome value, since that value already means "no later tick
+    resolves this, a person does" and one PR must not get two outcomes
+    depending on which check ran first.
   - `src/github/contents.ts` — `ContentsClient`, same dependency-free-
     `fetch` shape as `properties.ts` / `merge.ts`. The converger's
     file-write path: reads a target repo's default branch and current

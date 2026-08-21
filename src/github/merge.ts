@@ -35,6 +35,12 @@ export interface OpenPullRequest {
   readonly baseRef: string;
   readonly authorLogin: string;
   readonly authorType: string;
+  /**
+   * GitHub's own draft flag, as the list endpoint reports it. Nothing
+   * merges a draft PR, so {@link MergeClient.evaluateAndMerge} settles
+   * one without ever reaching the merge call.
+   */
+  readonly draft: boolean;
 }
 
 interface RawUser {
@@ -47,6 +53,7 @@ interface RawPullRequest {
   readonly user: RawUser | null;
   readonly head: { readonly sha: string; readonly ref: string };
   readonly base: { readonly ref: string };
+  readonly draft: boolean;
 }
 
 interface RawRequiredStatusCheckRule {
@@ -94,12 +101,14 @@ export type MergeOutcome =
   /** All required checks are green/empty but at least one is still pending. */
   | "pending"
   /**
-   * The PR changes a path the caller reserved for human approval, so
-   * the merge pass never evaluated it (issue #92: a sweeper repo's own
-   * trust-anchor workflow under `sweeper-update-policy: manual`). Left
-   * open and updated every tick until a human merges it — in that case,
-   * after marking the draft ready. Expected, not a failure and not a
-   * retry.
+   * The PR is held for a person, so the merge pass never evaluated it
+   * (issue #92). Either it changes a path the caller reserved for human
+   * approval (a sweeper repo's own trust-anchor workflow under
+   * `sweeper-update-policy: manual`), or it is a draft — including one a
+   * maintainer drafted by hand on any managed repo. Left open and
+   * updated every tick until a human marks it ready and merges it.
+   * Expected, not a failure and not a retry: unlike the other
+   * left-open outcomes, no later tick resolves this one on its own.
    */
   | "awaiting-human"
   /**
@@ -121,8 +130,11 @@ export interface EvaluateAndMergeOptions {
    * This binds the converger's own merge call and nothing else. The lock
    * that also binds GitHub-native auto-merge is the draft state
    * `converge/writer.ts` puts such a PR in, off the same path list
-   * (`converge/files.ts`'s `sweeperHumanApprovalPaths`). Keep both:
-   * neither one covers the other's mechanism.
+   * (`converge/files.ts`'s `sweeperHumanApprovalPaths`). Keep both: a
+   * human who marks the held PR ready without merging it clears the
+   * draft lock and leaves this one standing, which is the whole reason
+   * this list is still consulted on a PR the draft check would also
+   * catch.
    */
   readonly humanApprovalPaths?: readonly string[];
 }
@@ -235,6 +247,7 @@ export class MergeClient {
             baseRef: pr.base.ref,
             authorLogin: pr.user.login,
             authorType: pr.user.type,
+            draft: pr.draft,
           });
         }
       }
@@ -430,12 +443,17 @@ export class MergeClient {
    * {@link OrgPropertiesClient.stampVersion} — decide and report, never
    * issue the merge, when `dryRun` is set.
    *
+   * Two held-for-a-person cases settle before any check-state read at
+   * all, since neither outcome can change with the checks and evaluating
+   * them first would be work whose result is discarded: a PR changing
+   * one of `options.humanApprovalPaths`, and a DRAFT PR. The path check
+   * runs first because it names the reserved path in its reason, which
+   * is the more actionable message for the anchor PR that is both; the
+   * file listing it costs is one request against the several the check
+   * rollup would cost, and only on a repo that reserves paths at all.
+   *
    * @param options `humanApprovalPaths` reserves paths for a human
-   *   (issue #92): when the PR changes any of them the attempt settles
-   *   as `awaiting-human` immediately, before any check-state read. The
-   *   file listing costs one request against the several the check
-   *   rollup would cost, and the outcome cannot change with the checks,
-   *   so evaluating them first would be work whose result is discarded.
+   *   (issue #92).
    */
   async evaluateAndMerge(
     owner: string,
@@ -456,6 +474,21 @@ export class MergeClient {
           reason: `changes path(s) reserved for human approval: ${hits.join(", ")}`,
         };
       }
+    }
+
+    if (pr.draft) {
+      // GitHub rejects a merge of a draft PR outright, so evaluating one
+      // would spend the check-state reads to earn a doomed merge call
+      // and a cycling `awaiting-retry` every tick. Only a person can
+      // clear it, which is what makes this `awaiting-human` rather than
+      // a retry — the same settled-by-a-person shape the reserved-path
+      // case has, and the same one a PR held by both must land in.
+      return {
+        pr,
+        outcome: "awaiting-human",
+        checks: [],
+        reason: "PR is a draft — a human must mark it ready for review",
+      };
     }
 
     const requiredContexts = await this.getRequiredCheckContexts(
