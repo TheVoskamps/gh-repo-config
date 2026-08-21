@@ -3,7 +3,7 @@
  *
  * Slice 1 (issue #12) exposed a readable "current version." Slice 2
  * (issue #13) added the selection-loop walking skeleton: the sweep
- * that reads the three selection/stamp org custom properties, applies
+ * that reads the selection/stamp org custom properties, applies
  * the precedence table + version-skip, and stamps processed repos.
  * Slice 3 (issue #14) adds the real convergence pipeline
  * (`src/converge/`): rendering `dependabot.yml` plus the gate/guard

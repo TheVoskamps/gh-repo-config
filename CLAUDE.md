@@ -15,7 +15,8 @@ count one among the hits when sweeping the repo for prose a structural
 change falsified; a half-design/half-as-built file is worse than either
 pure form. As-built behaviour belongs in this file, in an asset's own
 inline comments, or in a doc that makes no point-in-time claim
-(`docs/codeartifact-auth.md`, `docs/github-app-converger.md`). Read a
+(`docs/codeartifact-auth.md`, `docs/github-app-converger.md`,
+`docs/repo-selection.md`). Read a
 `docs/` file's first lines for a status marker before editing it.
 
 ## Commands

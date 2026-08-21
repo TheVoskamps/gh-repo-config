@@ -2,7 +2,7 @@
  * The selection-loop walking skeleton (issue #13, slice 2), plus the
  * merge pass that makes fan-out runs unattended end to end (issue #24).
  *
- * Reads the three selection/stamp org custom properties, applies the
+ * Reads the selection/stamp org custom properties, applies the
  * precedence table + version-skip to every repo, converges each due
  * repo, and re-stamps the converged repos with the current release
  * version. `runSweep`'s `converge` step is an injectable callback — the

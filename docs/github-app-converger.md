@@ -30,9 +30,13 @@ This set is deliberately broader than the pr-automation App
 (`thevoskamps-pr-automations`), which holds only Contents / Pull
 requests / Workflows / Actions. The converger additionally holds
 Administration, Organization administration, and Organization custom
-properties because it converges repo protection settings, writes the
-org `~ALL` ruleset, and reads/writes the three selection + stamp
-custom properties. That elevated scope is precisely why it is a
+properties because it converges repo protection settings and each
+managed repo's own `protect-main` ruleset, and reads/writes the
+selection + stamp custom properties (`gh-repo-config-mode`,
+`gh-repo-config-version` — see `docs/repo-selection.md`). The
+org-level `~ALL` ruleset the design moves `protect-main` to is not
+built: `src/github/rulesets.ts` calls only `/repos/{o}/{r}/rulesets`.
+That elevated scope is precisely why it is a
 **separate** App — the pr-automation App must never hold it. See
 `docs/org-repo-configuration-fanout-decomposition.md` → "Converger
 App — permission set".
