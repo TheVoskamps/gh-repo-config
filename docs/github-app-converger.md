@@ -51,6 +51,18 @@ That elevated scope is precisely why it is a
 `docs/org-repo-configuration-fanout-decomposition.md` → "Converger
 App — permission set".
 
+A sentence added here of the form "GitHub gates `<endpoint>` on
+`<permission>`" stands only after that endpoint's own REST reference
+page is fetched and seen to state the mapping. Many pages state only
+the classic-PAT / OAuth scope and the account role required — the
+installations call above documents `admin:read` and organization
+ownership, and names no fine-grained or App permission at all — so the
+mapping is unstated upstream and the sentence would be a training-data
+prior dressed as a citation, in the one document whose whole purpose is
+to record why each scope is held. Write what the page does say, plus
+what this repo can prove about which calls need the scope, and leave
+the exact permission mapping unasserted.
+
 No webhook is configured: this App is used only for minting
 installation tokens in CI, not for receiving event deliveries.
 

@@ -46,11 +46,27 @@ heading) stays live there — any new agent-memory entry file (which
 opens with YAML front matter, not a heading) needs a `# H1` as its
 first content line after the front matter, or `lint:md` fails on it.
 `MEMORY.md` index files are unaffected since they already open with a
-heading.
+heading. The same path-based glob reaches scratch Markdown under
+`.claude/tmp/<task slug>/` — a PR body staged for `gh pr edit
+--body-file`, say — which is gitignored but linted anyway, and fails
+`MD041` and often `MD012`. Delete the scratch directory before running
+`lint:md`; never fix the scratch file's lint errors and never add a
+config exclusion for it.
 
 ```bash
 npm run lint:md
 ```
+
+`shellcheck`, which `.github/workflows/ci.yml` runs over `assets/*.sh`
+and `scripts/*.sh`, is a runner-image binary rather than a project
+dependency: it is absent from this host, from `package.json`, and from
+`node_modules/.bin`, with no `npx` fallback. Its absence is neither a
+blocker to escalate nor grounds for a `brew install`. Substitute what
+is local — `bash -n <script>` for syntax, the matching
+`assets/test-*.sh` / `scripts/test-*.sh` self-test for behaviour, and
+`scripts/check-pin-shape.sh` when any `assets/*.yml` changed — and say
+in the report that shellcheck did not run, rather than implying the CI
+lint set passed.
 
 ## Structure
 
@@ -848,7 +864,13 @@ npm run lint:md
   (`package-lock.json` lists no other dependent), so importing it would
   couple `npm test` — and therefore the `ci-required` check — to another
   package's dependency graph. Declare the dependency first if a real
-  parser is ever warranted.
+  parser is ever warranted. Throwaway scratch under
+  `.claude/tmp/<task slug>/` is the one place it may be imported, and
+  is its best use here: a real parse is the oracle a hand-rolled YAML
+  helper gets cross-checked against. The hoisted version is
+  ESM-with-named-exports-only, so `import yaml from "js-yaml"` throws
+  `does not provide an export named 'default'` and the import must be
+  `import * as yaml`.
 - A claim in prose or a doc comment about a package's presence,
   dependents, version, or export shape is checked only after `npm ci`.
   A subagent worktree starts with no `node_modules`, and the primary
@@ -877,6 +899,91 @@ npm run lint:md
   sentence is authored in the same commit as the code it describes:
   the guard's described BEHAVIOUR can be correct while the stated
   REASON is false, and no test catches that.
+- A sentence naming a test, lint rule, ruleset, or CI gate as the
+  reason a narrower implementation is safe stands only after that
+  guarantee is opened and run against the value the narrow
+  implementation mishandles. The name is not the contract: a test
+  called `semver-shaped` whose regex is unanchored accepts
+  `0.3.0-rc.1`, the exact value a core-only version compare cannot
+  survive. Prefer prose that states the rejection positively ("a
+  prerelease fails `npm test`") over prose that states a shape
+  passively ("is pinned to `X.Y.Z`"), since the positive form is
+  falsifiable in one command; when the guarantee turns out not to
+  hold, strengthening it is the fix and the prose then becomes true.
+- A claim that behaviour is "identical across all arms" of a
+  discriminated union is settled against the consumer that reads the
+  union, not accepted. The usual shape is that one arm carries a
+  payload and the rest collapse to a fallback, so the collapsing arms
+  resolve alike while the payload arm can resolve either way — the
+  ternary at the call site is the answer, and the tests pin the
+  resolution without asserting any sentence about it. State the
+  narrower true thing: the discriminant never decides on its own.
+- A test's TITLE is prose describing the code, and is checked against
+  the fixture in its own body whenever a diff renames a vocabulary or
+  inverts a meaning. A flipped fixture under an unflipped title leaves
+  every test passing and the title false; no suite can catch it. Grep
+  the changed test files for the retired token and for the old sense.
+- A fact about GitHub's API established by running something rather
+  than by reading GitHub's documentation ships with the experiment
+  that established it: the exact `gh api` calls, the org and date they
+  ran on, and what each returned, as copy-pasteable commands with real
+  values inlined. A conclusion with no probe beside it cannot be
+  re-checked once the API's behaviour changes.
+- A structural change — a job shape, a file move, a renamed export —
+  is swept for prose it falsified by grepping the RETIRED term across
+  the whole repo (`--exclude-dir=node_modules --exclude-dir=dist`),
+  not by re-reading the files in the diff: the prose the diff
+  falsified is mostly in files the diff never touched, such as a doc
+  comment in `src/` describing a workflow's job shape. Triage each
+  hit — historical narration ("this workflow USED TO be…") stays, a
+  present-tense claim is a defect, and a design record carrying a
+  status marker is never a hit at all (see this file's opening
+  section). Fixing an out-of-diff one-line comment is in scope; a
+  refactor is not.
+- When a later commit on a PR downgrades a claim about external
+  behaviour to "unsettled" or "unverified", the earlier prose still
+  asserting it as fact is now false, including paragraphs earlier in
+  the same file. On a re-run over a PR that already carries doc
+  commits, read the newest commits first, take the term each hedge is
+  about, and grep the repo for the unhedged form: the newest statement
+  is the researched one and the earlier one is what gets corrected.
+- A finding of the form "this assertion passes by coincidence" is
+  discharged by watching the replacement FAIL on the input it exists
+  to reject, not by watching the suite stay green — green proves only
+  that the assertion accepts the current input. Feed it the pre-change
+  shape (`git show origin/main:<path>`) from a scratch `.mjs` under
+  `.claude/tmp/<task slug>/` rather than by editing the payload;
+  editing gitignored `dist/` to introduce the bug is fine, since
+  `npm run build` restores it. Cross-check any hand-rolled parser
+  against a real parse of the same input, and prefer asserting the
+  exact expected VALUE over a count — a leaked entry names itself in
+  the failure message, where a count only says `2 !== 1`.
+- A test fixture standing in for a real runtime value is chosen so it
+  can never coincide with that value — `9.9.9` for a version that only
+  moves up — and a change that makes the two equal is a defect closed
+  in the same PR, not a trap reported for later. Replacing the literal
+  with the symbolic constant beats editing two literals. Sweep every
+  sibling test for the same constant, and keep the report honest about
+  which instances were load-bearing: load-bearing means a code path
+  can reach the real value on its own, as `runSweep`'s `version`
+  parameter does by defaulting to `CURRENT_VERSION`, where `decideRepo`
+  and `OrgPropertiesClient.stampVersion` take it as a required
+  argument and cannot.
+- Replacing a hardcoded enumeration with a mechanism driven by the
+  canonical source is not done until the enclosing SELECTOR has been
+  checked for the same hardcoding: whatever picks the things now being
+  looped over is usually hardcoded by the same author in the same
+  style. Grep the changed function for any remaining string literal
+  naming a member of the canonical asset, and ask whether that asset
+  could grow a member the literal would miss. The prose describing the
+  mechanism is rewritten at both levels, not just the inner one.
+- An issue's acceptance criteria are a description of intent, not a
+  contract that outranks correctness. When a review finding shows an
+  AC or a Design section encodes the wrong design, implement the
+  single correct mechanism and update the issue body to match — never
+  keep the old mechanism alongside the new one so the criterion's
+  literal wording stays true. Reconcile against every AC on the live
+  issue, not only the ones the finding names.
 - A Bash call this repo's agents make against git must be statically
   simple, or the harness refuses it before anything runs. `git -C
   <path> <cmd>` is refused outright, a single call chaining several
@@ -893,6 +1000,48 @@ npm run lint:md
   `git add` was chained to. The refusal text for `git -C` suggests a
   bare `cd` in a prior call, which does not help a subagent: a
   subagent's cwd resets between Bash calls.
+- The same static classification refuses non-git Bash calls, so it is
+  not a git rule with a wider reach. A call carrying output
+  redirection, a heredoc, or a `for`/`while` loop is refused whatever
+  binary it runs, because the classifier cannot prove where the write
+  lands; `sed -i '' -e … <file>` is refused separately, its empty
+  BSD backup suffix being parsed as a path that "resolves outside the
+  current repository". Edit repo files with `Edit`/`Write`, which are
+  worktree-anchored and never refused, and when a mechanical pass
+  really is the right tool, `Write` it to a `.py`/`.sh` under
+  `.claude/tmp/<task slug>/` and invoke the single static command
+  `python3 <abs path>` / `bash <abs path>`. A plain
+  `cmd > <abs path inside the worktree>` with no other shell structure
+  does pass, as do `|`-pipelines and `&&` chains of non-git commands.
+  Run the suite after any mechanical retokenization: it misses value
+  assertions whose key was renamed separately.
+- `cp` is wrapped interactively in the shell the harness starts, and
+  `cp -f` does not defeat the wrapper. Overwriting an existing file
+  prints `overwrite <path>? (y/n [n]) not overwritten` and the `&&`
+  chain after it stops — the prompt is unanswerable, since the Bash
+  tool supplies no stdin. This bites on the restore leg of a mutation
+  check, where a half-done restore leaves a deliberately corrupted
+  file in the worktree that is easy to commit by accident. Restore
+  with `/bin/cp -f <bak> <dst>`, or with a command that writes rather
+  than copies, and confirm with `git status --porcelain`.
+- A leftover sibling worktree can hold this repo's branch claim, so
+  `git checkout <branch>` fails with `already used by worktree at
+  .claude/worktrees/agent-<other>` — the cleanup step of an agent that
+  died never ran. Neither escalate nor delete another agent's
+  worktree. Inspect it with a bare `git worktree list` from your own,
+  confirm `git rev-parse origin/<branch>` equals that HEAD so no
+  unpushed work is at risk, then `git checkout --detach <tip>` and
+  push with an explicit refspec, `git push origin
+  HEAD:refs/heads/<branch>`, which claims the branch at no point and
+  so leaves the end-of-run cleanup nothing to release.
+- A `git push` here intermittently dies with `ssh: connect to host
+  github.com port 22: Operation timed out`. It is a connection that
+  never opened, not an authentication failure, and the message's
+  trailing "make sure you have the correct access rights" invites the
+  credential-surfaces stop-and-report path wrongly. Re-run the
+  identical push a couple of times, changing nothing about the remote,
+  the URL, or the credential agent, and escalate only if every retry
+  times out.
 - A subagent working in a worktree anchors every absolute path to
   `git rev-parse --show-toplevel`, never to the primary clone's path
   under `Workspaces/`. An `Edit` against the primary-clone path is
