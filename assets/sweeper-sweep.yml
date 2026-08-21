@@ -61,9 +61,10 @@
 #     and its private key in CONVERGER_APP_PRIVATE_KEY. The Client ID is
 #     a distinct value from the numeric App ID — it is what
 #     actions/create-github-app-token's `client-id:` input takes.
-#   - The three org custom properties defined at the org level
-#     (gh-repo-config-mode, gh-repo-config-default,
-#     gh-repo-config-version).
+#   - The org custom properties defined at the org level:
+#     gh-repo-config-mode (required, with a schema default_value — the
+#     sweep exits non-zero on one carrying none) and
+#     gh-repo-config-version.
 #   - `gh-repo-config.json` present at this repo's root.
 name: sweep
 

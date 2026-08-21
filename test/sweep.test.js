@@ -1013,10 +1013,10 @@ test("both no-value provenances produce the CLI's non-zero-exit line", async () 
 // (test/merge.test.js); these cases pin which repo gets it and when.
 async function reservedPathsPerRepo(sweepOptions) {
   const client = fakeClient({
-    orgDefault: "opt-in",
+    defaultMode: "opt-out",
     repos: [
-      { repo: "the-sweeper", mode: "process", version: V },
-      { repo: "an-ordinary-repo", mode: "process", version: V },
+      { repo: "the-sweeper", mode: "opt-in", version: V },
+      { repo: "an-ordinary-repo", mode: "opt-in", version: V },
     ],
   });
   const seen = {};

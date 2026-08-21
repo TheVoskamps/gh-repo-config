@@ -26,9 +26,8 @@
  * the iteration rather than resting on the author filter alone. Two
  * kinds of PR the merge pass leaves alone however green they are, both
  * settled as `awaiting-human` before a single check is read: on the
- * sweeper repo
- * under `sweeper-update-policy: manual`, one touching the sweeper
- * workflow itself is reserved for a human (issue #92,
+ * sweeper repo under `sweeper-update-policy: manual`, one touching the
+ * sweeper workflow itself is reserved for a human (issue #92,
  * {@link sweeperHumanApprovalPaths}); and on any repo, a DRAFT one.
  * Those are the two locks on the anchor path — `writer.ts` has already
  * opened that PR as a draft, which is what also stops GitHub's own
