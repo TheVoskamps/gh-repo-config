@@ -35,7 +35,10 @@ managed repo's own `protect-main` ruleset, and reads/writes the
 selection + stamp custom properties (`gh-repo-config-mode`,
 `gh-repo-config-version` — see `docs/repo-selection.md`). The
 org-level `~ALL` ruleset the design moves `protect-main` to is not
-built: `src/github/rulesets.ts` calls only `/repos/{o}/{r}/rulesets`.
+built: every ruleset endpoint `src/github/rulesets.ts` calls is
+repo-scoped, under `/repos/{o}/{r}/rulesets`, and the one org-level
+call it makes, `GET /orgs/{org}/installations`, resolves an App slug
+to its `app_id` and writes nothing.
 That elevated scope is precisely why it is a
 **separate** App — the pr-automation App must never hold it. See
 `docs/org-repo-configuration-fanout-decomposition.md` → "Converger
