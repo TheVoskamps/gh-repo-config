@@ -112,8 +112,11 @@ key in the App settings.
 ## Using the App in a workflow
 
 Mint an installation token at the start of the job and pass it to
-downstream steps. See `.github/workflows/sweep.yml` for the live
-usage; the canonical snippet is:
+downstream steps. The snippet below mirrors this repo's own
+`.github/workflows/sweep.yml`, which still feeds `app-id:`. A workflow
+written now should feed `client-id:` from `CONVERGER_APP_CLIENT_ID`
+instead — upstream carries a `deprecationMessage` on `app-id:`, so it
+warns on every run — as `assets/sweeper-sweep.yml` does:
 
 ```yaml
     steps:

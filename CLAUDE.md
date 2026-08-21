@@ -185,7 +185,8 @@ lint set passed.
     failure, and not something a later tick resolves on its own. The
     check runs BEFORE the check-state rollup, since the outcome cannot
     change with the checks, and an empty/absent list costs no extra
-    request at all. `src/sweep.ts` is the only caller that populates it.
+    request at all. `src/sweep.ts` is the only production caller that
+    populates it.
     This is the SECOND of two locks on the same paths and covers only
     the converger's own merge call; the one that binds every merge
     mechanism — including GitHub-native auto-merge, which the rendered
