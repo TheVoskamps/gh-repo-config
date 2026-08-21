@@ -31,11 +31,11 @@ optional per-repo property, and why the two levels were once split
 across two properties speaking two different vocabularies. Making the
 property required is GitHub's own mechanism for "org value, repo
 override, absent reads through", and it costs the effective value
-becoming visible on every repo's custom-properties surface. As a
-display, that cost is cosmetic and accepted. Whether GitHub also
-persists it as an explicit per-repo *value* is a separate question,
-unsettled here and load-bearing only at a change of default — see
-"Truth table" below.
+becoming visible on every repo's custom-properties surface. That cost is
+a display of an inherited value, not a value written onto the repo, and
+it is cosmetic and accepted — GitHub recomputes the inheritance whenever
+the default changes, which "Truth table" below documents and shows how
+to re-check.
 
 ## Truth table
 
@@ -59,26 +59,79 @@ Fail-safe collapses feed that table, each biased toward "don't touch":
 Read-through is implemented in the sweep's own code, not assumed of the
 API: the sweep reads the schema's `default_value` once per tick and each
 repo's own value through the bulk values read, then applies the table.
-Whether GitHub materializes the default into per-repo value reads is
-irrelevant to any one resolution at a fixed default — a repo whose read
-returns the default resolves exactly as an unset repo does, since both
-arms of the table agree there.
+That makes a resolution at a fixed default indifferent to how the API
+renders an inheriting repo — a repo whose read returns the default
+resolves exactly as an unset repo does, since both arms of the table
+agree there.
 
-It is not irrelevant to a *change* of default, which the runbook's
-step-8 flip is. If step 3's `required: true` with
-`default_value=opt-out` persists an explicit `opt-out` onto every
-previously-unset repo, `resolveManaged` takes that explicit `opt-out`
-arm and never consults the default, so step 8 converts nothing. Which
-of the two GitHub does is unsettled here: the org carries no
-required-with-default property to observe, and GitHub's documentation
-does not say whether inheritance is recomputed when a `default_value`
-changes. Either remedy closes it — clear the materialized values (step
-2's `value=null` PATCH, over the repos step 1 listed as unset) so they
-read through the new default again, or skip the intermediate default
-entirely by doing step 7's per-repo `opt-out` flagging first and
-defining the property with `default_value=opt-in` in step 3. The flip
-verification below is what makes the inert case visible; this paragraph
-is why it can happen.
+A *change* of default, which the runbook's step-8 flip is, would not be
+indifferent, so it was measured rather than assumed. GitHub
+**recomputes** inheritance when a property's `default_value` changes: it
+never writes the outgoing default onto repos as an explicit value. A
+repo's own explicit value is stored independently of the default and
+survives a change of default in either direction.
+
+That was established on the TheVoskamps org on 2026-08-20 with a
+throwaway `x-materialization-probe` property (`single_select`, allowed
+values `alpha` / `beta`, deleted afterwards). Re-run it against your own
+org rather than trusting this paragraph — read the resulting per-repo
+values with the same listing the runbook's step 1 uses, substituting the
+probe's name:
+
+```bash
+# a. Define the probe: required, default alpha. Every repo in the org
+#    (36 at the time) then reads alpha.
+gh api -X PUT /orgs/<org>/properties/schema/x-materialization-probe \
+  -f value_type=single_select \
+  -F required=true \
+  -f default_value=alpha \
+  -f "allowed_values[]=alpha" \
+  -f "allowed_values[]=beta"
+
+# b. Change ONLY the default. Every repo now reads beta, so the outgoing
+#    default was never written onto them.
+gh api -X PUT /orgs/<org>/properties/schema/x-materialization-probe \
+  -f value_type=single_select \
+  -F required=true \
+  -f default_value=beta \
+  -f "allowed_values[]=alpha" \
+  -f "allowed_values[]=beta"
+
+# c. Put the default back to alpha, flag ONE repo explicitly alpha, then
+#    change the default to beta. That repo keeps alpha while every other
+#    repo reads beta, so an explicit value is stored independently of the
+#    default and survives a change of it.
+gh api -X PUT /orgs/<org>/properties/schema/x-materialization-probe \
+  -f value_type=single_select \
+  -F required=true \
+  -f default_value=alpha \
+  -f "allowed_values[]=alpha" \
+  -f "allowed_values[]=beta"
+gh api -X PATCH /orgs/<org>/properties/values \
+  -f "repository_names[]=<repo>" \
+  -f "properties[][property_name]=x-materialization-probe" \
+  -f "properties[][value]=alpha"
+gh api -X PUT /orgs/<org>/properties/schema/x-materialization-probe \
+  -f value_type=single_select \
+  -F required=true \
+  -f default_value=beta \
+  -f "allowed_values[]=alpha" \
+  -f "allowed_values[]=beta"
+
+# d. Read the values back after each step above
+gh api /orgs/<org>/properties/values --paginate \
+  --jq '.[] | [.repository_name, (.properties[] | select(.property_name == "x-materialization-probe") | .value // "(unset)")] | @tsv'
+
+# e. Delete the probe
+gh api -X DELETE /orgs/<org>/properties/schema/x-materialization-probe
+```
+
+Two things follow for the runbook. Step 8's flip converts every repo
+still unset, exactly as written, so the ordinary step order 3 → 7 → 8
+is correct and needs no intermediate value-clearing pass. And step 7's
+per-repo `opt-out` flagging is durable across that flip: those values
+are explicit, so the step-8 default change leaves them alone and their
+repos stay unmanaged.
 
 ## Semantic inversion from the retired vocabulary
 
@@ -190,11 +243,8 @@ Flip verification: the summary header names `opt-in` as the declared
 default, and repos previously reported `skip-unmanaged` appear as
 converge candidates. A run whose header still names `opt-out` — or
 reports the property undefined or valueless — is a failed flip, not a
-quiet success. A run whose header names `opt-in` while the same repos
-still report `skip-unmanaged` is the materialization case described
-under "Truth table" above: step 3's default was written onto those
-repos as an explicit value, and clearing it (step 2's `value=null`
-PATCH, per repo) is what makes them read through the new default.
+quiet success. Repos that stay `skip-unmanaged` under an `opt-in` header
+are the ones step 7 flagged `opt-out`, which is the flip working.
 
 ## Where this lives in the code
 

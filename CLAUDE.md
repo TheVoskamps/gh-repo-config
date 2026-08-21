@@ -791,10 +791,13 @@ npm run lint:md
   default, fails the run loudly (issues #67, #68, see
   `bin/gh-repo-config.js`) rather than reading as a quiet
   all-unmanaged tick. Surfacing the effective value on every repo's
-  custom-properties display is the accepted cost of that; whether GitHub
-  also persists it as an explicit per-repo value is unsettled and
-  matters only when the default is CHANGED, which
-  `docs/repo-selection.md` covers under "Truth table". Also passes
+  custom-properties display is the accepted cost of that; it is a
+  display of an INHERITED value, not a value written onto the repo —
+  GitHub recomputes inheritance when the schema `default_value` changes,
+  and an explicit per-repo value survives such a change independently, so
+  changing the default converts exactly the repos carrying no value of
+  their own. `docs/repo-selection.md` records the probe that measured
+  this, under "Truth table". Also passes
   `GH_REPO_CONFIG_APP_SLUG` (read from the token-mint step's own
   `app-slug` output, not a separate secret) so the merge pass can
   match `user.login === "<slug>[bot]"` and never merge a PR authored

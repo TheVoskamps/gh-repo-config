@@ -166,9 +166,8 @@ export class OrgPropertiesClient {
    * collapsing both no-value cases to `undefined`.
    *
    * The read-through is applied in the sweep's own code rather than
-   * assumed of the API: whether GitHub materializes the schema default
-   * into each repo's own value read is irrelevant, since a repo whose
-   * read returns the default resolves to the same verdict either way.
+   * assumed of the API, so a repo whose own value read returns the
+   * inherited default resolves to the same verdict an unset repo does.
    *
    * Callers normalize `set`'s `raw` and nothing else through
    * `normalizeDefaultMode`, so selection behaviour is identical across

@@ -68,8 +68,10 @@ export function resolveManaged(
  *
  * Anything that is not exactly `opt-in` or `opt-out` — including a
  * missing property, an empty value, or a typo'd token — collapses to
- * `unset`, which then defers to the schema default. This keeps a
- * malformed per-repo flag from silently being treated as `opt-in`.
+ * `unset`, which then defers to the schema default. The collapse carries
+ * no verdict of its own: a malformed flag is never read as an intent to
+ * manage or not to manage, so the org's declared default decides, and
+ * under `default_value: opt-in` such a repo is managed.
  */
 export function normalizeMode(raw: string | undefined | null): SelectionMode {
   if (raw === "opt-in" || raw === "opt-out") {
