@@ -56,7 +56,8 @@ issues two GraphQL calls, the `convertPullRequestToDraft` and
 `markPullRequestReadyForReview` mutations, issued by `ContentsClient`
 (`src/github/contents.ts`) and driven by `src/converge/writer.ts` to
 hold the sweeper repo's trust-anchor PR as a draft under
-`sweeper-update-policy: manual`, and to release that hold under `auto`.
+`sweeper-update-policy: manual`, and to release that hold under a
+policy that no longer reserves that path — `auto` or `off`.
 There is no REST equivalent — `draft` is writable on the create call
 only. Narrowing whatever permission those mutations need would leave
 them failing: the trust-anchor hold would rest on the merge pass alone,

@@ -829,6 +829,13 @@ lint set passed.
   the CLI against the live API — and the full tick still runs before it
   fires. The sweep summary also prints each repo's CodeQL default-setup
   and `protect-main` ruleset outcomes, plus any ruleset-deferred repos.
+  Its counts split `SweepReport.awaitingChecks` in two (issue #92): the
+  `awaiting-human` entries are counted as "held for a human" and
+  subtracted from the "awaiting checks" count, because a held PR waits
+  on a person rather than on a check. `awaitingChecks` is the one
+  bucket on the report for both, so the split lives here — a summary
+  calling a held PR "awaiting checks" reads as a transient state an
+  operator can wait out, which it is not.
 - `test/` — `node:test` files, run via `node --test test/**/*.test.js`.
 - `.github/workflows/ci.yml` — REPO-OWN workflow, not part of the
   sweep's rendered payload (it has no `assets/` counterpart and is
