@@ -170,9 +170,11 @@ export class OrgPropertiesClient {
    * inherited default resolves to the same verdict an unset repo does.
    *
    * Callers normalize `set`'s `raw` and nothing else through
-   * `normalizeDefaultMode`, so selection behaviour is identical across
-   * all three provenances; the two no-value provenances additionally fail
-   * the run loudly (see `describeDefaultModeProvenanceFailure`).
+   * `normalizeDefaultMode`, so the provenance never decides selection on
+   * its own: both no-value arms feed the same fail-safe collapse and
+   * therefore resolve alike, and only a `set` arm's `raw` moves the
+   * verdict. Those two arms additionally fail the run loudly (see
+   * `describeDefaultModeProvenanceFailure`).
    */
   async readDefaultMode(): Promise<DefaultModeRead> {
     const url = `${this.apiBase}/orgs/${this.org}/properties/schema/${PROPERTY_NAMES.mode}`;

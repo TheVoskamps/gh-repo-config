@@ -21,8 +21,9 @@
  * decision is `converge` or `skip-current` — not just the ones
  * selected for `converge` this tick. Unmanaged (`skip-unmanaged`)
  * repos are never probed at all: the converger has no business on a
- * repo that opted out, so scoping is explicit in the iteration rather
- * than resting on the author filter alone.
+ * repo selection ruled out — whether by its own `opt-out` value or by
+ * an `opt-out` default it never overrode — so scoping is explicit in
+ * the iteration rather than resting on the author filter alone.
  *
  * The GHAS / merge-button settings convergence step (issue #15) is
  * pure API mutations (no files, no PR) and runs alongside the file
@@ -272,15 +273,15 @@ export interface SweepReport {
 /**
  * Record a repo's outcome as `failed` in `results`, in place.
  *
- * The three call sites in {@link runSweep} (convergence-loop catch,
- * `PartialStampError` downgrade, merge-loop catch) all need to encode
- * "this repo did not end the sweep successfully, here's why" into the
- * same `results` array, so a re-sweep retries it. This is the one
- * canonical way to do that:
+ * Every per-step catch in {@link runSweep} — file converge, GHAS,
+ * default setup, merge pass, ruleset, and the `PartialStampError`
+ * downgrade — needs to encode "this repo did not end the sweep
+ * successfully, here's why" into the same `results` array, so a
+ * re-sweep retries it. This is the one canonical way to do that:
  *
  * - Finds the repo's existing entry by name (every repo already got a
  *   `results.push` from the initial selection loop, so an entry always
- *   exists by the time any of the three call sites run).
+ *   exists by the time any caller runs).
  * - Leaves a prior `failed` entry alone rather than clobbering it with a
  *   less-specific reason — e.g. a repo whose `converge` step already
  *   threw this tick must not have that recorded failure overwritten by a

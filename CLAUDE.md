@@ -145,11 +145,13 @@ npm run lint:md
     outage: the selection properties did not exist on TheVoskamps until
     2026-07-26 (issue #59), and every tick from the sweep workflow's
     first run reported all repos unmanaged. Only the `set` arm's `raw`
-    is ever normalized, so selection behaviour is identical for all
-    three; the two no-value provenances additionally exit the CLI
-    non-zero, since a `default_value` is accepted only on a
-    `required: true` property and so a mode property carrying none is
-    provisioning drift rather than a steady state.
+    is ever normalized, so the provenance never decides selection by
+    itself — both no-value arms feed the same fail-safe collapse and
+    resolve alike, and only a `set` arm's `raw` moves the verdict. Those
+    two arms additionally exit the CLI non-zero, since a `default_value`
+    is accepted only on a `required: true` property and so a mode
+    property carrying none is provisioning drift rather than a steady
+    state.
   - `src/github/merge.ts` — `MergeClient`, same dependency-free-`fetch`
     shape as `properties.ts`. Lists the converger App's own open PRs on
     a repo, resolves required checks via the rules API

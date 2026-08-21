@@ -37,9 +37,11 @@ call in `src/github/rulesets.ts` (`readAppIdsBySlug`), which resolves an
 App slug to the `app_id` every `protect-main` bypass-actor entry is
 written with — an org-owner-only endpoint, and the converger's only
 call that needs org-administration scope; Organization
-custom properties to read/write the selection + stamp custom properties
-(`gh-repo-config-mode`, `gh-repo-config-version` — see
-`docs/repo-selection.md`). The
+custom properties to read the selection property `gh-repo-config-mode`
+(both its schema `default_value` and every repo's own value) and to read
+and write the `gh-repo-config-version` stamp — write is needed for the
+stamp alone, since the converger never writes a repo's mode. See
+`docs/repo-selection.md`. The
 org-level `~ALL` ruleset the design moves `protect-main` to is not
 built: every ruleset endpoint `src/github/rulesets.ts` calls is
 repo-scoped, under `/repos/{o}/{r}/rulesets`, and that installations
