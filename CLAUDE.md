@@ -790,8 +790,11 @@ npm run lint:md
   property; a mode property that is undefined, or defined without a
   default, fails the run loudly (issues #67, #68, see
   `bin/gh-repo-config.js`) rather than reading as a quiet
-  all-unmanaged tick. Materializing the effective value on every repo's
-  custom-properties surface is the accepted cost of that. Also passes
+  all-unmanaged tick. Surfacing the effective value on every repo's
+  custom-properties display is the accepted cost of that; whether GitHub
+  also persists it as an explicit per-repo value is unsettled and
+  matters only when the default is CHANGED, which
+  `docs/repo-selection.md` covers under "Truth table". Also passes
   `GH_REPO_CONFIG_APP_SLUG` (read from the token-mint step's own
   `app-slug` output, not a separate secret) so the merge pass can
   match `user.login === "<slug>[bot]"` and never merge a PR authored

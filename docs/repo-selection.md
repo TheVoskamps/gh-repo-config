@@ -30,9 +30,12 @@ That 422 is why the org-level value could not simply live on the
 optional per-repo property, and why the two levels were once split
 across two properties speaking two different vocabularies. Making the
 property required is GitHub's own mechanism for "org value, repo
-override, absent reads through", and it costs one thing: the effective
-value becomes visible on every repo's custom-properties surface. That
-cost is cosmetic and accepted.
+override, absent reads through", and it costs the effective value
+becoming visible on every repo's custom-properties surface. As a
+display, that cost is cosmetic and accepted. Whether GitHub also
+persists it as an explicit per-repo *value* is a separate question,
+unsettled here and load-bearing only at a change of default — see
+"Truth table" below.
 
 ## Truth table
 
