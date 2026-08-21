@@ -4,7 +4,7 @@
 // Subcommands:
 //   version  — print the converger's current version (slice 1, #12).
 //   sweep    — run the selection-loop sweep over an org, reading the
-//              three selection/stamp custom properties, applying the
+//              selection/stamp custom properties, applying the
 //              precedence table + version-skip, converging each due
 //              repo's files (#14) and GHAS/merge-button settings (#15),
 //              stamping processed repos (slice 2, #13), and merging the
@@ -18,7 +18,7 @@
 //              mints the App installation token.
 import {
   CURRENT_VERSION,
-  describeOrgDefaultProvenanceFailure,
+  describeDefaultModeProvenanceFailure,
   runSweepFromEnv,
 } from "../dist/index.js";
 
@@ -96,11 +96,11 @@ switch (command) {
         console.log(`  ${repo}: protect-main ruleset deferred — file PR not yet merged (retry next tick)`);
       }
       // The sweep ran its full tick either way — every repo decided,
-      // converged, and stamped as usual. An unprovisioned org default
-      // (#67) only changes what is reported and what is exited with,
-      // alongside the failed-repos exit path below.
+      // converged, and stamped as usual. An unprovisioned selection
+      // default (#67, #68) only changes what is reported and what is
+      // exited with, alongside the failed-repos exit path below.
       let failure = false;
-      const provenanceFailure = describeOrgDefaultProvenanceFailure(report);
+      const provenanceFailure = describeDefaultModeProvenanceFailure(report);
       if (provenanceFailure) {
         console.error(provenanceFailure);
         failure = true;

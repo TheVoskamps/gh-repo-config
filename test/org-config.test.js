@@ -335,7 +335,7 @@ function fakeApi() {
         {
           repository_name: REPO,
           properties: [
-            { property_name: "gh-repo-config-mode", value: "process" },
+            { property_name: "gh-repo-config-mode", value: "opt-in" },
             { property_name: "gh-repo-config-version", value: "0.0.1" },
           ],
         },

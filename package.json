@@ -1,6 +1,6 @@
 {
   "name": "gh-repo-config",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Org-wide repo-configuration converger — deterministic core consumed as an immutable GitHub Release.",
   "license": "MIT",
   "private": true,

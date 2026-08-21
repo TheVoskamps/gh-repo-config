@@ -8,10 +8,10 @@
  * stamping) is trivially testable around it.
  */
 import {
+  normalizeDefaultMode,
   normalizeMode,
-  normalizeOrgDefault,
   resolveManaged,
-  type OrgDefault,
+  type DefaultMode,
 } from "../config/selection.js";
 import { isBehind } from "../version-compare.js";
 
@@ -44,7 +44,7 @@ export type RepoAction =
 
 /** The raw custom-property values read for one repo, before normalization. */
 export interface RepoProperties {
-  /** `gh-repo-config-mode` — per-repo `process`/`ignore`/unset. */
+  /** `gh-repo-config-mode` — per-repo `opt-in`/`opt-out`/unset. */
   readonly mode: string | undefined | null;
   /** `gh-repo-config-version` — the applied-release stamp. */
   readonly version: string | undefined | null;
@@ -59,25 +59,25 @@ export interface RepoDecision {
 
 /**
  * Decide what to do with one repo given its raw custom-property values,
- * the org default, and the converger's current version.
+ * the schema default, and the converger's current version.
  *
- * Applies the decomposition's precedence table in order: resolve
- * managed-or-not first (per-repo flag beats org default; `ignore` beats
- * `process`), then, only for managed repos, apply the version-skip.
+ * Applies the precedence table in order: resolve managed-or-not first (a
+ * repo's own value beats the schema default), then, only for managed
+ * repos, apply the version-skip.
  */
 export function decideRepo(
   props: RepoProperties,
-  orgDefault: OrgDefault,
+  defaultMode: DefaultMode,
   currentVersion: string,
 ): RepoDecision {
   const mode = normalizeMode(props.mode);
-  const managed = resolveManaged(mode, orgDefault);
+  const managed = resolveManaged(mode, defaultMode);
 
   if (!managed) {
     const why =
-      mode === "ignore"
-        ? "mode=ignore"
-        : `mode=unset, org default=${orgDefault}`;
+      mode === "opt-out"
+        ? "mode=opt-out"
+        : `mode=unset, default=${defaultMode}`;
     return { action: "skip-unmanaged", reason: `not managed (${why})` };
   }
 
@@ -95,13 +95,13 @@ export function decideRepo(
 }
 
 /**
- * Convenience wrapper that also normalizes the org default from its raw
- * `gh-repo-config-default` custom-property value.
+ * Convenience wrapper that also normalizes the default from the raw
+ * `gh-repo-config-mode` schema `default_value`.
  */
 export function decideRepoFromRaw(
   props: RepoProperties,
-  rawOrgDefault: string | undefined | null,
+  rawDefaultMode: string | undefined | null,
   currentVersion: string,
 ): RepoDecision {
-  return decideRepo(props, normalizeOrgDefault(rawOrgDefault), currentVersion);
+  return decideRepo(props, normalizeDefaultMode(rawDefaultMode), currentVersion);
 }

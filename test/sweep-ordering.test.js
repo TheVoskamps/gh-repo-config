@@ -13,7 +13,7 @@ function fakeClient({ repos }) {
   const stamped = [];
   return {
     stamped,
-    readOrgDefault: async () => ({ provenance: "set", raw: "opt-in" }),
+    readDefaultMode: async () => ({ provenance: "set", raw: "opt-in" }),
     readAllRepoValues: async () => repos,
     stampVersion: async (names, version) => {
       stamped.push({ names: [...names], version });
@@ -40,7 +40,7 @@ function openPr(number, repo) {
 }
 
 test("ordering gate: a repo whose file PR merged this tick has its ruleset run and is stamped", async () => {
-  const client = fakeClient({ repos: [{ repo: "merged-repo", mode: "process", version: "0.1.0" }] });
+  const client = fakeClient({ repos: [{ repo: "merged-repo", mode: "opt-in", version: "0.1.0" }] });
   const rulesetCalls = [];
   const report = await runSweep(client, "O", V, {
     log: () => {},
@@ -69,7 +69,7 @@ test("ordering gate: a repo whose file PR merged this tick has its ruleset run a
 });
 
 test("ordering gate: a repo whose file PR did NOT merge this tick is deferred and NOT stamped", async () => {
-  const client = fakeClient({ repos: [{ repo: "pending-repo", mode: "process", version: "0.1.0" }] });
+  const client = fakeClient({ repos: [{ repo: "pending-repo", mode: "opt-in", version: "0.1.0" }] });
   const rulesetCalls = [];
   const report = await runSweep(client, "O", V, {
     log: () => {},
@@ -110,7 +110,7 @@ test("ordering gate: a repo whose file PR did NOT merge this tick is deferred an
 });
 
 test("ordering gate: a no-op file convergence (nothing to merge) still runs the ruleset and stamps", async () => {
-  const client = fakeClient({ repos: [{ repo: "noop-repo", mode: "process", version: "0.1.0" }] });
+  const client = fakeClient({ repos: [{ repo: "noop-repo", mode: "opt-in", version: "0.1.0" }] });
   const rulesetCalls = [];
   const report = await runSweep(client, "O", V, {
     log: () => {},
@@ -135,7 +135,7 @@ test("ordering gate: a no-op file convergence (nothing to merge) still runs the 
 });
 
 test("ordering gate: a ruleset step failure marks the repo failed and skips stamping", async () => {
-  const client = fakeClient({ repos: [{ repo: "bad-ruleset", mode: "process", version: "0.1.0" }] });
+  const client = fakeClient({ repos: [{ repo: "bad-ruleset", mode: "opt-in", version: "0.1.0" }] });
   const report = await runSweep(client, "O", V, {
     log: () => {},
     converge: () => ({ changed: [], noop: true }),
@@ -157,7 +157,7 @@ test("ordering gate: a ruleset step failure marks the repo failed and skips stam
 });
 
 test("without a ruleset step injected, stamping keeps pre-#16 behavior (no ordering gate)", async () => {
-  const client = fakeClient({ repos: [{ repo: "legacy", mode: "process", version: "0.1.0" }] });
+  const client = fakeClient({ repos: [{ repo: "legacy", mode: "opt-in", version: "0.1.0" }] });
   const report = await runSweep(client, "O", V, {
     log: () => {},
     // A file PR was opened but not merged — yet with no ruleset step,

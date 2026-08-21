@@ -56,8 +56,14 @@ npm run lint:md
 - `src/` — TypeScript source, compiled to `dist/` by `npm run build`.
   `dist/` is gitignored; tests and `bin/gh-repo-config.js` import from
   `dist/`, not `src/`.
-  - `src/config/selection.ts` — managed-or-not precedence over the
-    `gh-repo-config-mode` / `gh-repo-config-default` custom properties.
+  - `src/config/selection.ts` — managed-or-not precedence over the one
+    `gh-repo-config-mode` custom property (issue #68), which carries
+    both levels of the decision: a repo's own `opt-in`/`opt-out` value,
+    and — in the same property's schema — the `default_value` an unset
+    repo reads through to. Both levels state the repo's state, so
+    `opt-in` always means managed. The contract, the truth table, the
+    422 that forces `required: true`, and the operator runbook are in
+    `docs/repo-selection.md` (as-built, no status marker).
   - `src/config/org-config.ts` — the per-org config file (issue #91):
     the seam that lets one released tarball serve every org. The model
     is that each org runs the sweep from its own private sweeper repo,
@@ -89,7 +95,7 @@ npm run lint:md
     deliberately no per-target-repo pinning, since the sweep runs one
     tarball version per tick and per-repo pins would institutionalize
     skew the stamp/`isBehind` model has no endpoint for — the escape
-    hatch for one repo is `gh-repo-config-mode: ignore`), and
+    hatch for one repo is `gh-repo-config-mode: opt-out`), and
     `sweeper-update-policy` (`manual` | `auto` | `off`, default
     `manual`; parsed and exposed here, its consumer is the
     sweeper-workflow payload and is later work). Every malformed value
@@ -125,21 +131,24 @@ npm run lint:md
     single per-repo verdict (`skip-unmanaged` / `skip-current` /
     `converge`).
   - `src/github/properties.ts` — dependency-free `fetch`-based REST
-    client for the three org custom properties (paginated read,
-    batched ≤30 stamp write). `readOrgDefault` returns an
-    `OrgDefaultRead` discriminated union carrying **provenance**, not a
-    bare value (issue #67): `set` (200 with a `default_value`, whose
-    unvalidated `raw` string rides along), `defined-no-value` (200 with
-    none — legitimate, since GitHub rejects a schema `default_value`
-    unless the property is `required`), `not-defined` (404 — the
-    property does not exist on the org, the anomalous case). The
-    distinction exists because `normalizeOrgDefault`'s fail-safe
-    collapse to `opt-in` makes an unprovisioned org read exactly like a
-    genuine opt-in one, which once masked a real outage: the three
-    properties did not exist on TheVoskamps until 2026-07-26 (issue
-    #59), and every tick from the sweep workflow's first run reported
-    all repos unmanaged. Only the `set` arm's `raw` is ever normalized,
-    so selection behaviour is identical for all three.
+    client for the org custom properties (paginated read,
+    batched ≤30 stamp write). `readDefaultMode` reads the
+    `gh-repo-config-mode` SCHEMA's `default_value` and returns a
+    `DefaultModeRead` discriminated union carrying **provenance**, not a
+    bare value (issues #67, #68): `set` (200 with a `default_value`,
+    whose unvalidated `raw` string rides along), `defined-no-value` (200
+    with none), `not-defined` (404 — the property does not exist on the
+    org). The distinction exists because `normalizeDefaultMode`'s
+    fail-safe collapse to `opt-out` makes an unprovisioned org read
+    exactly like a genuinely opt-out one, which once masked a real
+    outage: the selection properties did not exist on TheVoskamps until
+    2026-07-26 (issue #59), and every tick from the sweep workflow's
+    first run reported all repos unmanaged. Only the `set` arm's `raw`
+    is ever normalized, so selection behaviour is identical for all
+    three; the two no-value provenances additionally exit the CLI
+    non-zero, since a `default_value` is accepted only on a
+    `required: true` property and so a mode property carrying none is
+    provisioning drift rather than a steady state.
   - `src/github/merge.ts` — `MergeClient`, same dependency-free-`fetch`
     shape as `properties.ts`. Lists the converger App's own open PRs on
     a repo, resolves required checks via the rules API
@@ -637,11 +646,12 @@ npm run lint:md
   `GH_REPO_CONFIG_SWEEPER_REPO` from
   the environment; exits non-zero when any repo's convergence or stamp
   write failed, so a scheduled sweep run cannot fail silently). It
-  exits non-zero on one further condition (issue #67): a
-  `SweepReport.orgDefaultProvenance` of `not-defined`, meaning the
-  `gh-repo-config-default` property does not exist on the org and every
-  repo fell back to the fail-safe `opt-in`. That check is
-  `describeOrgDefaultProvenanceFailure` in `src/sweep.ts` — the decision
+  exits non-zero on one further condition (issues #67, #68): a
+  `SweepReport.defaultModeProvenance` of `not-defined` or
+  `defined-no-value`, meaning `gh-repo-config-mode` declares no
+  `default_value` and every repo without a value of its own fell back to
+  the fail-safe `opt-out`. That check is
+  `describeDefaultModeProvenanceFailure` in `src/sweep.ts` — the decision
   lives there, not in the CLI, so it is unit-testable without spawning
   the CLI against the live API — and the full tick still runs before it
   fires. The sweep summary also prints each repo's CodeQL default-setup
@@ -772,16 +782,15 @@ npm run lint:md
   pr-automation App, since it needs Administration / Org administration
   scope the pr-automation App must never hold. Requires the
   org-level custom properties to be defined
-  (`gh-repo-config-mode`, `gh-repo-config-default`,
-  `gh-repo-config-version`) — an operator-provisioning step, not
-  something the workflow itself creates. A `gh-repo-config-default`
-  that is not defined on the org fails the run loudly (issue #67, see
+  (`gh-repo-config-mode`, `gh-repo-config-version`) — an
+  operator-provisioning step, not something the workflow itself
+  creates. `gh-repo-config-mode` must be `required: true` with a schema
+  `default_value`, since GitHub rejects a default on an optional
+  property; a mode property that is undefined, or defined without a
+  default, fails the run loudly (issues #67, #68, see
   `bin/gh-repo-config.js`) rather than reading as a quiet
-  all-unmanaged tick. On TheVoskamps that property exists but
-  deliberately carries no schema `default_value` — GitHub rejects one
-  unless the property is `required`, which would materialize the value
-  on every repo in the org — so its provenance is `defined-no-value`,
-  the legitimate state, not the failing one. Also passes
+  all-unmanaged tick. Materializing the effective value on every repo's
+  custom-properties surface is the accepted cost of that. Also passes
   `GH_REPO_CONFIG_APP_SLUG` (read from the token-mint step's own
   `app-slug` output, not a separate secret) so the merge pass can
   match `user.login === "<slug>[bot]"` and never merge a PR authored

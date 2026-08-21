@@ -26,9 +26,9 @@ export { CURRENT_VERSION, PACKAGE_NAME } from "./version.js";
 export {
   resolveManaged,
   normalizeMode,
-  normalizeOrgDefault,
+  normalizeDefaultMode,
   type SelectionMode,
-  type OrgDefault,
+  type DefaultMode,
 } from "./config/selection.js";
 
 export {
@@ -59,8 +59,8 @@ export {
   PartialStampError,
   PROPERTY_NAMES,
   MAX_REPOS_PER_BATCH,
-  type OrgDefaultProvenance,
-  type OrgDefaultRead,
+  type DefaultModeProvenance,
+  type DefaultModeRead,
   type OrgPropertiesClientOptions,
   type RepoPropertyValues,
 } from "./github/properties.js";
@@ -78,7 +78,7 @@ export {
 export {
   runSweep,
   runSweepFromEnv,
-  describeOrgDefaultProvenanceFailure,
+  describeDefaultModeProvenanceFailure,
   type SweepReport,
   type SweepRepoResult,
   type SweepConvergeResult,

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   runSweep,
   runSweepFromEnv,
-  describeOrgDefaultProvenanceFailure,
+  describeDefaultModeProvenanceFailure,
   PartialStampError,
   CURRENT_VERSION,
   isBehind,
@@ -11,16 +11,16 @@ import {
 } from "../dist/index.js";
 
 // A minimal fake of OrgPropertiesClient — runSweep only calls
-// readOrgDefault, readAllRepoValues, and stampVersion.
-// `orgDefault` is the raw property value the org carries; tests that care
-// about provenance (issue #67) pass `orgDefaultRead` instead, which is the
-// full discriminated union readOrgDefault returns.
-function fakeClient({ orgDefault, orgDefaultRead, repos, stampVersionImpl }) {
+// readDefaultMode, readAllRepoValues, and stampVersion.
+// `defaultMode` is the raw property value the org carries; tests that care
+// about provenance (issue #67) pass `defaultModeRead` instead, which is the
+// full discriminated union readDefaultMode returns.
+function fakeClient({ defaultMode, defaultModeRead, repos, stampVersionImpl }) {
   const stamped = [];
   return {
     stamped,
-    readOrgDefault: async () =>
-      orgDefaultRead ?? { provenance: "set", raw: orgDefault },
+    readDefaultMode: async () =>
+      defaultModeRead ?? { provenance: "set", raw: defaultMode },
     readAllRepoValues: async () => repos,
     stampVersion:
       stampVersionImpl ??
@@ -45,12 +45,12 @@ const V = "9.9.9";
 
 test("sweep converges behind managed repos, skips others, and stamps them", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
+    defaultMode: "opt-out",
     repos: [
-      { repo: "fixture-process", mode: "process", version: "0.1.0" },
-      { repo: "fixture-ignore", mode: "ignore", version: "0.1.0" },
+      { repo: "fixture-opt-in", mode: "opt-in", version: "0.1.0" },
+      { repo: "fixture-opt-out", mode: "opt-out", version: "0.1.0" },
       { repo: "fixture-unset", mode: undefined, version: undefined },
-      { repo: "fixture-current", mode: "process", version: V },
+      { repo: "fixture-current", mode: "opt-in", version: V },
     ],
   });
 
@@ -59,14 +59,14 @@ test("sweep converges behind managed repos, skips others, and stamps them", asyn
     log: (m) => logs.push(m),
   });
 
-  assert.deepEqual(report.converged, ["fixture-process"]);
-  assert.deepEqual(report.stamped, ["fixture-process"]);
+  assert.deepEqual(report.converged, ["fixture-opt-in"]);
+  assert.deepEqual(report.stamped, ["fixture-opt-in"]);
   assert.deepEqual(report.failed, []);
-  assert.equal(report.skippedUnmanaged, 2); // ignore + unset(opt-in)
+  assert.equal(report.skippedUnmanaged, 2); // opt-out + unset(default opt-out)
   assert.equal(report.skippedCurrent, 1); // fixture-current
-  assert.equal(report.orgDefault, "opt-in");
+  assert.equal(report.defaultMode, "opt-out");
   assert.deepEqual(client.stamped, [
-    { names: ["fixture-process"], version: V },
+    { names: ["fixture-opt-in"], version: V },
   ]);
   // The default no-op converge/convergeGhas stubs return nothing, so no
   // convergeResults/ghasResults entries are contributed.
@@ -76,11 +76,11 @@ test("sweep converges behind managed repos, skips others, and stamps them", asyn
 
 test("a converge step's returned ConvergeResult is surfaced in the sweep report, per repo", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
+    defaultMode: "opt-out",
     repos: [
-      { repo: "fixture-opened", mode: "process", version: "0.1.0" },
-      { repo: "fixture-updated", mode: "process", version: "0.1.0" },
-      { repo: "fixture-noop", mode: "process", version: "0.1.0" },
+      { repo: "fixture-opened", mode: "opt-in", version: "0.1.0" },
+      { repo: "fixture-updated", mode: "opt-in", version: "0.1.0" },
+      { repo: "fixture-noop", mode: "opt-in", version: "0.1.0" },
     ],
   });
 
@@ -139,10 +139,10 @@ test("a converge step's returned ConvergeResult is surfaced in the sweep report,
 
 test("a convergeGhas step's returned GhasConvergeResult is surfaced in the sweep report, per repo", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
+    defaultMode: "opt-out",
     repos: [
-      { repo: "fixture-changed", mode: "process", version: "0.1.0" },
-      { repo: "fixture-noop", mode: "process", version: "0.1.0" },
+      { repo: "fixture-changed", mode: "opt-in", version: "0.1.0" },
+      { repo: "fixture-noop", mode: "opt-in", version: "0.1.0" },
     ],
   });
 
@@ -184,8 +184,8 @@ test("a convergeGhas step's returned GhasConvergeResult is surfaced in the sweep
 
 test("a convergeGhas failure marks the repo failed and not-stamped, independent of a successful file converge", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
-    repos: [{ repo: "fixture-process", mode: "process", version: "0.1.0" }],
+    defaultMode: "opt-out",
+    repos: [{ repo: "fixture-opt-in", mode: "opt-in", version: "0.1.0" }],
   });
 
   const report = await runSweep(client, "TheVoskamps", V, {
@@ -198,8 +198,8 @@ test("a convergeGhas failure marks the repo failed and not-stamped, independent 
 
   assert.deepEqual(report.converged, []);
   assert.deepEqual(report.stamped, []);
-  assert.deepEqual(report.failed, ["fixture-process"]);
-  const result = report.results.find((r) => r.repo === "fixture-process");
+  assert.deepEqual(report.failed, ["fixture-opt-in"]);
+  const result = report.results.find((r) => r.repo === "fixture-opt-in");
   assert.equal(result.action, "failed");
   assert.match(result.reason, /GHAS settings convergence failed/);
   assert.match(result.reason, /boom-ghas/);
@@ -207,13 +207,13 @@ test("a convergeGhas failure marks the repo failed and not-stamped, independent 
   // The file convergence result still surfaced even though GHAS failed —
   // the two concerns are independent.
   assert.equal(report.convergeResults.length, 1);
-  assert.equal(report.convergeResults[0].repo, "fixture-process");
+  assert.equal(report.convergeResults[0].repo, "fixture-opt-in");
 });
 
 test("a file-converge failure marks the repo failed even when convergeGhas succeeds", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
-    repos: [{ repo: "fixture-process", mode: "process", version: "0.1.0" }],
+    defaultMode: "opt-out",
+    repos: [{ repo: "fixture-opt-in", mode: "opt-in", version: "0.1.0" }],
   });
 
   const report = await runSweep(client, "TheVoskamps", V, {
@@ -229,19 +229,19 @@ test("a file-converge failure marks the repo failed even when convergeGhas succe
 
   assert.deepEqual(report.converged, []);
   assert.deepEqual(report.stamped, []);
-  assert.deepEqual(report.failed, ["fixture-process"]);
-  const result = report.results.find((r) => r.repo === "fixture-process");
+  assert.deepEqual(report.failed, ["fixture-opt-in"]);
+  const result = report.results.find((r) => r.repo === "fixture-opt-in");
   assert.match(result.reason, /convergence failed/);
   assert.match(result.reason, /boom-files/);
 
   // The GHAS result still surfaced even though file convergence failed.
   assert.equal(report.ghasResults.length, 1);
-  assert.equal(report.ghasResults[0].repo, "fixture-process");
+  assert.equal(report.ghasResults[0].repo, "fixture-opt-in");
 });
 
 test("flipping org default to opt-out converges the unset repo", async () => {
   const client = fakeClient({
-    orgDefault: "opt-out",
+    defaultMode: "opt-in",
     repos: [{ repo: "fixture-unset", mode: undefined, version: undefined }],
   });
   const report = await runSweep(client, "TheVoskamps", V, { log: () => {} });
@@ -252,15 +252,15 @@ test("flipping org default to opt-out converges the unset repo", async () => {
 
 test("dry-run decides but does not stamp", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
-    repos: [{ repo: "fixture-process", mode: "process", version: "0.1.0" }],
+    defaultMode: "opt-out",
+    repos: [{ repo: "fixture-opt-in", mode: "opt-in", version: "0.1.0" }],
   });
   const report = await runSweep(client, "TheVoskamps", V, {
     dryRun: true,
     log: () => {},
   });
   assert.equal(report.dryRun, true);
-  assert.deepEqual(report.converged, ["fixture-process"]);
+  assert.deepEqual(report.converged, ["fixture-opt-in"]);
   assert.deepEqual(report.stamped, []); // nothing written, and not claimed
   assert.deepEqual(report.failed, []);
   assert.deepEqual(client.stamped, []); // nothing written
@@ -268,8 +268,8 @@ test("dry-run decides but does not stamp", async () => {
 
 test("a converge-step failure is reported as failed, not skip-current, and not stamped", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
-    repos: [{ repo: "fixture-process", mode: "process", version: "0.1.0" }],
+    defaultMode: "opt-out",
+    repos: [{ repo: "fixture-opt-in", mode: "opt-in", version: "0.1.0" }],
   });
   const report = await runSweep(client, "TheVoskamps", V, {
     log: () => {},
@@ -279,21 +279,21 @@ test("a converge-step failure is reported as failed, not skip-current, and not s
   });
   assert.deepEqual(report.converged, []);
   assert.deepEqual(report.stamped, []);
-  assert.deepEqual(report.failed, ["fixture-process"]);
+  assert.deepEqual(report.failed, ["fixture-opt-in"]);
   assert.deepEqual(client.stamped, []);
-  const result = report.results.find((r) => r.repo === "fixture-process");
+  const result = report.results.find((r) => r.repo === "fixture-opt-in");
   assert.equal(result.action, "failed");
   assert.notEqual(result.action, "skip-current");
 });
 
 test("a mid-batch stampVersion failure reports partial progress instead of losing it", async () => {
   const repos = [
-    { repo: "fixture-a", mode: "process", version: "0.1.0" },
-    { repo: "fixture-b", mode: "process", version: "0.1.0" },
-    { repo: "fixture-c", mode: "process", version: "0.1.0" },
+    { repo: "fixture-a", mode: "opt-in", version: "0.1.0" },
+    { repo: "fixture-b", mode: "opt-in", version: "0.1.0" },
+    { repo: "fixture-c", mode: "opt-in", version: "0.1.0" },
   ];
   const client = fakeClient({
-    orgDefault: "opt-in",
+    defaultMode: "opt-out",
     repos,
     // Simulate stampVersion having already written fixture-a in an
     // earlier (successful) batch before the batch containing fixture-b
@@ -376,14 +376,14 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
           {
             repository_name: "fixture-behind",
             properties: [
-              { property_name: "gh-repo-config-mode", value: "process" },
+              { property_name: "gh-repo-config-mode", value: "opt-in" },
               { property_name: "gh-repo-config-version", value: "0.0.1" },
             ],
           },
           {
             repository_name: "fixture-current",
             properties: [
-              { property_name: "gh-repo-config-mode", value: "process" },
+              { property_name: "gh-repo-config-mode", value: "opt-in" },
               {
                 property_name: "gh-repo-config-version",
                 value: CURRENT_VERSION,
@@ -605,9 +605,9 @@ test("runSweepFromEnv requires GH_REPO_CONFIG_APP_SLUG", async () => {
 
 test("the merge pass runs over every managed repo independent of the version-skip decision", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
+    defaultMode: "opt-out",
     repos: [
-      { repo: "fixture-current", mode: "process", version: V }, // skip-current, but may still have an open PR
+      { repo: "fixture-current", mode: "opt-in", version: V }, // skip-current, but may still have an open PR
     ],
   });
 
@@ -651,10 +651,10 @@ test("the merge pass runs over every managed repo independent of the version-ski
 
 test("the merge pass never probes an unmanaged (skip-unmanaged) repo", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
+    defaultMode: "opt-out",
     repos: [
-      { repo: "fixture-ignore", mode: "ignore", version: undefined }, // skip-unmanaged
-      { repo: "fixture-process", mode: "process", version: V }, // skip-current, managed
+      { repo: "fixture-opt-out", mode: "opt-out", version: undefined }, // skip-unmanaged
+      { repo: "fixture-opt-in", mode: "opt-in", version: V }, // skip-current, managed
     ],
   });
 
@@ -679,13 +679,13 @@ test("the merge pass never probes an unmanaged (skip-unmanaged) repo", async () 
   // Scope is explicit in the iteration itself, not incidental to the
   // author filter: the unmanaged repo's name never even reaches
   // listOwnOpenPullRequests.
-  assert.deepEqual(mergeCalls, ["fixture-process"]);
+  assert.deepEqual(mergeCalls, ["fixture-opt-in"]);
 });
 
 test("the merge pass merges every currently-green converger PR on a repo, with no cap", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
-    repos: [{ repo: "fixture-process", mode: "process", version: V }],
+    defaultMode: "opt-out",
+    repos: [{ repo: "fixture-opt-in", mode: "opt-in", version: V }],
   });
 
   const openPrs = [1, 2, 3].map((number) => ({
@@ -726,8 +726,8 @@ test("the merge pass merges every currently-green converger PR on a repo, with n
 
 test("a blocked/pending/awaiting-retry merge outcome is reported as awaitingChecks, not failed", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
-    repos: [{ repo: "fixture-a", mode: "process", version: V }],
+    defaultMode: "opt-out",
+    repos: [{ repo: "fixture-a", mode: "opt-in", version: V }],
   });
 
   const openPr = {
@@ -763,7 +763,7 @@ test("a blocked/pending/awaiting-retry merge outcome is reported as awaitingChec
 
 test("appSlug is required when mergeClient is supplied", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
+    defaultMode: "opt-out",
     repos: [],
   });
   await assert.rejects(
@@ -778,11 +778,11 @@ test("appSlug is required when mergeClient is supplied", async () => {
 
 test("an unexpected merge-pass error on one repo is isolated: it's recorded as failed, and other repos still get merged", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
+    defaultMode: "opt-out",
     repos: [
-      { repo: "fixture-a", mode: "process", version: V },
-      { repo: "fixture-b", mode: "process", version: V },
-      { repo: "fixture-c", mode: "process", version: V },
+      { repo: "fixture-a", mode: "opt-in", version: V },
+      { repo: "fixture-b", mode: "opt-in", version: V },
+      { repo: "fixture-c", mode: "opt-in", version: V },
     ],
   });
 
@@ -855,8 +855,8 @@ test("an unexpected merge-pass error on one repo is isolated: it's recorded as f
 
 test("dryRun is passed through to evaluateAndMerge so the merge pass never issues a merge", async () => {
   const client = fakeClient({
-    orgDefault: "opt-in",
-    repos: [{ repo: "fixture-a", mode: "process", version: "0.1.0" }],
+    defaultMode: "opt-out",
+    repos: [{ repo: "fixture-a", mode: "opt-in", version: "0.1.0" }],
   });
 
   const dryRunFlags = [];
@@ -893,14 +893,17 @@ test("dryRun is passed through to evaluateAndMerge so the merge pass never issue
   assert.deepEqual(report.stamped, []); // dryRun symmetry with stamping
 });
 
-// Issue #67: the org-default read reports provenance, so an operator can
-// tell a genuine opt-in org from one whose control plane was never
-// provisioned. Selection behavior is identical across all three cases.
+// Issue #67: the default read reports provenance, so an operator can
+// tell a genuinely declared default from an org whose control plane was
+// never provisioned. Selection behavior is identical across all three
+// cases. Issue #68 makes `defined-no-value` fail the CLI too: a
+// `default_value` is accepted only on a required property, so a mode
+// property carrying none is provisioning drift, not a steady state.
 
 const PROVENANCE_CASES = [
   {
     name: "set",
-    read: { provenance: "set", raw: "opt-in" },
+    read: { provenance: "set", raw: "opt-out" },
     expectedProvenance: "set",
     failsCli: false,
   },
@@ -908,7 +911,7 @@ const PROVENANCE_CASES = [
     name: "defined-no-value",
     read: { provenance: "defined-no-value" },
     expectedProvenance: "defined-no-value",
-    failsCli: false,
+    failsCli: true,
   },
   {
     name: "not-defined",
@@ -918,11 +921,11 @@ const PROVENANCE_CASES = [
   },
 ];
 
-test("sweep reports org-default provenance without changing the resolved value", async () => {
+test("sweep reports default provenance without changing the resolved value", async () => {
   const headers = new Map();
   for (const testCase of PROVENANCE_CASES) {
     const client = fakeClient({
-      orgDefaultRead: testCase.read,
+      defaultModeRead: testCase.read,
       repos: [{ repo: "fixture-unset", mode: undefined, version: undefined }],
     });
     const logs = [];
@@ -930,10 +933,10 @@ test("sweep reports org-default provenance without changing the resolved value",
       log: (m) => logs.push(m),
     });
 
-    assert.equal(report.orgDefaultProvenance, testCase.expectedProvenance);
-    // The fail-safe collapse is untouched: every case resolves to opt-in,
-    // under which an unset repo is unmanaged.
-    assert.equal(report.orgDefault, "opt-in");
+    assert.equal(report.defaultModeProvenance, testCase.expectedProvenance);
+    // The fail-safe collapse is untouched: every case resolves to
+    // opt-out, under which an unset repo is unmanaged.
+    assert.equal(report.defaultMode, "opt-out");
     assert.equal(report.skippedUnmanaged, 1);
     assert.deepEqual(report.converged, []);
     headers.set(testCase.name, logs[0]);
@@ -944,9 +947,9 @@ test("sweep reports org-default provenance without changing the resolved value",
   assert.equal(new Set(headers.values()).size, PROVENANCE_CASES.length);
 });
 
-test("the raw org-default value is carried into the sweep header line", async () => {
+test("the raw default_value is carried into the sweep header line", async () => {
   const client = fakeClient({
-    orgDefaultRead: { provenance: "set", raw: "optout" },
+    defaultModeRead: { provenance: "set", raw: "optin" },
     repos: [{ repo: "fixture-unset", mode: undefined, version: undefined }],
   });
   const logs = [];
@@ -954,24 +957,41 @@ test("the raw org-default value is carried into the sweep header line", async ()
     log: (m) => logs.push(m),
   });
 
-  // A typo'd property value still resolves to the fail-safe opt-in, but
-  // reads as a typo in the log rather than as a clean opt-in.
-  assert.equal(report.orgDefault, "opt-in");
-  assert.match(logs[0], /optout/);
+  // A typo'd default still resolves to the fail-safe opt-out, but reads
+  // as a typo in the log rather than as a clean opt-out.
+  assert.equal(report.defaultMode, "opt-out");
+  assert.match(logs[0], /optin/);
 });
 
-test("only the not-defined provenance produces the CLI's non-zero-exit line", async () => {
+test("the declared default is named in the sweep header line", async () => {
+  const client = fakeClient({
+    defaultModeRead: { provenance: "set", raw: "opt-in" },
+    repos: [{ repo: "fixture-unset", mode: undefined, version: undefined }],
+  });
+  const logs = [];
+  const report = await runSweep(client, "TheVoskamps", V, {
+    log: (m) => logs.push(m),
+  });
+
+  // A declared opt-in default manages the unset repo — the read-through
+  // the sweep applies itself rather than assuming of the values API.
+  assert.equal(report.defaultMode, "opt-in");
+  assert.deepEqual(report.converged, ["fixture-unset"]);
+  assert.match(logs[0], /gh-repo-config-mode default_value="opt-in"/);
+});
+
+test("both no-value provenances produce the CLI's non-zero-exit line", async () => {
   for (const testCase of PROVENANCE_CASES) {
     const client = fakeClient({
-      orgDefaultRead: testCase.read,
+      defaultModeRead: testCase.read,
       repos: [{ repo: "fixture-unset", mode: undefined, version: undefined }],
     });
     const report = await runSweep(client, "TheVoskamps", V, { log: () => {} });
-    const failure = describeOrgDefaultProvenanceFailure(report);
+    const failure = describeDefaultModeProvenanceFailure(report);
 
     if (testCase.failsCli) {
       assert.ok(failure, `${testCase.name} should produce a failure line`);
-      assert.match(failure, /gh-repo-config-default/);
+      assert.match(failure, /gh-repo-config-mode/);
       assert.match(failure, /TheVoskamps/);
     } else {
       assert.equal(

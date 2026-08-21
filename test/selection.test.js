@@ -3,38 +3,53 @@ import assert from "node:assert/strict";
 import {
   resolveManaged,
   normalizeMode,
-  normalizeOrgDefault,
+  normalizeDefaultMode,
 } from "../dist/index.js";
 
-test("explicit process is managed regardless of org default", () => {
-  assert.equal(resolveManaged("process", "opt-in"), true);
-  assert.equal(resolveManaged("process", "opt-out"), true);
+// The truth table in docs/repo-selection.md, one test per row group.
+
+test("explicit opt-in is managed regardless of the declared default", () => {
+  assert.equal(resolveManaged("opt-in", "opt-in"), true);
+  assert.equal(resolveManaged("opt-in", "opt-out"), true);
 });
 
-test("explicit ignore is never managed (fail safe)", () => {
-  assert.equal(resolveManaged("ignore", "opt-in"), false);
-  assert.equal(resolveManaged("ignore", "opt-out"), false);
+test("explicit opt-out is never managed regardless of the declared default", () => {
+  assert.equal(resolveManaged("opt-out", "opt-in"), false);
+  assert.equal(resolveManaged("opt-out", "opt-out"), false);
 });
 
-test("unset follows org default", () => {
-  assert.equal(resolveManaged("unset", "opt-in"), false);
-  assert.equal(resolveManaged("unset", "opt-out"), true);
+test("unset follows the declared default", () => {
+  assert.equal(resolveManaged("unset", "opt-in"), true);
+  assert.equal(resolveManaged("unset", "opt-out"), false);
 });
 
-test("normalizeMode recognizes only process and ignore", () => {
-  assert.equal(normalizeMode("process"), "process");
-  assert.equal(normalizeMode("ignore"), "ignore");
-  assert.equal(normalizeMode("PROCESS"), "unset"); // case-sensitive
+test("normalizeMode recognizes only opt-in and opt-out", () => {
+  assert.equal(normalizeMode("opt-in"), "opt-in");
+  assert.equal(normalizeMode("opt-out"), "opt-out");
+  assert.equal(normalizeMode("OPT-IN"), "unset"); // case-sensitive
   assert.equal(normalizeMode(""), "unset");
   assert.equal(normalizeMode(undefined), "unset");
   assert.equal(normalizeMode(null), "unset");
   assert.equal(normalizeMode("typo"), "unset");
+  // The retired vocabulary is not recognized: a repo still carrying
+  // `process` reads as unset and follows the declared default, never as
+  // an opt-in.
+  assert.equal(normalizeMode("process"), "unset");
+  assert.equal(normalizeMode("ignore"), "unset");
 });
 
-test("normalizeOrgDefault falls back to opt-in when absent or unknown", () => {
-  assert.equal(normalizeOrgDefault("opt-out"), "opt-out");
-  assert.equal(normalizeOrgDefault("opt-in"), "opt-in");
-  assert.equal(normalizeOrgDefault(undefined), "opt-in");
-  assert.equal(normalizeOrgDefault(null), "opt-in");
-  assert.equal(normalizeOrgDefault("garbage"), "opt-in");
+test("normalizeDefaultMode falls back to opt-out when absent or unknown", () => {
+  assert.equal(normalizeDefaultMode("opt-in"), "opt-in");
+  assert.equal(normalizeDefaultMode("opt-out"), "opt-out");
+  assert.equal(normalizeDefaultMode(undefined), "opt-out");
+  assert.equal(normalizeDefaultMode(null), "opt-out");
+  assert.equal(normalizeDefaultMode("garbage"), "opt-out");
+});
+
+test("an unrecognized repo value under an opt-in default is still managed", () => {
+  // Both fail-safe collapses meeting at once: the repo value collapses to
+  // `unset`, which then reads through to the declared default rather than
+  // to a hardcoded verdict.
+  assert.equal(resolveManaged(normalizeMode("process"), "opt-in"), true);
+  assert.equal(resolveManaged(normalizeMode("process"), "opt-out"), false);
 });
