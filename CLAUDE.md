@@ -62,34 +62,52 @@ Test (runs compiled output under `dist/`, so build first):
 npm run build && npm test
 ```
 
-Lint Markdown (all tracked `.md` files, config in `.markdownlint.jsonc`).
-`lint:md`'s glob (`**/*.md`, excluding only `node_modules` and `dist`)
-covers `.claude/agent-memory/**/*.md` too, and `MD041` (first-line
-heading) stays live there — any new agent-memory entry file (which
-opens with YAML front matter, not a heading) needs a `# H1` as its
-first content line after the front matter, or `lint:md` fails on it.
-`MEMORY.md` index files are unaffected since they already open with a
-heading. The same path-based glob reaches scratch Markdown under
-`.claude/tmp/<task slug>/` — a PR body staged for `gh pr edit
---body-file`, say — which is gitignored but linted anyway, and fails
-`MD041` and often `MD012`. Delete the scratch directory before running
-`lint:md`; never fix the scratch file's lint errors and never add a
-config exclusion for it.
+Lint Markdown. The configuration is split by concern:
+`.markdownlint-cli2.jsonc` owns WHAT is linted (globs and ignores) and
+`.markdownlint.jsonc` owns WHICH RULES apply. Because the scope lives
+in the config rather than in the invocation, every caller lints the
+same set — `npm run lint:md`, a bare `markdownlint-cli2`, and
+`mise exec -- markdownlint-cli2` are interchangeable, and none of them
+takes arguments. Do not reintroduce globs on the command line; a
+caller that passes its own silently lints a different set than CI.
+
+The ignores cover `**/node_modules` (nested copies included, so a
+leftover `.claude/worktrees/<agent>/node_modules` does not fail the
+run), `dist`, and the gitignored transients `.claude/tmp` and
+`.claude/worktrees`. `.claude/agent-memory/**/*.md` is deliberately
+NOT ignored, and `MD041` (first-line heading) stays live there — any
+new agent-memory entry file (which opens with YAML front matter, not
+a heading) needs a `# H1` as its first content line after the front
+matter, or the lint fails on it. `MEMORY.md` index files are
+unaffected since they already open with a heading.
 
 ```bash
 npm run lint:md
 ```
 
-`shellcheck`, which `.github/workflows/ci.yml` runs over `assets/*.sh`
-and `scripts/*.sh`, is a runner-image binary rather than a project
-dependency: it is absent from this host, from `package.json`, and from
-`node_modules/.bin`, with no `npx` fallback. Its absence is neither a
-blocker to escalate nor grounds for a `brew install`. Substitute what
-is local — `bash -n <script>` for syntax, the matching
-`assets/test-*.sh` / `scripts/test-*.sh` self-test for behaviour, and
-`scripts/check-pin-shape.sh` when any `assets/*.yml` changed — and say
-in the report that shellcheck did not run, rather than implying the CI
-lint set passed.
+The rest of the CI lint set — `shellcheck` over `assets/*.sh` and
+`scripts/*.sh`, `actionlint` over `.github/workflows/*.yml` — comes
+from the runner image on CI and from `mise.toml` here, so it needs
+neither a `brew install` nor `npm ci`:
+
+```bash
+mise exec -- shellcheck assets/*.sh scripts/*.sh
+mise exec -- actionlint -shellcheck= .github/workflows/*.yml
+```
+
+`actionlint`'s `-shellcheck=` is required, not decorative. CI's
+actionlint step passes `shellcheck: false`, disabling actionlint's
+bundled shellcheck pass over embedded `run:` blocks, because the
+dedicated `shellcheck` step already covers that class. A bare
+`actionlint` auto-detects `shellcheck` on PATH, re-enables that pass,
+and exits non-zero on `SC2016` findings CI never reports.
+
+When a tool genuinely cannot run, read the PR's check state
+(`gh pr checks <N>`) and report THAT. Do not report host absence as
+though it were the change's coverage: these tools run on the runner,
+so an agent writing its report after the push has a real answer
+available and a sentence like "shellcheck did not run" describes only
+its own machine.
 
 ## Structure
 

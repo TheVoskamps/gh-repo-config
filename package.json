@@ -1,6 +1,6 @@
 {
   "name": "gh-repo-config",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Org-wide repo-configuration converger — deterministic core consumed as an immutable GitHub Release.",
   "license": "MIT",
   "private": true,
@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test test/**/*.test.js",
-    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#dist\"",
+    "lint:md": "markdownlint-cli2",
     "prepack": "npm run build"
   },
   "devDependencies": {

@@ -1,0 +1,19 @@
+{
+  // Owns WHAT gets linted, so every caller agrees: `npm run lint:md`,
+  // a bare `markdownlint-cli2`, and `mise exec -- markdownlint-cli2`
+  // all lint the same set. Rule configuration stays in
+  // `.markdownlint.jsonc`; this file is globs and ignores only.
+  "globs": ["**/*.md"],
+  "ignores": [
+    "**/node_modules",
+    "dist",
+    // Gitignored transients. `.claude/tmp/` holds task scratch (a PR
+    // body staged for `gh pr edit --body-file`, say) that fails MD041
+    // and MD012 by its nature, and `.claude/worktrees/` holds other
+    // agents' checkouts including their own node_modules. Neither is
+    // this repo's prose. `.claude/agent-memory/` is deliberately NOT
+    // ignored — MD041 stays live there.
+    ".claude/tmp",
+    ".claude/worktrees"
+  ]
+}
