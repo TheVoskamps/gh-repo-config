@@ -1,5 +1,6 @@
 node_modules/
 dist/
 .release/
+.claude/agent-memory/
 .claude/tmp/
 .claude/worktrees/
