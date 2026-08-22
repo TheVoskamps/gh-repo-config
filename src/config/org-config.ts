@@ -15,8 +15,8 @@
  * The format is JSON, not YAML, because the release tarball is
  * dependency-free and runs under bare `node bin/gh-repo-config.js
  * sweep`: no YAML parser exists at runtime and none is added. The
- * sweeper workflow — later work, no payload exists yet — must also read
- * the version pin out of this same file in bash before the tarball
+ * sweeper workflow (`assets/sweeper-sweep.yml`, issue #92) must also
+ * read the version pin out of this same file in bash before the tarball
  * exists, and `jq` is on every runner where YAML tooling is not.
  *
  * Every validation failure is a thrown `Error` naming the offending key
@@ -41,9 +41,12 @@ import type {
 
 /**
  * The `sweeper-update-policy` values. Controls how the sweeper repo
- * handles its own converger-version updates; the policy's consumer is
- * the sweeper-workflow payload, which is later work — this module only
- * parses, validates, and exposes it.
+ * takes updates to its own copy of the sweeper workflow (issue #92):
+ * `off` drops that workflow from the payload set, `manual` renders it
+ * but reserves the resulting PR for a human, and `auto` merges it like
+ * any other converger PR. This module only parses, validates, and
+ * exposes the value; `src/converge/files.ts` and `src/sweep.ts` are the
+ * two halves that act on it.
  */
 export const SWEEPER_UPDATE_POLICIES = ["manual", "auto", "off"] as const;
 
@@ -61,8 +64,8 @@ export const DEFAULT_SWEEPER_UPDATE_POLICY: SweeperUpdatePolicy = "manual";
  * The resolved per-org configuration. Every render input is optional —
  * absent means the baked default applies, exactly as a sweep with no
  * config file behaves — while `sweeperUpdatePolicy` always carries a
- * value because its default is applied here rather than at its (still
- * unwritten) consumer.
+ * value: the default is applied at the parse, so a consumer reading an
+ * `OrgConfig` never has to.
  */
 export interface OrgConfig {
   /**
@@ -79,11 +82,10 @@ export interface OrgConfig {
   readonly prAutomationIdentity?: PrAutomationIdentity;
   /**
    * A converger release tag of the form `vX.Y.Z`, leading `v` included.
-   * Absent means latest. Its intended primary consumer is the sweeper
-   * workflow, which downloads the pinned tarball (later work); the
-   * converger enforces it as defense-in-depth via
-   * {@link assertVersionPinSatisfied}, which is the only enforcement
-   * that exists today.
+   * Absent means latest. Its primary consumer is the sweeper workflow
+   * (`assets/sweeper-sweep.yml`), which reads this key with `jq` and
+   * downloads that tarball; the converger enforces it a second time as
+   * defense-in-depth via {@link assertVersionPinSatisfied}.
    */
   readonly versionPin?: string;
   readonly sweeperUpdatePolicy: SweeperUpdatePolicy;
@@ -316,10 +318,11 @@ export async function readOrgConfig(
 /**
  * Enforce a `version-pin` against the running converger's own version.
  *
- * The pin's intended primary consumer is the sweeper workflow, which
- * downloads the pinned tarball (later work). This check is
- * defense-in-depth: a workflow that failed to honor the pin cannot then
- * run the wrong converger version against the org's repos.
+ * The pin's primary consumer is the sweeper workflow
+ * (`assets/sweeper-sweep.yml`), which reads it with `jq` and downloads
+ * that tarball. This check is defense-in-depth: a workflow that failed
+ * to honor the pin cannot then run the wrong converger version against
+ * the org's repos.
  *
  * @param pin the configured pin (`vX.Y.Z`), or `undefined` for no pin.
  * @param currentVersion the running converger's version, bare (no `v`).

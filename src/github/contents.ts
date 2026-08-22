@@ -30,6 +30,14 @@
  * - Single-file read by path, absent-tolerant (the community-file seed
  *   source in the org's `.github` repo, issue #90):
  *   `GET /repos/{o}/{r}/contents/{path}`.
+ *
+ * Two operations have no REST surface at all and are the module's only
+ * GraphQL calls: flipping an already-open PR's draft state either way
+ * (issue #92). `PATCH /repos/{o}/{r}/pulls/{n}` cannot set `draft` — the
+ * flag is writable at creation only — so ready-to-draft goes through the
+ * `convertPullRequestToDraft` mutation and draft-to-ready through
+ * `markPullRequestReadyForReview`. Both are still bare `fetch` against
+ * the same host, so the zero-dependency shape is unchanged.
  */
 
 /** The file modes the converger writes. */
@@ -95,8 +103,14 @@ interface RawContentsFile {
 
 interface RawPull {
   readonly number: number;
+  readonly node_id: string;
   readonly html_url: string;
+  readonly draft?: boolean;
   readonly head: { readonly ref: string };
+}
+
+interface RawGraphQlResponse {
+  readonly errors?: readonly { readonly message: string }[];
 }
 
 /** Config for {@link ContentsClient}. */
@@ -115,6 +129,26 @@ export interface PullRequestResult {
   readonly url: string;
   /** `true` when an existing open PR's branch was updated in place. */
   readonly updated: boolean;
+  /**
+   * `true` when the PR is a draft and so cannot merge (issue #92: the
+   * sweeper repo's trust anchor under `sweeper-update-policy: manual`).
+   */
+  readonly draft: boolean;
+}
+
+/** An open PR on the converger's work branch, as the write path needs it. */
+export interface OpenPullRequestRef {
+  readonly number: number;
+  readonly url: string;
+  /**
+   * The PR's GraphQL node ID. Carried because flipping an open PR's
+   * draft state has no REST surface — see
+   * {@link ContentsClient.convertPullRequestToDraft} and
+   * {@link ContentsClient.markPullRequestReadyForReview}.
+   */
+  readonly nodeId: string;
+  /** `true` when the PR is already a draft. */
+  readonly draft: boolean;
 }
 
 /**
@@ -409,7 +443,7 @@ export class ContentsClient {
     owner: string,
     repo: string,
     branch: string,
-  ): Promise<{ number: number; url: string } | undefined> {
+  ): Promise<OpenPullRequestRef | undefined> {
     const res = await this.doFetch(
       `${this.apiBase}/repos/${owner}/${repo}/pulls?state=open&head=${owner}:${branch}&per_page=100`,
       { headers: this.headers() },
@@ -419,10 +453,26 @@ export class ContentsClient {
       `Failed to list PRs for ${owner}/${repo}`,
     );
     const match = body.find((p) => p.head.ref === branch);
-    return match ? { number: match.number, url: match.html_url } : undefined;
+    if (!match) {
+      return undefined;
+    }
+    return {
+      number: match.number,
+      url: match.html_url,
+      nodeId: match.node_id,
+      draft: match.draft === true,
+    };
   }
 
-  /** Open a PR from `branch` into `base`; returns the created PR. */
+  /**
+   * Open a PR from `branch` into `base`; returns the created PR.
+   *
+   * @param draft open it as a draft (issue #92). A draft PR cannot be
+   *   merged by anything — not the sweep's own REST merge, not GitHub's
+   *   native auto-merge, which refuses to be enabled on one — so this is
+   *   what holds the sweeper repo's trust anchor for a human without
+   *   depending on a ruleset or a workflow's cooperation.
+   */
   async createPullRequest(
     owner: string,
     repo: string,
@@ -430,13 +480,14 @@ export class ContentsClient {
     base: string,
     title: string,
     body: string,
+    draft: boolean,
   ): Promise<{ number: number; url: string }> {
     const res = await this.doFetch(
       `${this.apiBase}/repos/${owner}/${repo}/pulls`,
       {
         method: "POST",
         headers: { ...this.headers(), "content-type": "application/json" },
-        body: JSON.stringify({ title, head: branch, base, body }),
+        body: JSON.stringify({ title, head: branch, base, body, draft }),
       },
     );
     const created = await this.json<RawPull>(
@@ -444,5 +495,80 @@ export class ContentsClient {
       `Failed to create PR for ${owner}/${repo}`,
     );
     return { number: created.number, url: created.html_url };
+  }
+
+  /**
+   * Run one of the two draft-state mutations against a PR node ID.
+   *
+   * A GraphQL error arrives as HTTP 200 with an `errors` array, so both
+   * the status and that array are checked; either throws, carrying
+   * `what` as the message prefix.
+   */
+  private async pullRequestDraftMutation(
+    mutation: string,
+    nodeId: string,
+    what: string,
+  ): Promise<void> {
+    const res = await this.doFetch(`${this.apiBase}/graphql`, {
+      method: "POST",
+      headers: { ...this.headers(), "content-type": "application/json" },
+      body: JSON.stringify({
+        query: `mutation($id: ID!) { ${mutation}(input: { pullRequestId: $id }) { pullRequest { isDraft } } }`,
+        variables: { id: nodeId },
+      }),
+    });
+    const body = await this.json<RawGraphQlResponse>(res, what);
+    if (body.errors && body.errors.length > 0) {
+      throw new Error(
+        `${what}: ${body.errors.map((e) => e.message).join("; ")}`,
+      );
+    }
+  }
+
+  /**
+   * Convert an already-open, ready-for-review PR back to a draft (issue
+   * #92), addressed by its GraphQL node ID.
+   *
+   * This is GraphQL because there is no REST equivalent: `draft` is
+   * writable only on the create call, and
+   * `PATCH /repos/{o}/{r}/pulls/{n}` silently carries no such field. The
+   * mutation is what lets a PR opened before the anchor appeared in it —
+   * or opened by an earlier converger version — still be held once an
+   * anchor-touching commit lands on its branch.
+   */
+  async convertPullRequestToDraft(
+    owner: string,
+    repo: string,
+    number: number,
+    nodeId: string,
+  ): Promise<void> {
+    await this.pullRequestDraftMutation(
+      "convertPullRequestToDraft",
+      nodeId,
+      `Failed to convert ${owner}/${repo}#${number} to a draft`,
+    );
+  }
+
+  /**
+   * Mark an already-open draft PR ready for review (issue #92), the
+   * mirror of {@link ContentsClient.convertPullRequestToDraft} and
+   * GraphQL-only for the same reason.
+   *
+   * It is what lets a hold placed under `sweeper-update-policy: manual`
+   * be released when the org switches that policy to one that no longer
+   * reserves the anchor path — `auto` or `off`; without it the drafted
+   * PR stays a draft forever and can never merge.
+   */
+  async markPullRequestReadyForReview(
+    owner: string,
+    repo: string,
+    number: number,
+    nodeId: string,
+  ): Promise<void> {
+    await this.pullRequestDraftMutation(
+      "markPullRequestReadyForReview",
+      nodeId,
+      `Failed to mark ${owner}/${repo}#${number} ready for review`,
+    );
   }
 }

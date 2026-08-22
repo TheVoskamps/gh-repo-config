@@ -26,9 +26,24 @@
  *   for drift. Its seed content is the org's own, read from the org's
  *   `.github` repo (issue #90, `community.ts`) — supplied by the caller
  *   or, failing that, looked up here.
+ * - **A PR touching a human-approval path is a draft (issue #92).** On
+ *   the sweeper repo under `sweeper-update-policy: manual`, a PR that
+ *   changes the org's trust-anchor workflow is opened as a draft, and an
+ *   already-open non-draft PR is converted to one when such a change
+ *   lands on it. Draft state is the hold itself: nothing merges a draft
+ *   PR, so the reservation does not rest on a ruleset that a first-tick
+ *   sweeper repo does not have yet, nor on any workflow's cooperation.
+ *   The hold is re-asserted on every tick that commits, so marking such
+ *   a PR ready without merging it holds only until the next one.
+ *   Under a policy that stops reserving that path — `auto` or `off` —
+ *   the release runs instead: a draft PR on that same branch is marked
+ *   ready, since nothing else would ever lift a hold the org has
+ *   stopped asking for.
  */
 import {
   buildDesiredFiles,
+  sweeperHumanApprovalPaths,
+  sweeperPolicyReleasesHold,
   type DesiredFile,
   type DesiredFilesOptions,
 } from "./files.js";
@@ -189,6 +204,16 @@ export async function convergeRepoFiles(
     baseSha,
   );
 
+  // This commit's own paths decide the hold. They are diffed against the
+  // DEFAULT branch, so the anchor is in every tick's changed set for as
+  // long as the PR is unmerged, and the hold is therefore re-asserted
+  // each tick: a maintainer who marks the held PR ready and then waits
+  // has it drafted again on the next one. Landing it means marking it
+  // ready and merging it in one sitting. The failure direction is
+  // deliberate — more holding, never an unattended merge.
+  const reserved = sweeperHumanApprovalPaths(owner, repo, options);
+  const holdForHuman = changedPaths.some((p) => reserved.includes(p));
+
   // Reset the fixed work branch onto the new commit (force-update when a
   // prior-run branch is still around), then open the PR unless one is
   // already open for that branch (in which case the branch update above
@@ -207,9 +232,38 @@ export async function convergeRepoFiles(
   );
 
   if (existingPr) {
+    // Under a policy that no longer reserves the anchor (`auto`, or
+    // `off`), a draft on this branch is a hold the sweep itself placed
+    // and whose justification is gone, and only the sweep can lift it —
+    // nothing else ever marks a converger PR ready. It is lifted here,
+    // after the branch reset above, because under `off` that reset is
+    // what drops the anchor from the branch.
+    const releaseHold =
+      existingPr.draft && sweeperPolicyReleasesHold(owner, repo, options);
+    if (holdForHuman && !existingPr.draft) {
+      await client.convertPullRequestToDraft(
+        owner,
+        repo,
+        existingPr.number,
+        existingPr.nodeId,
+      );
+    }
+    if (releaseHold) {
+      await client.markPullRequestReadyForReview(
+        owner,
+        repo,
+        existingPr.number,
+        existingPr.nodeId,
+      );
+    }
     return {
       changed: changedPaths,
-      pullRequest: { ...existingPr, updated: true },
+      pullRequest: {
+        number: existingPr.number,
+        url: existingPr.url,
+        updated: true,
+        draft: (existingPr.draft || holdForHuman) && !releaseHold,
+      },
       noop: false,
     };
   }
@@ -220,11 +274,12 @@ export async function convergeRepoFiles(
     CONVERGE_BRANCH,
     defaultBranch,
     "Converge repo configuration",
-    pullRequestBody(changedPaths),
+    pullRequestBody(changedPaths, holdForHuman),
+    holdForHuman,
   );
   return {
     changed: changedPaths,
-    pullRequest: { ...created, updated: false },
+    pullRequest: { ...created, updated: false, draft: holdForHuman },
     noop: false,
   };
 }
@@ -238,12 +293,39 @@ function commitMessage(paths: readonly string[]): string {
   );
 }
 
-/** The PR body for a converge PR, listing the changed paths. */
-function pullRequestBody(paths: readonly string[]): string {
-  return (
+/**
+ * The PR body for a converge PR, listing the changed paths.
+ *
+ * Only the create path renders a body: a converger PR's body is never
+ * rewritten on a later tick, so a PR converted to a draft mid-life
+ * keeps whatever body it opened with.
+ *
+ * @param heldForHuman append the note explaining the draft state, so
+ *   the reviewer of a PR OPENED as a draft learns why it is one
+ *   without going to read the converger's source. The standing
+ *   explanation, which covers the mid-life conversion too, is
+ *   `assets/sweeper-sweep.yml`'s own header on the sweeper repo.
+ */
+function pullRequestBody(
+  paths: readonly string[],
+  heldForHuman: boolean,
+): string {
+  const body =
     "Automated repo-configuration convergence by the gh-repo-config sweep.\n\n" +
     "Changed files:\n\n" +
     paths.map((p) => `- \`${p}\``).join("\n") +
-    "\n"
+    "\n";
+  if (!heldForHuman) {
+    return body;
+  }
+  return (
+    body +
+    "\nThis PR changes this repo's own sweeper workflow — the org's trust\n" +
+    "anchor, where the release attestation verify and the version pin\n" +
+    "live. Under `sweeper-update-policy: manual` the converger opens such\n" +
+    "a PR as a **draft** so that nothing can merge it unattended. Read the\n" +
+    "diff, then mark it ready for review and merge it in one sitting: every\n" +
+    "sweep re-applies the draft, so marking it ready and leaving it open\n" +
+    "gets it drafted again on the next one.\n"
   );
 }

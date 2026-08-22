@@ -32,13 +32,21 @@ switch (command) {
   case "sweep":
     try {
       const report = await runSweepFromEnv();
+      // `awaitingChecks` is one bucket of every PR the merge pass left
+      // open, and a held one waits for a person rather than for a check
+      // (issue #92) — so the summary counts the two apart instead of
+      // calling them all "awaiting checks".
+      const held = report.awaitingChecks.filter(
+        (a) => a.outcome === "awaiting-human",
+      );
       console.log(
         `Sweep complete: ${report.stamped.length} stamped, ` +
           `${report.skippedCurrent} up-to-date, ` +
           `${report.skippedUnmanaged} unmanaged, ` +
           `${report.failed.length} failed, ` +
           `${report.merged.length} PR(s) merged, ` +
-          `${report.awaitingChecks.length} PR(s) awaiting checks, ` +
+          `${report.awaitingChecks.length - held.length} PR(s) awaiting checks, ` +
+          `${held.length} PR(s) held for a human, ` +
           `${report.rulesetDeferred.length} ruleset(s) deferred` +
           (report.dryRun ? " (dry-run, no stamps or merges written)" : ""),
       );

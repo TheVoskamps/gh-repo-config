@@ -73,6 +73,7 @@ export {
   type RequiredCheckResult,
   type MergeOutcome,
   type MergeAttemptResult,
+  type EvaluateAndMergeOptions,
 } from "./github/merge.js";
 
 export {
@@ -95,6 +96,7 @@ export {
   type TreeFile,
   type ExistingBlob,
   type PullRequestResult,
+  type OpenPullRequestRef,
 } from "./github/contents.js";
 
 export {
@@ -118,8 +120,12 @@ export {
 export {
   buildDesiredFiles,
   COMMUNITY_FILE_PATHS,
+  SWEEPER_WORKFLOW_PATH,
+  sweeperHumanApprovalPaths,
+  sweeperPolicyReleasesHold,
   type DesiredFile,
   type DesiredFilesOptions,
+  type SweeperOptions,
   type CommunityFileContent,
 } from "./converge/files.js";
 

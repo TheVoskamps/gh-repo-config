@@ -1,0 +1,213 @@
+# The per-org sweeper workflow — the org's trust anchor for the
+# gh-repo-config fan-out.
+#
+# Renders to `.github/workflows/sweep.yml`, and lands on ONE repo per
+# org: the org's private sweeper repo, the repo whose own
+# `$GITHUB_REPOSITORY` this workflow passes to the sweep as
+# GH_REPO_CONFIG_SWEEPER_REPO. Every other managed repo in the org gets
+# no copy of this file at all.
+#
+# WHY THIS FILE IS A CONVERGER PAYLOAD. A sweeper repo is born from a
+# template copy, and a template copy cannot pull from its template
+# (unrelated histories, no upstream). It does not need to: the
+# converger's whole job is "render files, open a PR, merge when green",
+# so the sweeper's own workflow ships through that same channel. The
+# bootstrap copy gets the org running; from then on the sweep keeps this
+# file current from `assets/`, PR-reviewed in the org like any other
+# converger change.
+#
+# WHY IT IS NOT AUTO-MERGED BY DEFAULT. This file is where the
+# attestation verify and the version pin live, so it is the org's trust
+# anchor. If the converger both rendered it and auto-merged it, one
+# compromised release could rewrite the anchor itself — strip the
+# verify, change where the pin is read from — in a single unattended
+# tick. The `sweeper-update-policy` key in `gh-repo-config.json` breaks
+# that self-modification loop:
+#   - `manual` (default): the converger opens the PR as a DRAFT (and
+#     converts an open non-draft one to a draft the moment a change to
+#     this path lands on it), and its own merge pass additionally
+#     refuses to merge any sweeper-repo PR touching this path. Draft
+#     state is what makes the hold unconditional: nothing merges a draft
+#     PR, so the hold does not rest on a `protect-main` ruleset a
+#     first-tick sweeper repo has not got yet, and GitHub's own native
+#     auto-merge — which `auto-enable-automerge.yml` enables on this
+#     repo's other converger PRs — cannot be enabled on it. A human in
+#     the org reads the diff, then marks it ready and merges it in one
+#     sitting: every sweep re-applies the draft, so marking it ready and
+#     leaving it open gets it drafted again on the next tick.
+#   - `auto`: merged like any other converger PR, for orgs that accept
+#     the loop. Switching to it also RELEASES a hold `manual` already
+#     placed: the sweep marks the drafted PR ready for review, since
+#     nothing else would, and a draft left behind by the old policy
+#     could otherwise never merge. Drafting a converger PR by hand is
+#     therefore not a hold under `auto` — the next tick marks it ready
+#     again. Flip the policy back to `manual` to hold one.
+#   - `off`: this file is not converged at all. Switching to it releases
+#     a `manual` hold the same way `auto` does, and for the same reason:
+#     the reservation is gone, so a drafted PR left over from the old
+#     policy is litter the sweep placed and clears. The release lands on
+#     the next tick that has something to commit — which is also the
+#     tick whose commit drops this file from the work branch, so the PR
+#     that goes ready no longer carries the anchor.
+# The policy lives in the config file rather than a UI-editable
+# variable, so changing it is itself a PR through the org's own gates.
+#
+# `gh-repo-config.json` is org-owned content: it is read here, and it is
+# never part of any converger payload under any policy.
+#
+# OPERATOR PREREQUISITES (provisioned by hand, never by this workflow):
+#   - The converger org GitHub App registered and installed on the org,
+#     with its **Client ID** in the org secret CONVERGER_APP_CLIENT_ID
+#     and its private key in CONVERGER_APP_PRIVATE_KEY. The Client ID is
+#     a distinct value from the numeric App ID — it is what
+#     actions/create-github-app-token's `client-id:` input takes.
+#   - The org custom properties defined at the org level:
+#     gh-repo-config-mode (required, with a schema default_value — the
+#     sweep exits non-zero on one carrying none) and
+#     gh-repo-config-version.
+#   - `gh-repo-config.json` present at this repo's root.
+name: sweep
+
+on:
+  schedule:
+    # Daily. The sweep is idempotent — a repo already stamped at the
+    # running version is skipped — so over-running is harmless.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Decide and log selection without stamping any repo"
+        type: boolean
+        default: false
+
+# Every step below runs either unauthenticated or with an explicitly
+# scoped token. Keep the default GITHUB_TOKEN permission-less.
+permissions: {}
+
+concurrency:
+  group: sweep
+  cancel-in-progress: false
+
+jobs:
+  # ONE job. Job count is a first-class billing constraint on every
+  # fanned-out workflow: GitHub bills a whole minute per job, rounded
+  # up, so splitting "resolve", "verify", and "run" into separate jobs
+  # would triple this workflow's cost for no isolation it does not
+  # already have from step ordering.
+  sweep:
+    runs-on: ubuntu-latest
+    permissions:
+      # Reading this repo's own `gh-repo-config.json`, and downloading +
+      # verifying the converger release from a public repo.
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Resolve the pinned converger version
+        id: pin
+        run: |
+          set -euo pipefail
+          if [ ! -f gh-repo-config.json ]; then
+            echo "gh-repo-config.json is missing from this repo's root" >&2
+            exit 1
+          fi
+          # `// empty` makes an absent (or explicitly null) pin an empty
+          # string rather than the literal "null", so the download step
+          # below can treat "absent" as "latest release".
+          pin="$(jq -r '."version-pin" // empty' gh-repo-config.json)"
+          echo "pin=${pin}" >> "$GITHUB_OUTPUT"
+          echo "Version pin: ${pin:-<none, using latest>}"
+
+      - name: Download the converger release tarball
+        id: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIN: ${{ steps.pin.outputs.pin }}
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/converger"
+          mkdir -p "$dir"
+          # An absent pin means "latest". Resolve that to a concrete tag
+          # first, so the download and the log line below name the same
+          # release the sweep is about to run.
+          tag="$PIN"
+          if [ -z "$tag" ]; then
+            tag="$(gh release view --repo TheVoskamps/gh-repo-config --json tagName --jq .tagName)"
+          fi
+          echo "Converger release: ${tag}"
+          gh release download "$tag" \
+            --repo TheVoskamps/gh-repo-config \
+            --pattern 'gh-repo-config-*.tgz' --dir "$dir"
+          # Exactly one tarball must have matched: two would make which
+          # one gets verified and unpacked ambiguous.
+          count="$(find "$dir" -maxdepth 1 -name 'gh-repo-config-*.tgz' | wc -l)"
+          if [ "$count" -ne 1 ]; then
+            echo "expected exactly 1 release tarball, found ${count}" >&2
+            exit 1
+          fi
+          tarball="$(find "$dir" -maxdepth 1 -name 'gh-repo-config-*.tgz')"
+          echo "tarball=${tarball}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the release provenance attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARBALL: ${{ steps.download.outputs.tarball }}
+        # Nothing from the tarball is unpacked or executed before this
+        # step passes. A failed verify fails the run.
+        run: |
+          set -euo pipefail
+          gh attestation verify "$TARBALL" --repo TheVoskamps/gh-repo-config
+
+      - name: Unpack the verified tarball
+        id: unpack
+        env:
+          TARBALL: ${{ steps.download.outputs.tarball }}
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/converger/unpacked"
+          mkdir -p "$root"
+          tar -xzf "$TARBALL" -C "$root"
+          echo "root=${root}" >> "$GITHUB_OUTPUT"
+
+      # Minted only after the verify, so the App token is never present
+      # while an unverified archive is being handled.
+      - name: Mint converger App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          # `client-id:`, never the `app-id:` input it replaced —
+          # upstream carries a deprecationMessage on `app-id:`, and a
+          # workflow that ships org-wide must not be born deprecated.
+          client-id: ${{ secrets.CONVERGER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CONVERGER_APP_PRIVATE_KEY }}
+          # Org-installation token: the custom properties the sweep
+          # reads and stamps are org-scoped.
+          owner: ${{ github.repository_owner }}
+
+      - name: Run sweep
+        env:
+          GH_REPO_CONFIG_ORG: ${{ github.repository_owner }}
+          GH_REPO_CONFIG_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO_CONFIG_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_REPO_CONFIG_DRY_RUN: ${{ inputs.dry-run }}
+          # The org config file stays where it is, in this repo's
+          # checkout; only the converger itself comes from the tarball.
+          # Relative to the workspace, which is this step's cwd.
+          GH_REPO_CONFIG_FILE: gh-repo-config.json
+          # This repo IS the sweeper. Stating it from
+          # $GITHUB_REPOSITORY is what keeps the identity from drifting:
+          # no org variable, no extra App scope, and the invoker cannot
+          # name a repo other than itself.
+          GH_REPO_CONFIG_SWEEPER_REPO: ${{ github.repository }}
+          UNPACKED: ${{ steps.unpack.outputs.root }}
+        run: |
+          set -euo pipefail
+          node "${UNPACKED}/bin/gh-repo-config.js" sweep

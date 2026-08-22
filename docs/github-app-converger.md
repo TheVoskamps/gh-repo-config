@@ -51,6 +51,19 @@ That elevated scope is precisely why it is a
 `docs/org-repo-configuration-fanout-decomposition.md` → "Converger
 App — permission set".
 
+The pull-request surface the converger drives is not all REST: it also
+issues two GraphQL calls, the `convertPullRequestToDraft` and
+`markPullRequestReadyForReview` mutations, issued by `ContentsClient`
+(`src/github/contents.ts`) and driven by `src/converge/writer.ts` to
+hold the sweeper repo's trust-anchor PR as a draft under
+`sweeper-update-policy: manual`, and to release that hold under a
+policy that no longer reserves that path — `auto` or `off`.
+There is no REST equivalent — `draft` is writable on the create call
+only. Narrowing whatever permission those mutations need would leave
+them failing: the trust-anchor hold would rest on the merge pass alone,
+which does not bind GitHub-native auto-merge, and a hold placed under
+`manual` could never be released.
+
 A sentence added here of the form "GitHub gates `<endpoint>` on
 `<permission>`" stands only after that endpoint's own REST reference
 page is fetched and seen to state the mapping. Many pages state only
@@ -68,13 +81,29 @@ installation tokens in CI, not for receiving event deliveries.
 
 ## Secrets
 
-The App ID and private key are stored as `organization` secrets
-(visible to all repositories, matching the `AUTOMERGE_*` pair):
+The App's identifiers and private key are stored as `organization`
+secrets (visible to all repositories, matching the `AUTOMERGE_*` pair):
 
-| Secret | Holds |
-| --- | --- |
-| `CONVERGER_APP_ID` | the numeric App ID (`4319606`) |
-| `CONVERGER_APP_PRIVATE_KEY` | the App's PEM private key |
+| Secret | Holds | Read by |
+| --- | --- | --- |
+| `CONVERGER_APP_ID` | the numeric App ID (`4319606`) | this repo's own `.github/workflows/sweep.yml` |
+| `CONVERGER_APP_CLIENT_ID` | the App's Client ID | the fanned-out sweeper workflow |
+| `CONVERGER_APP_PRIVATE_KEY` | the App's PEM private key | both |
+
+Two identifier secrets exist because the two workflows that mint a
+token feed different inputs of `actions/create-github-app-token`. This
+repo's own `.github/workflows/sweep.yml` uses `app-id:`. The
+fanned-out sweeper workflow (`assets/sweeper-sweep.yml`, rendered to
+`.github/workflows/sweep.yml` on an org's sweeper repo) uses
+`client-id:`, because upstream carries a `deprecationMessage` on
+`app-id:` and a workflow shipped org-wide must not be born deprecated.
+
+The Client ID is a distinct value from the numeric App ID and is not
+derivable from it: read it off the App's settings page and set the
+secret by hand. An org standing up a sweeper repo must have
+`CONVERGER_APP_CLIENT_ID` and `CONVERGER_APP_PRIVATE_KEY` present in
+its own org secrets, under those names, before the sweeper workflow's
+first run — the workflow provisions neither.
 
 The private key is never committed to the repo and never printed to
 logs. To rotate it, generate a new private key in the App's settings,
@@ -84,8 +113,11 @@ key in the App settings.
 ## Using the App in a workflow
 
 Mint an installation token at the start of the job and pass it to
-downstream steps. See `.github/workflows/sweep.yml` for the live
-usage; the canonical snippet is:
+downstream steps. The snippet below mirrors this repo's own
+`.github/workflows/sweep.yml`, which still feeds `app-id:`. A workflow
+written now should feed `client-id:` from `CONVERGER_APP_CLIENT_ID`
+instead — upstream carries a `deprecationMessage` on `app-id:`, so it
+warns on every run — as `assets/sweeper-sweep.yml` does:
 
 ```yaml
     steps:

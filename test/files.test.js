@@ -6,10 +6,15 @@ import {
   renderNamedGroupsBlock,
   NAMED_DEPENDABOT_GROUPS,
   COMMUNITY_FILE_PATHS,
+  SWEEPER_WORKFLOW_PATH,
 } from "../dist/index.js";
 import { readAssetText } from "../dist/index.js";
 
 const CTX = { org: "TheVoskamps", repo: "example", defaultBranch: "main" };
+
+// CTX's own repo, named as the org's sweeper repo (issue #92) — the one
+// identity under which `buildDesiredFiles` emits the sweeper workflow.
+const SWEEPER_OPTIONS = { sweeperRepo: `${CTX.org}/${CTX.repo}` };
 
 /**
  * The job ids of a workflow, in file order.
@@ -241,6 +246,10 @@ test("PR-automation workflows reference the AUTOMERGE secrets, and the REST-merg
 //   - no-back-merging-guard and auto-rebase-prs were already single-job
 //     and are unchanged; they are listed so the table covers the whole
 //     payload rather than only the workflows #77 edited.
+//   - sweep (issue #92) is new and single-job by the same argument:
+//     splitting "resolve the pin", "verify the tarball", and "run the
+//     sweep" into separate jobs would triple the sweeper repo's daily
+//     cost for isolation step ordering already provides.
 const EXPECTED_JOBS = {
   ".github/workflows/dependency-install-gate.yml": ["install-gate-required"],
   ".github/workflows/dependency-pinned-gate.yml": ["pinned-gate-required"],
@@ -248,10 +257,13 @@ const EXPECTED_JOBS = {
   ".github/workflows/codeql.yml": ["codeql-required", "analyze-swift"],
   ".github/workflows/auto-enable-automerge.yml": ["enable-automerge"],
   ".github/workflows/auto-rebase-prs.yml": ["rebase"],
+  [SWEEPER_WORKFLOW_PATH]: ["sweep"],
 };
 
 test("every fanned-out workflow renders exactly the jobs the collapse left it", () => {
-  const workflows = buildDesiredFiles(CTX).filter((f) =>
+  // Built as the sweeper repo, so the sweeper workflow is in the payload
+  // and comes under the same constraint as every other one.
+  const workflows = buildDesiredFiles(CTX, SWEEPER_OPTIONS).filter((f) =>
     f.path.startsWith(".github/workflows/"),
   );
   // A new workflow must not be able to escape the job-count constraint by
@@ -394,6 +406,102 @@ test("the install gate grants id-token: write on its single job only", () => {
   // find the explanation in the file itself.
   assert.match(gate.content, /LATENT/);
   assert.match(gate.content, /no IAM role's trust policy/);
+});
+
+test("the sweeper workflow is a payload under manual and auto, and under neither off nor a non-sweeper repo (issue #92)", () => {
+  const has = (options) =>
+    buildDesiredFiles(CTX, options).some((f) => f.path === SWEEPER_WORKFLOW_PATH);
+
+  // Both policies that converge it. `manual` is also what an absent
+  // policy key resolves to, so the bare-sweeperRepo case renders it.
+  assert.equal(has({ ...SWEEPER_OPTIONS, sweeperUpdatePolicy: "manual" }), true);
+  assert.equal(has({ ...SWEEPER_OPTIONS, sweeperUpdatePolicy: "auto" }), true);
+  assert.equal(has(SWEEPER_OPTIONS), true);
+
+  // `off` converges it nowhere, the sweeper repo included.
+  assert.equal(has({ ...SWEEPER_OPTIONS, sweeperUpdatePolicy: "off" }), false);
+
+  // A repo that is not the sweeper never gets it, under any policy —
+  // including one whose bare NAME matches but whose owner does not.
+  for (const policy of ["manual", "auto", "off"]) {
+    assert.equal(
+      has({ sweeperRepo: "TheVoskamps/other-repo", sweeperUpdatePolicy: policy }),
+      false,
+      policy,
+    );
+    assert.equal(
+      has({ sweeperRepo: `OtherOrg/${CTX.repo}`, sweeperUpdatePolicy: policy }),
+      false,
+      policy,
+    );
+  }
+
+  // No sweeper repo at all this tick.
+  assert.equal(has({}), false);
+  assert.equal(has({ sweeperUpdatePolicy: "auto" }), false);
+});
+
+test("the sweeper workflow is the ONLY payload difference between a sweeper repo and any other (issue #92)", () => {
+  const sweeper = buildDesiredFiles(CTX, SWEEPER_OPTIONS);
+  const plain = buildDesiredFiles(CTX);
+  assert.deepEqual(
+    sweeper.filter((f) => f.path !== SWEEPER_WORKFLOW_PATH),
+    plain,
+  );
+  // And `gh-repo-config.json` is org-owned content, never a payload —
+  // under any policy, on the sweeper repo or off it.
+  for (const files of [sweeper, plain]) {
+    assert.equal(files.some((f) => f.path.endsWith("gh-repo-config.json")), false);
+  }
+});
+
+test("the rendered sweeper workflow ships verbatim, non-executable, converge-and-overwrite (issue #92)", () => {
+  const sweep = buildDesiredFiles(CTX, SWEEPER_OPTIONS).find(
+    (f) => f.path === SWEEPER_WORKFLOW_PATH,
+  );
+  assert.ok(sweep, "sweeper workflow present");
+  assert.equal(sweep.executable, false);
+  // Not seed-if-absent: the anchor is converged, not merely seeded.
+  assert.equal(sweep.honoredLocations, undefined);
+  // It carries no per-repo placeholder today, so the render is the
+  // identity — and it must still pass the token assertion.
+  assert.equal(sweep.content, readAssetText("sweeper-sweep.yml"));
+  assert.doesNotThrow(() =>
+    assertNoUnresolvedTokens(sweep.content, SWEEPER_WORKFLOW_PATH),
+  );
+});
+
+test("the sweeper workflow mints with client-id, SHA-pins its actions, and verifies before it unpacks (issue #92)", () => {
+  const sweep = buildDesiredFiles(CTX, SWEEPER_OPTIONS).find(
+    (f) => f.path === SWEEPER_WORKFLOW_PATH,
+  );
+
+  // actions/create-github-app-token deprecated `app-id` in favour of
+  // `client-id`; the anchor must not ship org-wide already deprecated.
+  // Anchored to a line-leading key so the header's prose does not read
+  // as shipping the input.
+  assert.match(sweep.content, /client-id: \$\{\{ secrets\.CONVERGER_APP_CLIENT_ID \}\}/);
+  assert.doesNotMatch(sweep.content, /^ *app-id:/m);
+  assert.match(sweep.content, /secrets\.CONVERGER_APP_PRIVATE_KEY/);
+
+  // Every third-party action is pinned by 40-hex commit SHA.
+  const uses = sweep.content.match(/^\s*uses: .*$/gm) ?? [];
+  assert.ok(uses.length > 0, "the workflow uses at least one action");
+  for (const line of uses) {
+    assert.match(line, /uses: [^@\s]+@[0-9a-f]{40} # /, line);
+  }
+
+  // Nothing from the tarball is unpacked or executed before the
+  // attestation verify passes.
+  const at = (needle) => sweep.content.indexOf(needle);
+  assert.ok(at("gh attestation verify") > 0, "the workflow verifies provenance");
+  assert.ok(at("gh attestation verify") < at("tar -xzf"));
+  assert.ok(at("tar -xzf") < at("bin/gh-repo-config.js"));
+
+  // The identity and the config path the sweep is handed are the fixed
+  // ones the converger's own env contract names.
+  assert.match(sweep.content, /GH_REPO_CONFIG_SWEEPER_REPO: \$\{\{ github\.repository \}\}/);
+  assert.match(sweep.content, /GH_REPO_CONFIG_FILE: gh-repo-config\.json/);
 });
 
 const COMMUNITY_PATHS = ["CONTRIBUTORS", "LICENSE", "PATENTS", "PRIOR_ART.md"];

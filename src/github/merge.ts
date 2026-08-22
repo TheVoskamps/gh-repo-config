@@ -19,6 +19,9 @@
  *   /repos/{owner}/{repo}/commits/{ref}/check-runs` (GitHub Checks) plus
  *   `GET /repos/{owner}/{repo}/commits/{ref}/status` (legacy combined
  *   status, for any check that only posts a commit status).
+ * - PR changed files: `GET /repos/{owner}/{repo}/pulls/{number}/files`,
+ *   read only when the caller reserves paths for human approval (issue
+ *   #92).
  * - Merge: `PUT /repos/{owner}/{repo}/pulls/{number}/merge`, merge
  *   method `merge` (merge-commit only, per the org's merge-commit-only
  *   standard — never squash, never rebase).
@@ -32,6 +35,12 @@ export interface OpenPullRequest {
   readonly baseRef: string;
   readonly authorLogin: string;
   readonly authorType: string;
+  /**
+   * GitHub's own draft flag, as the list endpoint reports it. Nothing
+   * merges a draft PR, so {@link MergeClient.evaluateAndMerge} settles
+   * one without ever reaching the merge call.
+   */
+  readonly draft: boolean;
 }
 
 interface RawUser {
@@ -44,6 +53,7 @@ interface RawPullRequest {
   readonly user: RawUser | null;
   readonly head: { readonly sha: string; readonly ref: string };
   readonly base: { readonly ref: string };
+  readonly draft: boolean;
 }
 
 interface RawRequiredStatusCheckRule {
@@ -91,11 +101,48 @@ export type MergeOutcome =
   /** All required checks are green/empty but at least one is still pending. */
   | "pending"
   /**
+   * The PR is held for a person, so the merge pass never evaluated it
+   * (issue #92). Either it changes a path the caller reserved for human
+   * approval (a sweeper repo's own trust-anchor workflow under
+   * `sweeper-update-policy: manual`), or it is a draft — including one a
+   * maintainer drafted by hand on any managed repo. Left open and
+   * updated every tick until a human marks it ready and merges it.
+   * Expected, not a failure and not a retry: while the reservation
+   * stands, no later tick resolves this one on its own, unlike the
+   * other left-open outcomes. The one exception is the reservation
+   * being withdrawn — a sweeper repo moved to `auto` or `off` has its
+   * drafted PR marked ready by the next tick that commits (see
+   * `converge/files.ts`'s `sweeperPolicyReleasesHold`), which is the
+   * sweep releasing its own hold rather than resolving the outcome.
+   */
+  | "awaiting-human"
+  /**
    * Checks were green and mergeable at read time, but the merge call
    * itself got a 405/409 (head moved, or no-longer-mergeable) between
    * the read and the merge attempt. Retry next tick, not a failure.
    */
   | "awaiting-retry";
+
+/** Per-call knobs for {@link MergeClient.evaluateAndMerge}. */
+export interface EvaluateAndMergeOptions {
+  /**
+   * Target-repo paths whose change reserves the PR for a human (issue
+   * #92). A PR touching any of them is never merged by the sweep; it
+   * settles as `awaiting-human` and stays open. Empty or absent — the
+   * ordinary case on every repo but the sweeper — costs no extra API
+   * call at all.
+   *
+   * This binds the converger's own merge call and nothing else. The lock
+   * that also binds GitHub-native auto-merge is the draft state
+   * `converge/writer.ts` puts such a PR in, off the same path list
+   * (`converge/files.ts`'s `sweeperHumanApprovalPaths`). Keep both: a
+   * human who marks the held PR ready without merging it clears the
+   * draft lock until the next tick that commits re-applies it, and this
+   * list is what holds the PR in that window — which is the whole reason
+   * it is still consulted on a PR the draft check would also catch.
+   */
+  readonly humanApprovalPaths?: readonly string[];
+}
 
 /** Full result of evaluating (and possibly merging) one PR. */
 export interface MergeAttemptResult {
@@ -205,6 +252,7 @@ export class MergeClient {
             baseRef: pr.base.ref,
             authorLogin: pr.user.login,
             authorType: pr.user.type,
+            draft: pr.draft,
           });
         }
       }
@@ -327,6 +375,43 @@ export class MergeClient {
   }
 
   /**
+   * List the paths one PR changes
+   * (`GET /repos/{owner}/{repo}/pulls/{number}/files`), paginated.
+   *
+   * Used only by the human-approval exclusion in
+   * {@link evaluateAndMerge}: a converger PR is one commit against a
+   * payload set of a few dozen files, so the first page all but always
+   * covers it, but the loop is written to page anyway rather than
+   * silently truncating at 100 and merging a PR whose reserved path sat
+   * on page two.
+   */
+  async listChangedFiles(
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<string[]> {
+    const perPage = 100;
+    const paths: string[] = [];
+    for (let page = 1; ; page++) {
+      const url = `${this.apiBase}/repos/${owner}/${repo}/pulls/${number}/files?per_page=${perPage}&page=${page}`;
+      const res = await this.doFetch(url, { headers: this.headers() });
+      if (!res.ok) {
+        throw new Error(
+          `Failed to list changed files for ${owner}/${repo}#${number} (page ${page}): ${res.status} ${res.statusText}`,
+        );
+      }
+      const batch = (await res.json()) as { filename: string }[];
+      for (const file of batch) {
+        paths.push(file.filename);
+      }
+      if (batch.length < perPage) {
+        break;
+      }
+    }
+    return paths;
+  }
+
+  /**
    * REST-merge one PR with the `merge` method (merge-commit only, per
    * the org's merge-commit-only standard). Returns `true` on success.
    * Returns `false` (rather than throwing) on a 405 or 409 — "head
@@ -362,13 +447,59 @@ export class MergeClient {
    * them, and merge when green. Mirrors the `dryRun` symmetry with
    * {@link OrgPropertiesClient.stampVersion} — decide and report, never
    * issue the merge, when `dryRun` is set.
+   *
+   * Two held-for-a-person cases settle before any check-state read at
+   * all, since neither outcome can change with the checks and evaluating
+   * them first would be work whose result is discarded: a PR changing
+   * one of `options.humanApprovalPaths`, and a DRAFT PR. The path check
+   * runs first because it names the reserved path in its reason, which
+   * is the more actionable message for the anchor PR that is both; the
+   * file listing it costs is one request against the several the check
+   * rollup would cost, and only on a repo that reserves paths at all.
+   *
+   * @param options `humanApprovalPaths` reserves paths for a human
+   *   (issue #92).
    */
   async evaluateAndMerge(
     owner: string,
     repo: string,
     pr: OpenPullRequest,
     dryRun: boolean,
+    options: EvaluateAndMergeOptions = {},
   ): Promise<MergeAttemptResult> {
+    const reserved = options.humanApprovalPaths ?? [];
+    if (reserved.length > 0) {
+      const changed = await this.listChangedFiles(owner, repo, pr.number);
+      const hits = changed.filter((p) => reserved.includes(p));
+      if (hits.length > 0) {
+        return {
+          pr,
+          outcome: "awaiting-human",
+          checks: [],
+          reason: `changes path(s) reserved for human approval: ${hits.join(", ")}`,
+        };
+      }
+    }
+
+    if (pr.draft) {
+      // GitHub rejects a merge of a draft PR outright, so evaluating one
+      // would spend the check-state reads to earn a doomed merge call
+      // and a cycling `awaiting-retry` every tick. No pass of this sweep
+      // clears it, which is what makes this `awaiting-human` rather than
+      // a retry — the same settled-by-a-person shape the reserved-path
+      // case has, and the same one a PR held by both must land in. The
+      // converge pass does mark a draft ready on a sweeper repo whose
+      // policy stopped reserving the anchor (`converge/files.ts`'s
+      // `sweeperPolicyReleasesHold`); that is the sweep withdrawing its
+      // own hold, and every other draft waits for a person.
+      return {
+        pr,
+        outcome: "awaiting-human",
+        checks: [],
+        reason: "PR is a draft — a human must mark it ready for review",
+      };
+    }
+
     const requiredContexts = await this.getRequiredCheckContexts(
       owner,
       repo,

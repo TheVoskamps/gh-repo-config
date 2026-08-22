@@ -22,7 +22,11 @@
  * {@link DesiredFilesOptions.communityFiles} and `community.ts`).
  * Issue #39 adds the `codeartifact-auth` composite action — the first
  * payload that is verbatim (no placeholders) yet lands at a bespoke
- * non-workflow path (see {@link VERBATIM_AT_PATH}).
+ * non-workflow path (see {@link VERBATIM_AT_PATH}). Issue #92 adds the
+ * sweeper workflow — the first payload that is **conditional on which
+ * repo is being converged**: it lands only on the org's sweeper repo,
+ * and only when the org's `sweeper-update-policy` is not `off` (see
+ * {@link SWEEPER_WORKFLOW_PATH}).
  *
  * Production modes:
  *
@@ -54,6 +58,10 @@
  *   no-external-source-of-truth contract, confined to this payload kind.
  */
 import { readAssetText } from "./assets.js";
+import {
+  DEFAULT_SWEEPER_UPDATE_POLICY,
+  type SweeperUpdatePolicy,
+} from "../config/org-config.js";
 import {
   assertNoUnresolvedTokens,
   renderDependabotYml,
@@ -140,6 +148,28 @@ const RENDERED_PR_AUTOMATION_WORKFLOWS: readonly string[] = [
   "auto-enable-automerge.yml",
   "auto-rebase-prs.yml",
 ];
+
+/**
+ * The sweeper workflow's asset name (issue #92). Rendered through the
+ * plain three-token {@link renderTemplate} path even though it carries
+ * no placeholder today: a zero-placeholder template renders
+ * byte-identical and trivially passes the unresolved-token assertion,
+ * so adding a per-repo value later needs no plumbing change.
+ */
+const SWEEPER_WORKFLOW_ASSET = "sweeper-sweep.yml";
+
+/**
+ * Where the rendered sweeper workflow lands on the sweeper repo (issue
+ * #92), and the one path {@link sweeperHumanApprovalPaths} reserves:
+ * under `sweeper-update-policy: manual` a converger PR whose changed
+ * files include it is opened as a draft and never merged by the sweep.
+ *
+ * The enforcement sites reach that rule through
+ * {@link sweeperHumanApprovalPaths}, not through this constant — it is
+ * exported for callers that need to address the payload itself, such as
+ * the tests.
+ */
+export const SWEEPER_WORKFLOW_PATH = ".github/workflows/sweep.yml";
 
 /**
  * A rendered `.yml` asset that lands at a fixed non-workflow path (not
@@ -248,7 +278,30 @@ export type CommunityFileContent = Readonly<Record<string, string>>;
  * at sweep time (`community.ts`), and an absent or empty map simply
  * seeds nothing.
  */
-export interface DesiredFilesOptions extends OrgRenderOptions {
+export interface SweeperOptions {
+  /**
+   * The org's sweeper repo as `owner/repo` (issue #92), exactly as the
+   * invoking workflow stated it in `GH_REPO_CONFIG_SWEEPER_REPO`. The
+   * sweeper workflow is a payload for that one repo and no other, so
+   * this is compared against the converging repo's own `owner/repo`.
+   * Absent means no repo is the sweeper this tick and the workflow is
+   * not a payload anywhere.
+   */
+  readonly sweeperRepo?: string;
+  /**
+   * The org's `sweeper-update-policy` (issue #92). `off` drops the
+   * sweeper workflow from the payload set entirely; `manual` and `auto`
+   * both render it, and differ only in whether the resulting PR may
+   * merge unattended (see {@link sweeperHumanApprovalPaths}). Absent
+   * takes {@link DEFAULT_SWEEPER_UPDATE_POLICY}, matching what the org
+   * config parse applies to an absent key.
+   */
+  readonly sweeperUpdatePolicy?: SweeperUpdatePolicy;
+}
+
+export interface DesiredFilesOptions
+  extends OrgRenderOptions,
+    SweeperOptions {
   /**
    * The org's community-file content by path (issue #90). Only the
    * paths in {@link COMMUNITY_FILE_PATHS} are consulted; a path absent
@@ -259,12 +312,114 @@ export interface DesiredFilesOptions extends OrgRenderOptions {
 }
 
 /**
+ * Whether the repo being converged gets the sweeper workflow: it must
+ * be the repo named by `sweeperRepo`, and the policy must not be `off`.
+ *
+ * The `gh-repo-config.json` the workflow reads is org-owned content and
+ * is deliberately absent from every payload under every policy — this
+ * decides the workflow only.
+ */
+function shipsSweeperWorkflow(
+  ctx: RepoContext,
+  options: DesiredFilesOptions,
+): boolean {
+  const policy = options.sweeperUpdatePolicy ?? DEFAULT_SWEEPER_UPDATE_POLICY;
+  if (policy === "off") {
+    return false;
+  }
+  return options.sweeperRepo === `${ctx.org}/${ctx.repo}`;
+}
+
+/**
+ * The paths a given repo's converger PRs must not reach the default
+ * branch over without a human (issue #92) — the enforcement half of
+ * `sweeper-update-policy`.
+ *
+ * Only the sweeper repo has any, and only under `manual`: the sweeper
+ * workflow is where the attestation verify and the version pin live, so
+ * letting the converger both render it and land it would let one
+ * compromised release rewrite the org's trust anchor unattended. Under
+ * `auto` the org has accepted that loop, and under `off` the workflow is
+ * not a payload at all — neither reserves anything.
+ *
+ * The one definition both enforcement sites read: `writer.ts` opens (or
+ * converts) the PR as a **draft** when it touches one of these paths,
+ * and `sweep.ts` hands the same list to the merge pass, which settles
+ * such a PR as `awaiting-human`. Draft state is what makes the hold
+ * independent of any workflow's cooperation — a draft PR cannot be
+ * REST-merged and cannot have GitHub's native auto-merge enabled — so
+ * the reservation holds even on a first-tick sweeper repo where no
+ * `protect-main` ruleset exists yet.
+ *
+ * A sweeper-repo PR that bundles the anchor with other payload changes
+ * waits for the human as a whole. That is intended: those changes then
+ * ride the same human-reviewed approval rather than a lower bar.
+ */
+export function sweeperHumanApprovalPaths(
+  org: string,
+  repo: string,
+  options: SweeperOptions,
+): readonly string[] {
+  // Default the policy exactly as `shipsSweeperWorkflow` does, so the
+  // render half and the hold half of one policy can never disagree about
+  // what an absent key means: rendering the anchor while letting it
+  // merge unattended is the loop the policy exists to break.
+  const policy = options.sweeperUpdatePolicy ?? DEFAULT_SWEEPER_UPDATE_POLICY;
+  if (policy !== "manual") {
+    return [];
+  }
+  return options.sweeperRepo === `${org}/${repo}` ? [SWEEPER_WORKFLOW_PATH] : [];
+}
+
+/**
+ * Whether a draft converger PR on this repo must be converted back to
+ * ready-for-review (issue #92) — the release of the hold
+ * {@link sweeperHumanApprovalPaths} states, and the other half of one
+ * policy for the same reason those two halves live together here.
+ *
+ * The predicate is "this repo's policy no longer reserves the anchor
+ * path", not "the policy is `auto`": on the sweeper repo both `auto`
+ * (the org saying its converger PRs merge when green like any other)
+ * and `off` (the anchor is not a payload at all) release it. A draft
+ * left by an earlier `manual` tick is then a hold the sweep itself
+ * placed and whose justification is gone, and only the sweep can lift
+ * it — nothing else ever marks a converger PR ready. Without the
+ * release, `manual`→`auto` would strand the sweeper repo's own trust
+ * anchor as a draft forever, and `manual`→`off` would leave the sweep's
+ * own litter blocking every later payload change on the same branch.
+ *
+ * The release rides on the commit the calling tick writes, and must
+ * keep doing so: under `off` the work branch stops carrying the anchor
+ * only when that commit resets it onto the default head, so marking a
+ * PR ready without one would offer an unattended merge exactly the
+ * anchor the org just switched off. A tick with nothing to commit
+ * therefore leaves the draft standing.
+ *
+ * The consequence a human must know: on the sweeper repo under `auto`
+ * or `off`, hand-drafting a converger PR does not hold it — the next
+ * tick that commits marks it ready again. Holding one means flipping
+ * the policy back to `manual`.
+ */
+export function sweeperPolicyReleasesHold(
+  org: string,
+  repo: string,
+  options: SweeperOptions,
+): boolean {
+  const policy = options.sweeperUpdatePolicy ?? DEFAULT_SWEEPER_UPDATE_POLICY;
+  if (policy === "manual") {
+    return false;
+  }
+  return options.sweeperRepo === `${org}/${repo}`;
+}
+
+/**
  * Build the full set of files the converger wants present in a target
  * repo, for the given per-repo context. Rendered templates are asserted
  * free of unresolved tokens (an unresolved token throws, failing the
  * repo's converge); verbatim scripts are shipped as-is.
  *
  * The returned list is stable-ordered (dependabot, then workflows, then
+ * the sweeper workflow when this repo is the sweeper, then
  * rendered-at-path config, then verbatim-at-path YAML, then scripts,
  * then community files, each in declaration order) so a diff / commit is
  * deterministic.
@@ -320,6 +475,21 @@ export function buildDesiredFiles(
     assertNoUnresolvedTokens(rendered, `.github/workflows/${name}`);
     files.push({
       path: `.github/workflows/${name}`,
+      content: rendered,
+      executable: false,
+    });
+  }
+
+  // The sweeper workflow (issue #92): a payload for the org's sweeper
+  // repo only, and only when the policy is `manual` or `auto`.
+  if (shipsSweeperWorkflow(ctx, options)) {
+    const rendered = renderTemplate(
+      readAssetText(SWEEPER_WORKFLOW_ASSET),
+      ctx,
+    );
+    assertNoUnresolvedTokens(rendered, SWEEPER_WORKFLOW_PATH);
+    files.push({
+      path: SWEEPER_WORKFLOW_PATH,
       content: rendered,
       executable: false,
     });
