@@ -3,8 +3,8 @@
 This repo authenticates selected GitHub Actions workflows as the
 GitHub App **`thevoskamps-repo-config-converger`** rather than the default `GITHUB_TOKEN`.
 A short-lived installation token is minted per workflow run from the
-App ID and private key stored in secrets; there is no long-lived token
-to rotate manually.
+Client ID and private key stored in secrets; there is no long-lived
+token to rotate manually.
 
 This document is the checked-in record of that App. It is maintained
 by the `/gh-create-app` skill — re-run the skill to verify or update
@@ -86,17 +86,19 @@ secrets (visible to all repositories, matching the `AUTOMERGE_*` pair):
 
 | Secret | Holds | Read by |
 | --- | --- | --- |
-| `CONVERGER_APP_ID` | the numeric App ID (`4319606`) | this repo's own `.github/workflows/sweep.yml` |
-| `CONVERGER_APP_CLIENT_ID` | the App's Client ID | the fanned-out sweeper workflow |
+| `CONVERGER_APP_CLIENT_ID` | the App's Client ID | this repo's own `.github/workflows/sweep.yml` and the fanned-out sweeper workflow |
 | `CONVERGER_APP_PRIVATE_KEY` | the App's PEM private key | both |
 
-Two identifier secrets exist because the two workflows that mint a
-token feed different inputs of `actions/create-github-app-token`. This
-repo's own `.github/workflows/sweep.yml` uses `app-id:`. The
-fanned-out sweeper workflow (`assets/sweeper-sweep.yml`, rendered to
-`.github/workflows/sweep.yml` on an org's sweeper repo) uses
-`client-id:`, because upstream carries a `deprecationMessage` on
-`app-id:` and a workflow shipped org-wide must not be born deprecated.
+One identifier secret serves both workflows that mint a token, because
+both feed the same `client-id:` input of
+`actions/create-github-app-token`: this repo's own
+`.github/workflows/sweep.yml` and the fanned-out sweeper workflow
+(`assets/sweeper-sweep.yml`, rendered to `.github/workflows/sweep.yml`
+on an org's sweeper repo). Upstream carries a `deprecationMessage` on
+the `app-id:` input it replaced, so no mint in this repo feeds it. The
+numeric App ID is therefore not read by any workflow; deleting the
+`CONVERGER_APP_ID` org secret that used to hold it is an operator
+action.
 
 The Client ID is a distinct value from the numeric App ID and is not
 derivable from it: read it off the App's settings page and set the
@@ -114,10 +116,10 @@ key in the App settings.
 
 Mint an installation token at the start of the job and pass it to
 downstream steps. The snippet below mirrors this repo's own
-`.github/workflows/sweep.yml`, which still feeds `app-id:`. A workflow
-written now should feed `client-id:` from `CONVERGER_APP_CLIENT_ID`
-instead — upstream carries a `deprecationMessage` on `app-id:`, so it
-warns on every run — as `assets/sweeper-sweep.yml` does:
+`.github/workflows/sweep.yml`. Feed `client-id:` from
+`CONVERGER_APP_CLIENT_ID`, never the `app-id:` input it replaced —
+upstream carries a `deprecationMessage` on `app-id:`, so it warns on
+every run:
 
 ```yaml
     steps:
@@ -125,7 +127,7 @@ warns on every run — as `assets/sweeper-sweep.yml` does:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.CONVERGER_APP_ID }}
+          client-id: ${{ secrets.CONVERGER_APP_CLIENT_ID }}
           private-key: ${{ secrets.CONVERGER_APP_PRIVATE_KEY }}
       - name: Do privileged work as the App
         env:
