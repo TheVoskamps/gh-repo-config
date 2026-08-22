@@ -1,0 +1,27 @@
+# The lint tools `.github/workflows/ci.yml` runs, declared so a dev
+# host or a fresh agent worktree has them without a `brew install` and
+# without `npm ci`. A tool that is merely absent gets reported as a
+# coverage gap; a declared one gets run.
+#
+# All three float. Nothing upstream pins them: shellcheck is
+# preinstalled on the runner image, the `raven-actions/actionlint` step
+# installs its own, and the host's Homebrew copies are updated to
+# latest daily by the machine's own setup tooling. `package.json` still
+# pins `markdownlint-cli2` as a devDependency because `npm run lint:md`
+# resolves it from `node_modules/.bin`; that pin is the odd one out
+# here, not the thing to match.
+#
+# actionlint must be run as `actionlint -shellcheck=` to reproduce CI.
+# CI's actionlint step passes `shellcheck: false`, disabling
+# actionlint's bundled shellcheck pass over embedded `run:` blocks,
+# because the dedicated shellcheck step already covers that class. A
+# bare `actionlint` auto-detects shellcheck on PATH, re-enables that
+# pass, and exits 1 on SC2016 findings CI never reports.
+#
+# markdownlint-cli2 needs no arguments: `.markdownlint-cli2.jsonc` owns
+# the globs and ignores, and `.markdownlint.jsonc` owns the rules.
+
+[tools]
+actionlint = "latest"          # .github/workflows/*.yml
+shellcheck = "latest"          # assets/*.sh, scripts/*.sh
+markdownlint-cli2 = "latest"   # **/*.md
