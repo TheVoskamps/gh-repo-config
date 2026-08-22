@@ -21,10 +21,12 @@
 # no branch, no PR.
 #
 # Auth: this workflow MUST mint a short-lived GitHub App installation
-# token (from the AUTOMERGE_APP_ID / AUTOMERGE_APP_PRIVATE_KEY repo
+# token (from the AUTOMERGE_APP_CLIENT_ID / AUTOMERGE_APP_PRIVATE_KEY
 # secrets -- the same PR-operations App auto-rebase-prs.yml and
-# auto-enable-automerge.yml already use, and the same mint-step shape)
-# and use it to open the PR. Do NOT fall back to the default
+# auto-enable-automerge.yml already use, and the same mint-step shape:
+# create-github-app-token's client-id: input, never the deprecated
+# app-id:, and the Client ID is a different value from the numeric App
+# ID) and use it to open the PR. Do NOT fall back to the default
 # GITHUB_TOKEN: a PR opened with GITHUB_TOKEN does not trigger
 # `pull_request` workflows (GitHub design, to prevent infinite
 # recursion), so neither ci.yml nor pin-shape.yml would ever run on
@@ -33,10 +35,10 @@
 # ruleset requires -- see assets/auto-rebase-prs.yml's own Auth
 # section for the identical constraint on pushes.
 #
-# Do NOT use CONVERGER_APP_ID / CONVERGER_APP_PRIVATE_KEY. That App
-# carries Administration and Org administration scope for the sweep;
-# this job parses untrusted upstream release notes and advisory text
-# and must not hold org-level authority.
+# Do NOT use CONVERGER_APP_CLIENT_ID / CONVERGER_APP_PRIVATE_KEY.
+# That App carries Administration and Org administration scope for the
+# sweep; this job parses untrusted upstream release notes and advisory
+# text and must not hold org-level authority.
 #
 # Token-scoping (defense-in-depth): the App token is minted up front
 # (create-github-app-token has no per-step scoping), but it is kept
@@ -108,7 +110,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.AUTOMERGE_APP_ID }}
+          client-id: ${{ secrets.AUTOMERGE_APP_CLIENT_ID }}
           private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
 
       - name: Checkout

@@ -803,8 +803,8 @@ lint set passed.
     archive is being handled — the same scoping rationale
     `assets-pin-bump.yml` applies to untrusted upstream text. The mint
     uses `client-id:` (secret `CONVERGER_APP_CLIENT_ID`, the App's
-    Client ID — a distinct value from the numeric App ID
-    `.github/workflows/sweep.yml` here still uses), never the deprecated
+    Client ID — a distinct value from the App's numeric App ID, which
+    no workflow in this repo reads), never the deprecated
     `app-id:` input; `test/files.test.js` pins that, the SHA-pinning,
     and the verify-before-unpack order. The sweep's own
     `assertVersionPinSatisfied` stays the defense-in-depth re-check of
@@ -944,13 +944,18 @@ lint set passed.
   as defense-in-depth against the narrower race between that check and
   the push itself.
   The commit/push/PR step mints a short-lived GitHub App
-  installation token from the `AUTOMERGE_APP_ID` /
-  `AUTOMERGE_APP_PRIVATE_KEY` secrets (the same PR-operations App
-  `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use) rather than
+  installation token from the `AUTOMERGE_APP_CLIENT_ID` /
+  `AUTOMERGE_APP_PRIVATE_KEY` secrets — the same PR-operations App
+  `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use — rather than
   the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
   trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`
   would never run on its own PRs and they could never satisfy the
-  `ci-required` / `pin-shape-required` required checks. That App token
+  `ci-required` / `pin-shape-required` required checks. The mint feeds
+  `actions/create-github-app-token`'s `client-id:` input, never the
+  deprecated `app-id:`, as every other mint in this repo does: no
+  `app-id:` key is left in any file under `.github/workflows/` or
+  `assets/`, so nothing here warns on the deprecated input and nothing
+  reads the numeric App ID. That App token
   is scoped to only this last step, kept out of the checkout and the
   bump script that parse untrusted upstream release/advisory text —
   `git remote set-url` does write it into `.git/config`, but only here,
@@ -981,7 +986,9 @@ lint set passed.
   state with `gh release view <tag>`.
 - `.github/workflows/sweep.yml` — scheduled (daily) + `workflow_dispatch`
   sweep. Runs as a dedicated converger org GitHub App (org secrets
-  `CONVERGER_APP_ID` / `CONVERGER_APP_PRIVATE_KEY`), distinct from the
+  `CONVERGER_APP_CLIENT_ID` / `CONVERGER_APP_PRIVATE_KEY`, minted
+  through `client-id:` exactly as `assets/sweeper-sweep.yml` does),
+  distinct from the
   pr-automation App, since it needs Administration / Org administration
   scope the pr-automation App must never hold. Requires the
   org-level custom properties to be defined
