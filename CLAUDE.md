@@ -945,16 +945,17 @@ lint set passed.
   the push itself.
   The commit/push/PR step mints a short-lived GitHub App
   installation token from the `AUTOMERGE_APP_CLIENT_ID` /
-  `AUTOMERGE_APP_PRIVATE_KEY` secrets, through
-  `actions/create-github-app-token`'s `client-id:` input rather than
-  the deprecated `app-id:` (the same PR-operations App and the same
-  mint input `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use,
-  which is why no `app-id:` key remains anywhere under
-  `.github/workflows/`), rather than
+  `AUTOMERGE_APP_PRIVATE_KEY` secrets — the same PR-operations App
+  `auto-rebase-prs.yml` / `auto-enable-automerge.yml` use — rather than
   the default `GITHUB_TOKEN` — a PR opened with `GITHUB_TOKEN` does not
   trigger `pull_request` workflows, so `ci.yml` and `pin-shape.yml`
   would never run on its own PRs and they could never satisfy the
-  `ci-required` / `pin-shape-required` required checks. That App token
+  `ci-required` / `pin-shape-required` required checks. The mint feeds
+  `actions/create-github-app-token`'s `client-id:` input, never the
+  deprecated `app-id:`, as every other mint in this repo does: no
+  `app-id:` key is left in any file under `.github/workflows/` or
+  `assets/`, so nothing here warns on the deprecated input and nothing
+  reads the numeric App ID. That App token
   is scoped to only this last step, kept out of the checkout and the
   bump script that parse untrusted upstream release/advisory text —
   `git remote set-url` does write it into `.git/config`, but only here,

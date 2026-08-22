@@ -35,10 +35,10 @@
 # ruleset requires -- see assets/auto-rebase-prs.yml's own Auth
 # section for the identical constraint on pushes.
 #
-# Do NOT use CONVERGER_APP_CLIENT_ID / CONVERGER_APP_PRIVATE_KEY. That App
-# carries Administration and Org administration scope for the sweep;
-# this job parses untrusted upstream release notes and advisory text
-# and must not hold org-level authority.
+# Do NOT use CONVERGER_APP_CLIENT_ID / CONVERGER_APP_PRIVATE_KEY.
+# That App carries Administration and Org administration scope for the
+# sweep; this job parses untrusted upstream release notes and advisory
+# text and must not hold org-level authority.
 #
 # Token-scoping (defense-in-depth): the App token is minted up front
 # (create-github-app-token has no per-step scoping), but it is kept
