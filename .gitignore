@@ -4,3 +4,4 @@ dist/
 .claude/agent-memory/
 .claude/tmp/
 .claude/worktrees/
+.issues/user-config.md
