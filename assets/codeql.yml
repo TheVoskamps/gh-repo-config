@@ -221,7 +221,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           # A comma-separated list: every present ubuntu-runner language
           # in one database bootstrap.
@@ -236,7 +236,7 @@ jobs:
       # No `category:` — see the "NO EXPLICIT `category:`" note in the
       # header. The action derives one from this job's id.
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
 
   # The non-ubuntu (today: swift, on macOS) analysis, which EXISTS ONLY
   # when such a language is in the tree — a Swift-less repo never
@@ -259,7 +259,7 @@ jobs:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           languages: ${{ needs.codeql-required.outputs.swift_languages }}
           config-file: ./.github/codeql/codeql-config.yml
@@ -268,4 +268,4 @@ jobs:
       # distinct from `codeql-required`'s, which is exactly what keeps
       # the two uploads from displacing each other.
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
