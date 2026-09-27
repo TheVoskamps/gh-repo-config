@@ -1,7 +1,7 @@
 # REPO-OWN workflow — NOT part of the sweep's rendered payload set.
 # Everything else under .github/workflows/ in this repo is a converged
 # copy of assets/*.yml, rewritten every time the fanout sweep runs over
-# this repo (see the "Structure" section of CLAUDE.md). This file is
+# this repo (see docs/rules/workflows-and-payloads.md). This file is
 # hand-maintained here and only here: it has no assets/ counterpart and
 # the sweep never reads, renders, or overwrites it.
 #

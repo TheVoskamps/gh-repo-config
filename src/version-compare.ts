@@ -20,7 +20,8 @@
  * repo stamped `0.3.0-rc.1` reads as *not behind* `0.3.0`, so it would
  * never converge to the release. (`CURRENT_VERSION` need not
  * correspond to any release tag: the version is bumped in every PR,
- * while tags are pushed separately — see CLAUDE.md > Conventions.)
+ * while tags are pushed separately — see
+ * `.claude/rules/pr-conventions.md`.)
  */
 
 interface SemverCore {

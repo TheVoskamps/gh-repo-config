@@ -33,8 +33,8 @@ const SWEEPER_OPTIONS = { sweeperRepo: `${CTX.org}/${CTX.repo}` };
  * looser pattern reports the comment as a job.
  *
  * Deliberately hand-rolled instead of parsed with `js-yaml`, per the
- * "tests import nothing this repo does not declare" convention in
- * CLAUDE.md. `package.json` does not declare js-yaml; it reaches the tree
+ * "committed code imports only what `package.json` declares" rule in
+ * `docs/rules/extensions/code-style.md`. `package.json` does not declare js-yaml; it reaches the tree
  * only as a dev-time transitive dependency of `markdownlint-cli2`, which
  * `package-lock.json` records as its sole dependent. Since `npm test`
  * backs the `ci-required` check, importing it would let a

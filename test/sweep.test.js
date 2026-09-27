@@ -34,8 +34,8 @@ function fakeClient({ defaultMode, defaultModeRead, repos, stampVersionImpl }) {
 // The fixture "current version" every runSweep call below is driven
 // with. Deliberately 9.9.9 — far ahead of anything this package will
 // plausibly carry — so it can never coincide with the real
-// CURRENT_VERSION, which package.json moves on every PR (CLAUDE.md >
-// Conventions). That distinctness is load-bearing: runSweep's
+// CURRENT_VERSION, which package.json moves on every PR
+// (.claude/rules/pr-conventions.md). That distinctness is load-bearing: runSweep's
 // `version` parameter DEFAULTS to CURRENT_VERSION (src/sweep.ts), so
 // while the fixture equalled the real value, an implementation that
 // ignored the argument and read CURRENT_VERSION instead would have
@@ -341,7 +341,8 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
   // one a version bump can legitimately affect.
   //
   // The guard below deliberately does not pin a version literal:
-  // every PR bumps package.json's version (CLAUDE.md > Conventions),
+  // every PR bumps package.json's version
+  // (.claude/rules/pr-conventions.md),
   // so a literal would need editing in every PR and would conflict
   // between concurrent ones. What has to hold for the fixture data
   // below to mean anything is that fixture-behind's "0.0.1" stamp is
