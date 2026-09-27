@@ -24,11 +24,3 @@ the rules and parameter keys `assets/protect-main-ruleset.json` carries.
 It never iterates the server's rules or keys and never names a rule or
 parameter in a hardcoded list, and a parameter the asset does not model
 is neither drift nor a warning.
-
-## The PR-automation App slug has one source
-
-The PR-automation App's slug, wherever it is needed (the `protect-main`
-bypass actor included), is derived from the resolved
-`PrAutomationIdentity`'s `appName`. No module holds a baked slug
-constant beside it, since a second source drifts from the identity the
-rendered workflows use.

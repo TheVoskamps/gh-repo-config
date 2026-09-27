@@ -33,22 +33,13 @@ alike is checked against the code that reads the union. Where one arm
 carries a payload and the rest collapse to a fallback, the sentence
 states the narrower truth: the discriminant never decides on its own.
 
-### A test title still describes its fixture
-
-When the diff renames a vocabulary or inverts a meaning, every test
-title in the changed test files is checked against the fixture in its
-own body, by grepping for the retired token and the old sense. A
-flipped fixture under an unflipped title passes every suite.
-
-### A package claim is verified after `npm ci` and cited to the lockfile
+### A package claim is verified after `npm ci`
 
 Every claim the diff adds about a package's presence, dependents,
 version, or export shape is verified after `npm ci`, since a fresh
 worktree has no `node_modules` and `npm ls <pkg>` then answers
 `(empty)` for a package that is present. Export shape is settled with
-`node --input-type=module -e "import …"`. The prose cites
-`package-lock.json` and the pinned version, which hold whatever the
-install state.
+`node --input-type=module -e "import …"`.
 
 ### A downgraded hedge is propagated repo-wide
 
@@ -59,6 +50,19 @@ including earlier paragraphs of the same file. The newest statement is
 the researched one.
 
 ## For Authors and Checkers
+
+### A test title still describes its fixture
+
+When the diff renames a vocabulary or inverts a meaning, every test
+title in the changed test files is checked against the fixture in its
+own body, by grepping for the retired token and the old sense. A
+flipped fixture under an unflipped title passes every suite.
+
+### A package claim cites `package-lock.json`
+
+Every claim the diff adds about a package's presence, dependents,
+version, or export shape cites `package-lock.json` and the pinned
+version, which hold whatever the install state.
 
 ### A GitHub API fact found by experiment ships with its probe
 

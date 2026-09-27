@@ -270,10 +270,14 @@ path, e.g. my_domain-111122223333.d.codeartifact.us-west-2.amazonaws.com/npm/rel
 # 11.6.2 and pnpm 11.15.0: with NPM_CONFIG_USERCONFIG set, both resolve
 # the configured registry and its auth line from a nested manifest
 # directory; with it unset, both fall back to registry.npmjs.org.
-# Yarn classic (v1) reads the same file: verified against yarn 1.22.22,
-# which ignores the repo-root `.npmrc` from a nested manifest directory
-# but resolves the registry and its auth token from
-# NPM_CONFIG_USERCONFIG, so it needs no YARN_NPM_* handling of its own.
+# Yarn classic (v1) reads the same file. Yarn 1.22.22
+# (src/registries/npm-registry.js) merges, key by key with the first
+# file read winning, the installer directory's own `.npmrc`, then the
+# NPM_CONFIG_USERCONFIG file, then the global npmrc, then every ancestor
+# `.npmrc` up to `/` -- the repo root's included. From a nested manifest
+# directory the user config therefore outranks a repo-root `.npmrc` on
+# the keys it sets, which are the `registry=` and auth lines written
+# below, so yarn needs no YARN_NPM_* handling of its own.
 #
 # The file's own path is left as `$RUNNER_TEMP/.npmrc` -- the same path
 # `actions/setup-node` uses for its `registry-url` output -- so the two
