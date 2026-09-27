@@ -37,11 +37,10 @@ const SWEEPER_OPTIONS = { sweeperRepo: `${CTX.org}/${CTX.repo}` };
  * `docs/rules/extensions/code-style.md`. `package.json` does not
  * declare js-yaml; it reaches the tree only as a dev-time transitive
  * dependency of `markdownlint-cli2`, which `package-lock.json` records
- * as its sole dependent. Since `npm test`
- * backs the `ci-required` check, importing it would let a
- * markdownlint-cli2 bump that drops js-yaml — or moves it to a major with
- * a different export shape — redden that check for a reason unrelated to
- * the change under test. The export-shape half is not hypothetical: the
+ * as its sole dependent. Since `npm test` backs the `ci-required`
+ * check, importing it would let a markdownlint-cli2 bump that drops
+ * js-yaml — or moves it to a major with a different export shape —
+ * redden that check for a reason unrelated to the change under test. The export-shape half is not hypothetical: the
  * pinned 5.2.2 exposes no default export from its ESM entry, so
  * `import yaml from "js-yaml"` throws against it while
  * `import { load } from "js-yaml"` works. Reaching for a real parser
