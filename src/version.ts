@@ -13,9 +13,9 @@
  * from `main`'s source tree rather than from a release tarball, so a
  * change that ships without a bump leaves every already-stamped repo
  * on the `skip-current` verdict and reaches nobody
- * (`.claude/rules/pr-conventions.md`). A `vX.Y.Z` tag is pushed separately and must match
- * whatever value `main` carries at that point
- * (`.github/workflows/release.yml`).
+ * (`.claude/rules/pr-conventions.md`). A `vX.Y.Z` tag is pushed
+ * separately and must match whatever value `main` carries at that
+ * point (`.github/workflows/release.yml`).
  */
 import { createRequire } from "node:module";
 

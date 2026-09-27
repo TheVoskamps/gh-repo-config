@@ -34,9 +34,10 @@ const SWEEPER_OPTIONS = { sweeperRepo: `${CTX.org}/${CTX.repo}` };
  *
  * Deliberately hand-rolled instead of parsed with `js-yaml`, per the
  * "committed code imports only what `package.json` declares" rule in
- * `docs/rules/extensions/code-style.md`. `package.json` does not declare js-yaml; it reaches the tree
- * only as a dev-time transitive dependency of `markdownlint-cli2`, which
- * `package-lock.json` records as its sole dependent. Since `npm test`
+ * `docs/rules/extensions/code-style.md`. `package.json` does not
+ * declare js-yaml; it reaches the tree only as a dev-time transitive
+ * dependency of `markdownlint-cli2`, which `package-lock.json` records
+ * as its sole dependent. Since `npm test`
  * backs the `ci-required` check, importing it would let a
  * markdownlint-cli2 bump that drops js-yaml — or moves it to a major with
  * a different export shape — redden that check for a reason unrelated to
