@@ -61,10 +61,10 @@ on:
     # green with no event firing at all. A tick re-enumerates fresh
     # state and picks up whatever those runs skipped.
     #
-    # Why the entries differ (issue #77): a tick does seconds of work
-    # and is billed a whole minute -- `*/20 * * * *` was 2,160 ticks per
-    # repo per month, 406 billable minutes in a measured 3.7-day window
-    # for 103 minutes of real work. So the schedule ticks often where
+    # Why the entries differ: a tick does seconds of work and is billed
+    # a whole minute -- `*/20 * * * *` is 2,160 ticks per repo per
+    # month, 406 billable minutes in a measured 3.7-day window for 103
+    # minutes of real work. So the schedule ticks often where
     # work is likely and seldom where it is not: hourly through Pacific
     # weekday business hours, when non-Dependabot PRs are likely, and
     # once a day on Saturday and Sunday, when only Dependabot -- which
