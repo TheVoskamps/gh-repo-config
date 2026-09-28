@@ -18,8 +18,8 @@
     "prepack": "npm run build"
   },
   "devDependencies": {
-    "@types/node": "22.20.3",
-    "markdownlint-cli2": "0.23.2",
+    "@types/node": "22.20.4",
+    "markdownlint-cli2": "0.23.3",
     "typescript": "5.9.3"
   }
 }
