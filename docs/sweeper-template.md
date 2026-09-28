@@ -226,10 +226,10 @@ Define exactly these two; no third property takes part.
 
 `gh-repo-config-mode` is a single-select over `opt-in` / `opt-out`,
 defined with `required: true` and a schema `default_value`. It must be
-required, because GitHub rejects a `default_value` on an optional
-property. And it must carry a default, because without one every repo
-lacking a value of its own reads as unmanaged: an all-unmanaged tick
-that looks exactly like a healthy one. The sweep exits non-zero on that
+required, for the reason `docs/repo-selection.md` → "Provisioning
+contract" gives. And it must carry a default, because without one
+every repo lacking a value of its own reads as unmanaged: an
+all-unmanaged tick that looks exactly like a healthy one. The sweep exits non-zero on that
 state rather than reporting it quietly. The org-wide default lives in
 this property's own schema; `opt-out` starts the org with nothing
 managed but the repos flagged `opt-in`:
