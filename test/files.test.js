@@ -249,7 +249,7 @@ test("PR-automation workflows reference the AUTOMERGE secrets, and the REST-merg
 //     payload rather than only the workflows #77 edited.
 //   - sweep (issue #92) is new and single-job by the same argument:
 //     splitting "resolve the pin", "verify the tarball", and "run the
-//     sweep" into separate jobs would triple the sweeper repo's daily
+//     sweep" into separate jobs would triple the sweeper repo's per-tick
 //     cost for isolation step ordering already provides.
 const EXPECTED_JOBS = {
   ".github/workflows/dependency-install-gate.yml": ["install-gate-required"],

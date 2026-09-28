@@ -13,7 +13,7 @@ npm ci                      # install from the lockfile
 npm run build               # TypeScript -> dist/
 npm run build && npm test   # tests import dist/, so build first
 npm run lint:md
-mise exec -- shellcheck assets/*.sh scripts/*.sh
+mise exec -- shellcheck assets/*.sh scripts/*.sh template/*.sh
 mise exec -- actionlint -shellcheck= .github/workflows/*.yml
 ```
 
@@ -31,6 +31,12 @@ reports.
 `shellcheck` and `actionlint` come from `mise.toml` here and from the
 runner image on CI. When one cannot run locally, report the PR's
 `gh pr checks <N>` state for it, never the local absence.
+
+The Bash tool runs zsh, which aborts the whole call before any part of
+it runs on an unquoted glob or leading `=` in a word: `--include=*.md`
+fails with `no matches found` and `echo =====` with `==== not found`.
+Quote both (`--include='*.md'`, `echo '====='`), and read either
+message as a failed call, never as a grep that found nothing.
 
 ## Index
 

@@ -55,6 +55,13 @@
 # `gh-repo-config.json` is org-owned content: it is read here, and it is
 # never part of any converger payload under any policy.
 #
+# THE SCHEDULE IS ORG-WIDE AND NOT LOCALLY EDITABLE. This file is a
+# converge-and-overwrite payload, so every sweeper repo runs the same
+# `schedule:`, and one edited here does not stay: under `auto` the
+# sweep's converger PR reverts it, and under `manual` the sweep opens
+# the held PR that reverts it. Only `off`, which stops converging this
+# file altogether, leaves a local edit in place.
+#
 # OPERATOR PREREQUISITES (provisioned by hand, never by this workflow):
 #   - The converger org GitHub App registered and installed on the org,
 #     with its **Client ID** in the org secret CONVERGER_APP_CLIENT_ID
@@ -70,9 +77,14 @@ name: sweep
 
 on:
   schedule:
-    # Daily. The sweep is idempotent — a repo already stamped at the
-    # running version is skipped — so over-running is harmless.
-    - cron: "0 7 * * *"
+    # Hourly on weekdays from 12:00 through 20:00 UTC: the US working
+    # day, when someone is around to review what a tick opens, with no
+    # ticks at night or on the weekend. GitHub cron is UTC with no DST
+    # handling, so the window covers 08:00 Eastern through 12:00 Pacific
+    # year-round, over-covering by an hour at the seasonal edges. The
+    # sweep is idempotent — a repo already stamped at the running
+    # version is skipped — so over-running is harmless.
+    - cron: "0 12-20 * * 1-5"
   workflow_dispatch:
     inputs:
       dry-run:
