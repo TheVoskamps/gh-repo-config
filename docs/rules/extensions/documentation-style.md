@@ -10,8 +10,9 @@ introduced the behaviour>` and any dated record.
 
 ### A duration is written as a dated fact
 
-Every claim the diff adds about how long something lasted is written as
-the dated fact a reader can re-check rather than as a span.
+Every claim the diff adds about how long something lasted or when it
+started is written as the dated fact a reader can re-check rather than
+as a span.
 
 ### "Also pushes to" is settled against the pass's candidate selection
 

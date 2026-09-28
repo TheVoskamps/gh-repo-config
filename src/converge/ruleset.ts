@@ -340,6 +340,10 @@ export interface RulesetSemanticDiffResult {
  * single entry is `required_status_checks`'s own
  * `required_status_checks` list, compared above as a context-name set
  * so the server-supplied `integration_id` inside each entry is ignored.
+ * Do not reintroduce a hardcoded rule-name or parameter-name list here:
+ * whatever such a list missed would silently go uncompared.
+ * `test/ruleset.test.js` derives its expectations from the asset and
+ * pins the added-parameter and added-rule cases, to catch exactly that.
  *
  * A parameter key the canonical asset does not model — e.g. a
  * GitHub-supplied `pull_request.dismissal_restriction` default — is,
@@ -348,7 +352,8 @@ export interface RulesetSemanticDiffResult {
  * key is neither drift nor a warning. GitHub adds rule parameters over
  * time, so surfacing them would produce a channel with content on every
  * repo on every tick, forever, and nothing an operator could act on
- * from a log line.
+ * from a log line. Do not reintroduce a pass over the server's rules or
+ * their parameter keys, value-aware or otherwise.
  *
  * @param desired the desired body (bypass actors already unioned in).
  * @param existing the ruleset read from the server.
