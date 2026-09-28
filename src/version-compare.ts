@@ -19,8 +19,9 @@
  * share an `X.Y.Z` core, which this comparison cannot tell apart: a
  * repo stamped `0.3.0-rc.1` reads as *not behind* `0.3.0`, so it would
  * never converge to the release. (`CURRENT_VERSION` need not
- * correspond to any release tag: the version is bumped in every PR,
- * while tags are pushed separately — see CLAUDE.md > Conventions.)
+ * correspond to any release tag: the version is bumped in every PR
+ * (`.claude/rules/pr-conventions.md`), while tags are pushed
+ * separately (`.github/workflows/release.yml`).)
  */
 
 interface SemverCore {
