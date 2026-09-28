@@ -114,7 +114,7 @@ jobs:
 
       # Preinstalled on ubuntu-latest — no install step needed.
       - name: shellcheck
-        run: shellcheck assets/*.sh scripts/*.sh
+        run: shellcheck assets/*.sh scripts/*.sh template/*.sh
 
       - name: markdownlint-cli2
         run: npm run lint:md

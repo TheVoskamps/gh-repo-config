@@ -13,7 +13,7 @@ npm ci                      # install from the lockfile
 npm run build               # TypeScript -> dist/
 npm run build && npm test   # tests import dist/, so build first
 npm run lint:md
-mise exec -- shellcheck assets/*.sh scripts/*.sh
+mise exec -- shellcheck assets/*.sh scripts/*.sh template/*.sh
 mise exec -- actionlint -shellcheck= .github/workflows/*.yml
 ```
 
