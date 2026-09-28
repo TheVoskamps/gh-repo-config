@@ -16,11 +16,3 @@ with the other.
 and when the hold is released. Every enforcement site calls them and
 never carries its own copy of the rule, so no two sites can disagree
 about what an absent `sweeper-update-policy` means.
-
-## The ruleset compare is driven by the canonical asset alone
-
-The `protect-main` compare in `src/converge/ruleset.ts` iterates only
-the rules and parameter keys `assets/protect-main-ruleset.json` carries.
-It never iterates the server's rules or keys and never names a rule or
-parameter in a hardcoded list, and a parameter the asset does not model
-is neither drift nor a warning.

@@ -54,16 +54,11 @@ values, so the secret is a different secret, not a renamed one.
 `auto-enable-automerge.yml` owns `pull_request` alone. Neither is
 merged into the other or retired: the converger has no delete path, so
 a retired rendered workflow keeps running, and billing, on every
-managed repo. The rebase backstop and the merge backstop in
-`auto-rebase-prs.yml`'s `schedule:` keep their separate rationales in
-its comments.
+managed repo.
 
-## The sweeper workflow verifies before it unpacks
+## The sweeper workflow's policy bullets follow `writer.ts`
 
-`assets/sweeper-sweep.yml` unpacks and executes nothing from the
-release tarball before `gh attestation verify` passes, and mints the
-converger App token only after that, so no privileged credential is
-live while an unverified archive is handled. Its header's
-`sweeper-update-policy` bullets follow `src/converge/writer.ts`: the
-`manual` bullet says the PR is opened as a draft, and the `auto` and
-`off` bullets each say the hold is released.
+`assets/sweeper-sweep.yml`'s header `sweeper-update-policy` bullets
+follow `src/converge/writer.ts`: the `manual` bullet says the PR is
+opened as a draft, and the `auto` and `off` bullets each say the hold
+is released.

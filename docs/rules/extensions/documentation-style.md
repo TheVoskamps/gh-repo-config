@@ -6,8 +6,12 @@
 
 Every claim the diff adds about how long something lasted or when it
 started is checked with `git log --diff-filter=A -- <file that
-introduced the behaviour>` and any dated record, and is written as the
-dated fact a reader can re-check rather than as a span.
+introduced the behaviour>` and any dated record.
+
+### A duration is written as a dated fact
+
+Every claim the diff adds about how long something lasted is written as
+the dated fact a reader can re-check rather than as a span.
 
 ### "Also pushes to" is settled against the pass's candidate selection
 
@@ -22,9 +26,14 @@ can select disjoint PR sets.
 Every sentence the diff adds naming a test, lint rule, ruleset, or CI
 gate as the reason a narrower implementation is safe is checked by
 running that guarantee against the value the narrow implementation
-mishandles. Where it does not hold, strengthening it is the fix. The
-sentence states the rejection positively ("a prerelease fails
-`npm test`") rather than a shape passively ("is pinned to `X.Y.Z`").
+mishandles. Where it does not hold, strengthening it is the fix.
+
+### A cited guarantee is stated as a rejection
+
+Every sentence the diff adds naming a test, lint rule, ruleset, or CI
+gate as the reason a narrower implementation is safe states the
+rejection positively ("a prerelease fails `npm test`") rather than a
+shape passively ("is pinned to `X.Y.Z`").
 
 ### "Identical across all arms" is settled at the consuming call site
 
@@ -38,8 +47,12 @@ states the narrower truth: the discriminant never decides on its own.
 Every claim the diff adds about a package's presence, dependents,
 version, or export shape is verified after `npm ci`, since a fresh
 worktree has no `node_modules` and `npm ls <pkg>` then answers
-`(empty)` for a package that is present. Export shape is settled with
-`node --input-type=module -e "import …"`.
+`(empty)` for a package that is present.
+
+### An export-shape claim is settled by importing the package
+
+Every claim the diff adds about a package's export shape is settled by
+running `node --input-type=module -e "import …"` against it.
 
 ### A downgraded hedge is propagated repo-wide
 
