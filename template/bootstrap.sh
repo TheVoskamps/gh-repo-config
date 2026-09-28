@@ -16,7 +16,8 @@
 # placeholder in the asset into a failure here instead of a silent
 # mismatch.
 #
-# Every step calls the network, so this script has no offline self-test.
+# The release download and its attestation verify both need the network,
+# so this script has no offline self-test.
 #
 # Usage:
 #   ./bootstrap.sh
