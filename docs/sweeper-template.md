@@ -44,16 +44,74 @@ Run once, as a TheVoskamps owner, from a clone of
    forking, so adopters copy the template while contributors can still
    fork it and send a PR back.
 
-3. Converge the repo's public posture. From a clone of
-   `TheVoskamps/gh-repo-config-sweeper-template`, in Claude Code:
+3. Set the repo's public posture, through settings alone. Every file the
+   template repo carries lands in each adopter's copy, so the repo holds
+   `template/`'s content and nothing else: no `CODEOWNERS`, no
+   community files, no workflows, no `dependabot.yml`. Do not run
+   `/github-setup:gh-repo-setup-public`, or any other skill that commits
+   into the repo it runs on.
 
-   ```text
-   /github-setup:gh-repo-setup-public
+   Issues on, merge commits only, head branches deleted on merge:
+
+   ```bash
+   gh repo edit TheVoskamps/gh-repo-config-sweeper-template \
+     --enable-issues \
+     --enable-merge-commit --enable-squash-merge=false --enable-rebase-merge=false \
+     --allow-update-branch --delete-branch-on-merge
    ```
 
-   The skill finds the repo already public, so answer yes when it asks
-   whether to re-assert the public posture. It runs the protection and
-   PR-automation converge skills in turn.
+   Dependabot alerts, secret scanning, and push protection:
+
+   ```bash
+   gh api -X PUT /repos/TheVoskamps/gh-repo-config-sweeper-template/vulnerability-alerts
+   gh api -X PATCH /repos/TheVoskamps/gh-repo-config-sweeper-template \
+     -f 'security_and_analysis[secret_scanning][status]=enabled' \
+     -f 'security_and_analysis[secret_scanning_push_protection][status]=enabled'
+   ```
+
+   The `protect-main` ruleset on the default branch: no deletion, no
+   force push, and a reviewed PR with every conversation resolved. It
+   requires no code-owner review and no status check, since either
+   would need a file in the repo. Repository admins may merge a PR
+   without the approval, which a sole maintainer cannot give their own
+   PR:
+
+   ```bash
+   gh api -X POST /repos/TheVoskamps/gh-repo-config-sweeper-template/rulesets --input - <<'EOF'
+   {
+     "name": "protect-main",
+     "target": "branch",
+     "enforcement": "active",
+     "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+     "bypass_actors": [
+       { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }
+     ],
+     "rules": [
+       { "type": "deletion" },
+       { "type": "non_fast_forward" },
+       {
+         "type": "pull_request",
+         "parameters": {
+           "required_approving_review_count": 1,
+           "dismiss_stale_reviews_on_push": true,
+           "require_code_owner_review": false,
+           "require_last_push_approval": true,
+           "required_review_thread_resolution": true,
+           "allowed_merge_methods": ["merge"]
+         }
+       }
+     ]
+   }
+   EOF
+   ```
+
+   Check that nobody but the repo's intended maintainers holds write
+   access or above:
+
+   ```bash
+   gh api /repos/TheVoskamps/gh-repo-config-sweeper-template/collaborators \
+     --jq '.[] | {login, role_name}'
+   ```
 
 ## Adopt the template in an org
 
