@@ -40,11 +40,12 @@ const SWEEPER_OPTIONS = { sweeperRepo: `${CTX.org}/${CTX.repo}` };
  * as its sole dependent. Since `npm test` backs the `ci-required`
  * check, importing it would let a markdownlint-cli2 bump that drops
  * js-yaml — or moves it to a major with a different export shape —
- * redden that check for a reason unrelated to the change under test. The export-shape half is not hypothetical: the
- * pinned 5.2.2 exposes no default export from its ESM entry, so
- * `import yaml from "js-yaml"` throws against it while
- * `import { load } from "js-yaml"` works. Reaching for a real parser
- * means declaring the dependency first, not importing this one.
+ * redden that check for a reason unrelated to the change under test.
+ * The export-shape half is not hypothetical: the pinned 5.2.2 exposes
+ * no default export from its ESM entry, so `import yaml from "js-yaml"`
+ * throws against it while `import { load } from "js-yaml"` works.
+ * Reaching for a real parser means declaring the dependency first, not
+ * importing this one.
  */
 const workflowJobIds = (content) => {
   const lines = content.split("\n");

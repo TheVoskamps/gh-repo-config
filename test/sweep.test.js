@@ -39,9 +39,9 @@ function fakeClient({ defaultMode, defaultModeRead, repos, stampVersionImpl }) {
 // load-bearing: runSweep's `version` parameter DEFAULTS to
 // CURRENT_VERSION (src/sweep.ts), so while the fixture equalled the
 // real value, an implementation that ignored the argument and read
-// CURRENT_VERSION instead would have passed these tests unnoticed. Repo stamps written as "0.1.0" below
-// are the behind case against this V; a repo stamped at V itself is
-// the skip-current case.
+// CURRENT_VERSION instead would have passed these tests unnoticed.
+// Repo stamps written as "0.1.0" below are the behind case against
+// this V; a repo stamped at V itself is the skip-current case.
 const V = "9.9.9";
 
 test("sweep converges behind managed repos, skips others, and stamps them", async () => {
@@ -346,10 +346,10 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
   // editing in every PR and would conflict between concurrent ones.
   // What has to hold for the fixture data below to mean anything is
   // that fixture-behind's "0.0.1" stamp is genuinely behind the real
-  // version — true today and under any forward bump, since the convention only ever moves the version up
-  // — and isBehind throws outright if CURRENT_VERSION is not
-  // parseable X.Y.Z, so an empty or corrupted package.json version
-  // fails here too. The other side of the pair, fixture-current,
+  // version — true today and under any forward bump, since the
+  // convention only ever moves the version up — and isBehind throws
+  // outright if CURRENT_VERSION is not parseable X.Y.Z, so an empty or
+  // corrupted package.json version fails here too. The other side of the pair, fixture-current,
   // reads CURRENT_VERSION directly rather than a literal, so it
   // tracks the bump by construction.
   // `test/version.test.js` pins CURRENT_VERSION === pkg.version.
