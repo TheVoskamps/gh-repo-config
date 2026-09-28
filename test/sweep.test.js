@@ -349,9 +349,9 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
   // version — true today and under any forward bump, since the
   // convention only ever moves the version up — and isBehind throws
   // outright if CURRENT_VERSION is not parseable X.Y.Z, so an empty or
-  // corrupted package.json version fails here too. The other side of the pair, fixture-current,
-  // reads CURRENT_VERSION directly rather than a literal, so it
-  // tracks the bump by construction.
+  // corrupted package.json version fails here too. The other side of
+  // the pair, fixture-current, reads CURRENT_VERSION directly rather
+  // than a literal, so it tracks the bump by construction.
   // `test/version.test.js` pins CURRENT_VERSION === pkg.version.
   assert.equal(isBehind("0.0.1", CURRENT_VERSION), true);
 
