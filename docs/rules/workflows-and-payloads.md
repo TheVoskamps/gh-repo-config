@@ -11,10 +11,10 @@ repo-own and hand-maintained here. A repo-own script goes under
 
 ## This repo is never named as a sweeper repo
 
-`assets/sweeper-sweep.yml` renders to `.github/workflows/sweep.yml` on
-the repo `GH_REPO_CONFIG_SWEEPER_REPO` names, which is the path of this
-repo's own hand-maintained sweep. Nothing sets that variable to this
-repo, so the payload never converges over the hand-maintained file.
+`assets/sweeper-sweep.yml` renders to `.github/workflows/sweep.yml` only
+on the repo `GH_REPO_CONFIG_SWEEPER_REPO` names. This repo carries no
+sweep workflow, and nothing sets that variable to this repo, so no
+sweep writes one here.
 
 ## A repo-own required check is registered outside `protect-main`
 
