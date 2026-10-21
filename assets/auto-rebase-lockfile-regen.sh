@@ -155,7 +155,7 @@ if [ "${#PNPM_LOCKFILES[@]}" -gt 0 ]; then
 fi
 
 changed=()      # lockfiles regenerated and now replaying cleanly
-unfixable=()    # gate-red for a reason that is not a fixable desync
+unfixable=()    # lockfiles left for a human: not a fixable lockfile-only desync
 
 # Directories tracking both an npm and a pnpm lockfile, newline-joined.
 MIXED_DIRS=""
