@@ -60,8 +60,8 @@
 # replay.
 #
 # Inputs: none (operates on the current working tree / checkout).
-# NPM_BIN, PNPM_BIN, and COREPACK_BIN override the binaries, for the
-# self-test.
+# `npm`, `pnpm`, and `corepack` run by name from PATH; no environment
+# variable substitutes another binary for any of them.
 #
 # Output: human-readable progress on stdout. The machine-readable result
 # is the exit code.
@@ -83,12 +83,14 @@
 set -uo pipefail
 
 # Discover tracked lockfiles matching $1, excluding generated/vendored
-# trees. `git ls-files` lists only tracked files, so gitignored generated
-# manifests under node_modules/ / cdk.out/ never appear; the grep is
+# trees with the same exclusions as dependency-install-gate.sh, so the
+# regen touches no lockfile the gate does not replay. `git ls-files`
+# lists only tracked files, so gitignored generated manifests under
+# node_modules/ / cdk.out/ / .build/ never appear; the grep is
 # belt-and-suspenders in case any such path is ever force-added.
 discover() {
   git ls-files "$1" \
-    | grep -vE '(^|/)(node_modules|cdk\.out)/' || true
+    | grep -vE '(^|/)(node_modules|cdk\.out|\.build)/' || true
 }
 
 # Does `npm ci` output carry the lockfile-out-of-sync signature?
@@ -115,15 +117,10 @@ is_pnpm_desync() {
   printf '%s' "$out" | grep -q 'ERR_PNPM_OUTDATED_LOCKFILE'
 }
 
-# Allow the self-test to inject fake binaries without a real registry.
-NPM_BIN="${NPM_BIN:-npm}"
-PNPM_BIN="${PNPM_BIN:-pnpm}"
-COREPACK_BIN="${COREPACK_BIN:-corepack}"
-
-MODE_NPM_CI=("$NPM_BIN" ci --ignore-scripts)
-MODE_NPM_REGEN=("$NPM_BIN" install --package-lock-only --ignore-scripts)
-MODE_PNPM_CI=("$PNPM_BIN" install --frozen-lockfile --ignore-scripts)
-MODE_PNPM_REGEN=("$PNPM_BIN" install --lockfile-only --ignore-scripts)
+MODE_NPM_CI=(npm ci --ignore-scripts)
+MODE_NPM_REGEN=(npm install --package-lock-only --ignore-scripts)
+MODE_PNPM_CI=(pnpm install --frozen-lockfile --ignore-scripts)
+MODE_PNPM_REGEN=(pnpm install --lockfile-only --ignore-scripts)
 
 # Read discovered lockfiles into arrays. Avoid `mapfile` (bash 4+) so
 # this script and its self-test also run under macOS bash 3.2.
@@ -207,7 +204,7 @@ check_lockfile() {
     # Corepack provisions the pnpm version `packageManager` pins. Without
     # it the replay would run an unvetted pnpm from PATH, so a failure
     # here stops this manifest before any pnpm command runs.
-    if ! corepack_out="$( cd "$dir" && "$COREPACK_BIN" enable 2>&1 )"; then
+    if ! corepack_out="$( cd "$dir" && corepack enable 2>&1 )"; then
       echo "$corepack_out"
       echo "::error file=$lockfile::corepack enable failed for $lockfile; running no pnpm command for it. Leaving for a human."
       unfixable+=("$lockfile")

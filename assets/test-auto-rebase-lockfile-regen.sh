@@ -25,7 +25,8 @@
 # each case is deterministic. The regen step writes a "fixed" sentinel
 # into the lockfile so the post-regen replay observes the repaired
 # state. The fake `pnpm` and `corepack` append each call to a log, so a
-# case can assert which commands ran.
+# case can assert which commands ran. The fakes reach the regen script
+# by their directory being prepended to PATH.
 #
 # Cases:
 #   (a) lockfile already in sync          -> exit 3 (nothing to do)
@@ -45,6 +46,8 @@
 #       package-lock.json and pnpm-lock.yaml
 #   (m) `corepack enable` fails            -> exit 1, corepack's output
 #                                              shown, no pnpm command run
+#   (n) desynced lockfiles only under      -> exit 3, neither rewritten
+#       .build/
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -88,7 +91,7 @@ make_manifest() {
   git -C "$repo" commit -q -m "add $subdir manifest"
 }
 
-# Write a fake `npm` into $1/bin and echo its path. The fake reads
+# Write a fake `npm` into $1/bin. The fake reads
 # the sentinel in ./package-lock.json:
 #   sentinel=insync      -> `npm ci` succeeds.
 #   sentinel=desync      -> `npm ci` fails with the out-of-sync signature;
@@ -156,7 +159,6 @@ echo "fake npm: unhandled args: $*" >&2
 exit 99
 FAKE
   chmod +x "$bindir/npm"
-  echo "$bindir/npm"
 }
 
 # Create and track a manifest dir with a package.json and a
@@ -172,7 +174,7 @@ make_pnpm_manifest() {
   git -C "$repo" commit -q -m "add $subdir pnpm manifest"
 }
 
-# Write a fake `pnpm` into $1/bin and echo its path. The fake appends
+# Write a fake `pnpm` into $1/bin. The fake appends
 # `<cwd> pnpm <args>` to $FAKE_CALL_LOG and reads the sentinel in
 # ./pnpm-lock.yaml with the same meanings as the fake npm's, where the
 # out-of-sync signature is the ERR_PNPM_OUTDATED_LOCKFILE code.
@@ -228,10 +230,9 @@ echo "fake pnpm: unhandled args: $*" >&2
 exit 99
 FAKE
   chmod +x "$bindir/pnpm"
-  echo "$bindir/pnpm"
 }
 
-# Write a fake `corepack` into $1/bin and echo its path. It appends
+# Write a fake `corepack` into $1/bin. It appends
 # `<cwd> corepack <args>` to $FAKE_CALL_LOG, and `corepack enable` fails
 # with a recognizable message when ./pnpm-lock.yaml carries the
 # `corepack-fail` sentinel.
@@ -250,19 +251,20 @@ fi
 exit 0
 FAKE
   chmod +x "$bindir/corepack"
-  echo "$bindir/corepack"
 }
 
 # Output of the most recent run_case, for cases that assert on it.
 LAST_OUT=""
 
+# run_case <name> <expected exit> <repo>: run the regen script in <repo>
+# with the fakes' directory first on PATH, so its `npm`, `pnpm`, and
+# `corepack` resolve to the fakes.
 run_case() {
-  local name="$1" expected_exit="$2" repo="$3" npm_bin="$4"
+  local name="$1" expected_exit="$2" repo="$3"
   local actual
   : > "$FAKE_CALL_LOG"
   set +e
-  LAST_OUT=$( cd "$repo" && NPM_BIN="$npm_bin" PNPM_BIN="$PNPM_BIN_PATH" \
-    COREPACK_BIN="$COREPACK_BIN_PATH" bash "$REGEN" 2>&1 )
+  LAST_OUT=$( cd "$repo" && PATH="$FAKE_BIN:$PATH" bash "$REGEN" 2>&1 )
   actual=$?
   set -e
   if [ "$actual" = "$expected_exit" ]; then
@@ -304,9 +306,10 @@ check_lacks() {
 
 FAKE_CALL_LOG="$TMP/fake-calls.log"
 export FAKE_CALL_LOG
-NPM_BIN_PATH=$(make_fake_npm "$TMP/fake")
-PNPM_BIN_PATH=$(make_fake_pnpm "$TMP/fake")
-COREPACK_BIN_PATH=$(make_fake_corepack "$TMP/fake")
+FAKE_BIN="$TMP/fake/bin"
+make_fake_npm "$TMP/fake"
+make_fake_pnpm "$TMP/fake"
+make_fake_corepack "$TMP/fake"
 
 # ---------------------------------------------------------------
 # Case (a): lockfile already in sync -> exit 3
@@ -314,7 +317,7 @@ COREPACK_BIN_PATH=$(make_fake_corepack "$TMP/fake")
 REPO_A="$TMP/case-a"
 git_init_repo "$REPO_A"
 make_manifest "$REPO_A" "apps/frontend" "insync"
-run_case "a: already in sync" 3 "$REPO_A" "$NPM_BIN_PATH"
+run_case "a: already in sync" 3 "$REPO_A"
 
 # ---------------------------------------------------------------
 # Case (b): fixable lockfile-only desync -> exit 0, lockfile rewritten
@@ -322,7 +325,7 @@ run_case "a: already in sync" 3 "$REPO_A" "$NPM_BIN_PATH"
 REPO_B="$TMP/case-b"
 git_init_repo "$REPO_B"
 make_manifest "$REPO_B" "apps/frontend" "desync"
-run_case "b: fixable desync" 0 "$REPO_B" "$NPM_BIN_PATH"
+run_case "b: fixable desync" 0 "$REPO_B"
 if grep -q '"sentinel": "fixed"' "$REPO_B/apps/frontend/package-lock.json"; then
   pass=$((pass + 1)); echo "PASS [b: lockfile actually rewritten]"
 else
@@ -335,7 +338,7 @@ fi
 REPO_C="$TMP/case-c"
 git_init_repo "$REPO_C"
 make_manifest "$REPO_C" "apps/frontend" "hard-desync"
-run_case "c: regen cannot fix" 1 "$REPO_C" "$NPM_BIN_PATH"
+run_case "c: regen cannot fix" 1 "$REPO_C"
 
 # ---------------------------------------------------------------
 # Case (d): gate-red but NOT a desync signature -> exit 1 (unfixable)
@@ -343,7 +346,7 @@ run_case "c: regen cannot fix" 1 "$REPO_C" "$NPM_BIN_PATH"
 REPO_D="$TMP/case-d"
 git_init_repo "$REPO_D"
 make_manifest "$REPO_D" "apps/frontend" "other-error"
-run_case "d: non-desync gate failure" 1 "$REPO_D" "$NPM_BIN_PATH"
+run_case "d: non-desync gate failure" 1 "$REPO_D"
 
 # ---------------------------------------------------------------
 # Case (e): no lockfiles at all -> exit 3
@@ -353,7 +356,7 @@ git_init_repo "$REPO_E"
 echo "readme" > "$REPO_E/README.md"
 git -C "$REPO_E" add README.md
 git -C "$REPO_E" commit -q -m "no manifests"
-run_case "e: no lockfiles" 3 "$REPO_E" "$NPM_BIN_PATH"
+run_case "e: no lockfiles" 3 "$REPO_E"
 
 # ---------------------------------------------------------------
 # Case (f): one fixable + one unfixable -> exit 1 (any unfixable wins)
@@ -362,7 +365,7 @@ REPO_F="$TMP/case-f"
 git_init_repo "$REPO_F"
 make_manifest "$REPO_F" "apps/frontend" "desync"
 make_manifest "$REPO_F" "apps/backend" "hard-desync"
-run_case "f: mixed fixable + unfixable" 1 "$REPO_F" "$NPM_BIN_PATH"
+run_case "f: mixed fixable + unfixable" 1 "$REPO_F"
 
 # ---------------------------------------------------------------
 # Case (g): pnpm lockfile already in sync -> exit 3
@@ -370,7 +373,7 @@ run_case "f: mixed fixable + unfixable" 1 "$REPO_F" "$NPM_BIN_PATH"
 REPO_G="$TMP/case-g"
 git_init_repo "$REPO_G"
 make_pnpm_manifest "$REPO_G" "." "insync"
-run_case "g: pnpm already in sync" 3 "$REPO_G" "$NPM_BIN_PATH"
+run_case "g: pnpm already in sync" 3 "$REPO_G"
 check "g: corepack enable ran" \
   grep -q "corepack enable" "$FAKE_CALL_LOG"
 
@@ -380,7 +383,7 @@ check "g: corepack enable ran" \
 REPO_H="$TMP/case-h"
 git_init_repo "$REPO_H"
 make_pnpm_manifest "$REPO_H" "apps/web" "desync"
-run_case "h: fixable pnpm desync" 0 "$REPO_H" "$NPM_BIN_PATH"
+run_case "h: fixable pnpm desync" 0 "$REPO_H"
 check "h: pnpm lockfile actually rewritten" \
   grep -q '^sentinel: fixed$' "$REPO_H/apps/web/pnpm-lock.yaml"
 
@@ -390,7 +393,7 @@ check "h: pnpm lockfile actually rewritten" \
 REPO_I="$TMP/case-i"
 git_init_repo "$REPO_I"
 make_pnpm_manifest "$REPO_I" "apps/web" "other-error"
-run_case "i: pnpm non-desync failure" 1 "$REPO_I" "$NPM_BIN_PATH"
+run_case "i: pnpm non-desync failure" 1 "$REPO_I"
 check_lacks "i: no pnpm regen ran" '--lockfile-only' "$FAKE_CALL_LOG"
 
 # ---------------------------------------------------------------
@@ -399,7 +402,7 @@ check_lacks "i: no pnpm regen ran" '--lockfile-only' "$FAKE_CALL_LOG"
 REPO_J="$TMP/case-j"
 git_init_repo "$REPO_J"
 make_pnpm_manifest "$REPO_J" "apps/web" "hard-desync"
-run_case "j: pnpm regen cannot fix" 1 "$REPO_J" "$NPM_BIN_PATH"
+run_case "j: pnpm regen cannot fix" 1 "$REPO_J"
 
 # ---------------------------------------------------------------
 # Case (k): fixable npm + unfixable pnpm -> exit 1
@@ -408,7 +411,7 @@ REPO_K="$TMP/case-k"
 git_init_repo "$REPO_K"
 make_manifest "$REPO_K" "apps/frontend" "desync"
 make_pnpm_manifest "$REPO_K" "apps/web" "hard-desync"
-run_case "k: npm fixable + pnpm unfixable" 1 "$REPO_K" "$NPM_BIN_PATH"
+run_case "k: npm fixable + pnpm unfixable" 1 "$REPO_K"
 
 # ---------------------------------------------------------------
 # Case (l): one directory tracks both lockfiles -> exit 1, neither
@@ -421,7 +424,7 @@ printf "lockfileVersion: '9.0'\nsentinel: desync\n" \
   > "$REPO_L/apps/frontend/pnpm-lock.yaml"
 git -C "$REPO_L" add apps/frontend/pnpm-lock.yaml
 git -C "$REPO_L" commit -q -m "add a pnpm lockfile beside the npm one"
-run_case "l: npm and pnpm lockfile in one directory" 1 "$REPO_L" "$NPM_BIN_PATH"
+run_case "l: npm and pnpm lockfile in one directory" 1 "$REPO_L"
 check "l: npm lockfile not regenerated" \
   grep -q '"sentinel": "desync"' "$REPO_L/apps/frontend/package-lock.json"
 check "l: pnpm lockfile not regenerated" \
@@ -433,12 +436,26 @@ check "l: pnpm lockfile not regenerated" \
 REPO_M="$TMP/case-m"
 git_init_repo "$REPO_M"
 make_pnpm_manifest "$REPO_M" "apps/web" "corepack-fail"
-run_case "m: corepack enable fails" 1 "$REPO_M" "$NPM_BIN_PATH"
+run_case "m: corepack enable fails" 1 "$REPO_M"
 check "m: corepack's own output is shown" \
   grep -q 'fake corepack could not write its shims' <<< "$LAST_OUT"
 check "m: the error names the manifest" \
   grep -q 'corepack enable failed for apps/web/pnpm-lock.yaml' <<< "$LAST_OUT"
 check_lacks "m: no pnpm command ran" ' pnpm ' "$FAKE_CALL_LOG"
+
+# ---------------------------------------------------------------
+# Case (n): desynced lockfiles only under .build/ -> exit 3, neither
+# rewritten (the gate does not replay them either)
+# ---------------------------------------------------------------
+REPO_N="$TMP/case-n"
+git_init_repo "$REPO_N"
+make_manifest "$REPO_N" ".build/npm" "desync"
+make_pnpm_manifest "$REPO_N" "apps/.build/web" "desync"
+run_case "n: lockfiles under .build/ ignored" 3 "$REPO_N"
+check "n: npm lockfile not regenerated" \
+  grep -q '"sentinel": "desync"' "$REPO_N/.build/npm/package-lock.json"
+check "n: pnpm lockfile not regenerated" \
+  grep -q '^sentinel: desync$' "$REPO_N/apps/.build/web/pnpm-lock.yaml"
 
 # ---------------------------------------------------------------
 # Summary

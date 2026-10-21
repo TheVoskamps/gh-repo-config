@@ -786,6 +786,12 @@ jobs:
               echo "PR #$PR_NUMBER: gate-red is not a fixable lockfile-only desync; leaving for a human"
             fi
 
+            # Discard whatever the regen left in the index and tree: on
+            # exit 1 it may already have rewritten one lockfile before
+            # another proved unfixable, and a failed commit leaves its
+            # staging behind. Either can make the next candidate's
+            # `git checkout -B` fail under `set -e` and end the sweep.
+            git reset --hard
             git checkout --detach
             git branch -D "auto-regen-$PR_NUMBER" || true
           done
