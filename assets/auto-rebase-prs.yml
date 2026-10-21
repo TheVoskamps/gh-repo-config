@@ -784,8 +784,10 @@ jobs:
               fi
             elif [ "$REGEN_RC" -eq 3 ]; then
               echo "PR #$PR_NUMBER: no lockfile desync to fix; leaving alone"
+            elif [ "$REGEN_RC" -eq 1 ]; then
+              echo "PR #$PR_NUMBER: a lockfile is unfixable by regeneration (the regen output above names each one and why); leaving for a human"
             else
-              echo "PR #$PR_NUMBER: gate-red is not a fixable lockfile-only desync; leaving for a human"
+              echo "PR #$PR_NUMBER: the lockfile-regen script failed with exit $REGEN_RC; leaving for a human"
             fi
 
             # Discard whatever the regen left in the index and tree: on
