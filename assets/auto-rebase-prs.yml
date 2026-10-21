@@ -726,9 +726,11 @@ jobs:
             # tree and signals via exit code:
             #   0 -- one or more lockfiles regenerated and replay cleanly;
             #        commit + force-push.
-            #   1 -- gate-red for a reason that is NOT a fixable
-            #        lockfile-only desync (unsatisfiable manifest, etc.);
-            #        leave for a human.
+            #   1 -- a lockfile is unfixable: its replay failed without
+            #        the desync signature, its regen failed or left the
+            #        replay red, `corepack enable` failed for it, or its
+            #        directory tracks both package-lock.json and
+            #        pnpm-lock.yaml; leave for a human.
             #   3 -- nothing to do (no desync); leave alone.
             set +e
             bash "$REGEN"

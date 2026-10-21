@@ -70,9 +70,11 @@
 #   0 -- at least one lockfile was regenerated and now replays cleanly,
 #        and NO manifest was left in an unfixable state. The caller
 #        should commit the changed lockfile(s) and force-push.
-#   1 -- a manifest is gate-red for a reason that is NOT a fixable
-#        lockfile-only desync (or a regen failed to make the replay
-#        pass). The caller MUST NOT push; leave the PR for a human.
+#   1 -- at least one lockfile is UNFIXABLE: its replay failed without
+#        the desync signature, its regen command failed, its regen did
+#        not make the replay pass, `corepack enable` failed for it, or
+#        its directory tracks both package-lock.json and pnpm-lock.yaml.
+#        The caller MUST NOT push; leave the PR for a human.
 #   3 -- nothing to do: every npm and pnpm manifest already replays
 #        cleanly (no desync). The caller should not commit or push.
 #   2 -- usage / environment error.
