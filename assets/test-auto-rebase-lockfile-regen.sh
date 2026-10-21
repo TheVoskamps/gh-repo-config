@@ -291,11 +291,15 @@ check() {
   fi
 }
 
-# lacks <pattern> <file>: succeed when no line of <file> matches. Only
-# `check` invokes it, which shellcheck cannot see.
-# shellcheck disable=SC2329
-lacks() {
-  ! grep -q -- "$1" "$2"
+# check_lacks <name> <pattern> <file>: count a PASS when no line of <file>
+# matches <pattern>.
+check_lacks() {
+  local name="$1" pattern="$2" file="$3"
+  if grep -q -- "$pattern" "$file"; then
+    check "$name" false
+  else
+    check "$name" true
+  fi
 }
 
 FAKE_CALL_LOG="$TMP/fake-calls.log"
@@ -387,8 +391,7 @@ REPO_I="$TMP/case-i"
 git_init_repo "$REPO_I"
 make_pnpm_manifest "$REPO_I" "apps/web" "other-error"
 run_case "i: pnpm non-desync failure" 1 "$REPO_I" "$NPM_BIN_PATH"
-check "i: no pnpm regen ran" \
-  lacks '--lockfile-only' "$FAKE_CALL_LOG"
+check_lacks "i: no pnpm regen ran" '--lockfile-only' "$FAKE_CALL_LOG"
 
 # ---------------------------------------------------------------
 # Case (j): pnpm desync that regen cannot fix -> exit 1
@@ -435,8 +438,7 @@ check "m: corepack's own output is shown" \
   grep -q 'fake corepack could not write its shims' <<< "$LAST_OUT"
 check "m: the error names the manifest" \
   grep -q 'corepack enable failed for apps/web/pnpm-lock.yaml' <<< "$LAST_OUT"
-check "m: no pnpm command ran" \
-  lacks ' pnpm ' "$FAKE_CALL_LOG"
+check_lacks "m: no pnpm command ran" ' pnpm ' "$FAKE_CALL_LOG"
 
 # ---------------------------------------------------------------
 # Summary
