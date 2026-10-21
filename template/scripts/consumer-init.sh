@@ -21,8 +21,8 @@
 #      default branch for bootstrap.sh.
 #
 # It registers no GitHub App, sets no secret, and does not run
-# bootstrap.sh. Every step calls the network, so this script has no
-# offline self-test.
+# bootstrap.sh. Steps 1, 2 and 4 call the network, and step 3 runs in
+# the clone step 1 makes, so this script has no offline self-test.
 #
 # Usage:
 #   bash consumer-init.sh [-n repo-name] [-o owner]
