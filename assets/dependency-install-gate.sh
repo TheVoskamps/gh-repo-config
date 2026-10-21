@@ -255,11 +255,12 @@ install_one() {
     # `corepack enable` fails and no install runs. If yarn otherwise cannot
     # be provisioned (no registry egress to download the pinned
     # `packageManager` yarn, an unresolvable `packageManager` pin, or a
-    # yarn.lock present with no pin and no yarn on the runner), `yarn --version`
-    # fails, $yarn_major is empty, the && chain short-circuits, and this gate
-    # job goes RED. That is the correct direction for an integrity gate: a red
-    # check the operator investigates beats a silent green that gives false
-    # assurance the lockfile was actually verified.
+    # yarn.lock present with no pin and no yarn on the runner),
+    # `yarn --version` fails, $yarn_major is empty, the && chain
+    # short-circuits, and this gate job goes RED. That is the correct
+    # direction for an integrity gate: a red check the operator
+    # investigates beats a silent green that gives false assurance the
+    # lockfile was actually verified.
     enable_corepack "$manifest" "$dir" || return 1
     ( cd "$dir" \
       && yarn_major="$(yarn --version 2>/dev/null | cut -d. -f1)" \

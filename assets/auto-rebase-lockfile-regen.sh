@@ -39,9 +39,10 @@
 #     a human. Regenerating a lockfile cannot fix an unsatisfiable
 #     manifest, and guessing a manifest resolution is not safe.
 #   - pnpm runs through Corepack, so the replay and the regen use the
-#     pnpm version the manifest's `packageManager` pins. `corepack enable` must succeed:
-#     on failure the manifest is UNFIXABLE and no pnpm command runs for
-#     it, rather than falling back to whatever `pnpm` is on PATH.
+#     pnpm version the manifest's `packageManager` pins. `corepack
+#     enable` must succeed: on failure the manifest is UNFIXABLE and no
+#     pnpm command runs for it, rather than falling back to whatever
+#     `pnpm` is on PATH.
 #   - A directory tracking both package-lock.json and pnpm-lock.yaml is
 #     UNFIXABLE and neither lockfile is regenerated: which one the
 #     project means is not this script's call.
@@ -203,9 +204,9 @@ check_lockfile() {
   echo "::group::$pm lockfile check: $lockfile"
 
   if [ "$pm" = "pnpm" ]; then
-    # Corepack provisions the pnpm `packageManager` pins. Without it the
-    # replay would run an unvetted pnpm from PATH, so a failure here
-    # stops this manifest before any pnpm command runs.
+    # Corepack provisions the pnpm version `packageManager` pins. Without
+    # it the replay would run an unvetted pnpm from PATH, so a failure
+    # here stops this manifest before any pnpm command runs.
     if ! corepack_out="$( cd "$dir" && "$COREPACK_BIN" enable 2>&1 )"; then
       echo "$corepack_out"
       echo "::error file=$lockfile::corepack enable failed for $lockfile; running no pnpm command for it. Leaving for a human."
