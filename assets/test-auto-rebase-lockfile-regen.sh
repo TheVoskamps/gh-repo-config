@@ -91,8 +91,8 @@ make_manifest() {
   git -C "$repo" commit -q -m "add $subdir manifest"
 }
 
-# Write a fake `npm` into $1/bin. The fake reads
-# the sentinel in ./package-lock.json:
+# Write a fake `npm` into $1/bin. The fake reads the sentinel in
+# ./package-lock.json:
 #   sentinel=insync      -> `npm ci` succeeds.
 #   sentinel=desync      -> `npm ci` fails with the out-of-sync signature;
 #                           `npm install --package-lock-only` rewrites the
