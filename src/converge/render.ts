@@ -235,8 +235,8 @@ export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
   // matrix leg's check until issue #77 collapsed that workflow to one
   // job, at which point no per-PM check run exists to key on. Widening
   // the pre-filter is safe: the lockfile-regen script that consumes it
-  // re-confirms the failure is a lockfile-only npm desync before it
-  // changes anything.
+  // re-confirms the failure is a lockfile-only npm or pnpm desync before
+  // it changes anything.
   __INSTALL_GATE_CHECK__: "install-gate-required",
 };
 

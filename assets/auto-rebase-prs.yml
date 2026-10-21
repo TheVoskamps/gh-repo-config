@@ -197,20 +197,23 @@ on:
 #
 # Lockfile-regen pass, a SEPARATE pass after the rebase sweep:
 #   The dominant Dependabot failure is not a real conflict -- it is a
-#   manifest bumped but its npm lockfile not regenerated to match, which
-#   fails the dependency-install-gate (its `__INSTALL_GATE_CHECK__`
-#   check). That check is the install gate's single required-check job,
-#   so it goes red for a drift in ANY package manager, not just npm; the
-#   regen script re-confirms below that the failure really is a
-#   lockfile-only npm desync before touching anything, so keying on the
-#   aggregate check is a widened pre-filter and never a widened action.
+#   manifest bumped but its npm or pnpm lockfile not regenerated to
+#   match, which fails the dependency-install-gate (its
+#   `__INSTALL_GATE_CHECK__` check). That check is the install gate's
+#   single required-check job, so it goes red for a drift in ANY package
+#   manager; the regen script re-confirms below that the failure really
+#   is a lockfile-only npm or pnpm desync before touching anything, so
+#   keying on the aggregate check is a widened pre-filter and never a
+#   widened action.
 #   This pass detects a PR whose
 #   `__INSTALL_GATE_WORKFLOW__ / __INSTALL_GATE_CHECK__` check is
 #   FAILING, checks out its head, and runs
 #   `.github/scripts/auto-rebase-lockfile-regen.sh`, which acts ONLY when
 #   the desync is lockfile-only: it regenerates each desynced lockfile
-#   with `npm install --package-lock-only --ignore-scripts` and verifies
-#   the result replays under `npm ci --ignore-scripts`. If a regen
+#   (`npm install --package-lock-only --ignore-scripts`, or
+#   `pnpm install --lockfile-only --ignore-scripts` under Corepack) and
+#   verifies the result replays under `npm ci --ignore-scripts` or
+#   `pnpm install --frozen-lockfile --ignore-scripts`. If a regen
 #   succeeds, this workflow commits the lockfile(s) and force-pushes with
 #   --force-with-lease; the push re-runs the install gate (and any build
 #   gate) on the corrected commit, and THAT re-run is the verification --
@@ -223,8 +226,8 @@ on:
 #   the desync and cannot regenerate the lockfile itself. The two paths
 #   are deliberately distinct: routine behind-main rebase skips
 #   Dependabot; gate-red-from-lockfile-desync regen acts on every author.
-#   pip is out of scope (a pip gate failure is an unresolvable pin set,
-#   not a lockfile-only desync -- see the script header).
+#   pip and yarn are out of scope (a pip gate failure is an unresolvable
+#   pin set, not a lockfile-only desync -- see the script header).
 #
 # Auth: this workflow MUST run as the GitHub App "__APP_NAME__", not as
 # the default GITHUB_TOKEN. A push made with GITHUB_TOKEN does NOT
@@ -354,7 +357,8 @@ jobs:
           git config user.email "__BOT_SLUG__@users.noreply.github.com"
 
       # Needed by the lockfile-regen pass below (`npm ci` / `npm install
-      # --package-lock-only`). Pinned to node 22 to match the
+      # --package-lock-only`, and the Corepack that provisions pnpm).
+      # Pinned to node 22 to match the
       # dependency-install-gate job's own `Set up Node`, so the regen
       # replays the lockfile the same way the gate will after the
       # force-push.
@@ -612,7 +616,7 @@ jobs:
           # -- that is the "gate-red-from-lockfile-desync" trigger. The
           # script itself re-confirms the desync (and that it is
           # lockfile-ONLY) before changing anything, so the check-run
-          # filter is just a cheap pre-gate to avoid running `npm ci` on
+          # filter is just a cheap pre-gate to avoid replaying lockfiles on
           # every PR every sweep.
           #
           # NOTE: NO Dependabot-author exclusion and NO BEHIND/BLOCKED
@@ -733,20 +737,42 @@ jobs:
             set -e
 
             if [ "$REGEN_RC" -eq 0 ]; then
-              # `npm install --package-lock-only` only rewrites the
-              # lockfile, but stage package.json too so the pair is
-              # committed together (a no-op if the manifest is unchanged,
-              # which it always is here).
-              git add -A '*package-lock.json' '*package.json'
-              # Guard the commit like the push below (and the rebase loop's
-              # git ops): the per-PR loop runs under `set -e`, so an
-              # unguarded commit failure would abort the whole sweep and
-              # silently skip every remaining PR. An if/else contains the
-              # fault to this one PR; control then falls through to the
-              # unconditional cleanup below (same shape as the rebase loop's
-              # else-branch), so the auto-regen branch is still cleaned up.
-              if git commit -m "Regenerate npm lockfile to match manifest (auto)" \
-                -m "$INSTALL_GATE_WORKFLOW $INSTALL_GATE_CHECK check was failing on a lockfile desynced from its manifest. Regenerated with npm install --package-lock-only --ignore-scripts. The re-run of the gate on this push is the verification."; then
+              # The regen only rewrites tracked lockfiles, but stage any
+              # changed package.json too so the pair is committed together
+              # (in practice the manifest is always unchanged here). The
+              # list comes from `git diff` rather than a `git add` glob
+              # pathspec, which is fatal when it matches no file -- an
+              # npm-only or pnpm-only repo lacks one lockfile name.
+              mapfile -t REGEN_FILES < <(git diff --name-only \
+                | grep -E '(^|/)(package-lock\.json|pnpm-lock\.yaml|package\.json)$' || true)
+              # Name each package manager whose lockfile changed.
+              REGEN_PMS=""
+              REGEN_CMDS=""
+              if printf '%s\n' "${REGEN_FILES[@]}" | grep -qE '(^|/)package-lock\.json$'; then
+                REGEN_PMS="npm"
+                REGEN_CMDS="npm install --package-lock-only --ignore-scripts"
+              fi
+              if printf '%s\n' "${REGEN_FILES[@]}" | grep -qE '(^|/)pnpm-lock\.yaml$'; then
+                REGEN_PMS="${REGEN_PMS:+$REGEN_PMS and }pnpm"
+                REGEN_CMDS="${REGEN_CMDS:+$REGEN_CMDS and }pnpm install --lockfile-only --ignore-scripts"
+              fi
+              REGEN_NOUN="lockfile"
+              if [ "$REGEN_PMS" = "npm and pnpm" ]; then
+                REGEN_NOUN="lockfiles"
+              fi
+              # Guard the add, commit, and push (like the rebase loop's git
+              # ops): the per-PR loop runs under `set -e`, so an unguarded
+              # failure would abort the whole sweep and silently skip every
+              # remaining PR. An if/else contains the fault to this one PR;
+              # control then falls through to the unconditional cleanup
+              # below (same shape as the rebase loop's else-branch), so the
+              # auto-regen branch is still cleaned up.
+              if [ -z "$REGEN_PMS" ]; then
+                echo "PR #$PR_NUMBER: regen reported a change but no lockfile differs; skipping"
+              elif ! git add -- "${REGEN_FILES[@]}"; then
+                echo "PR #$PR_NUMBER: staging the regenerated lockfile(s) failed; skipping"
+              elif git commit -m "Regenerate $REGEN_PMS $REGEN_NOUN to match manifest (auto)" \
+                -m "$INSTALL_GATE_WORKFLOW $INSTALL_GATE_CHECK check was failing on a lockfile desynced from its manifest. Regenerated with $REGEN_CMDS. The re-run of the gate on this push is the verification."; then
                 if git push --force-with-lease="$HEAD_REF:$EXPECTED_SHA" origin "HEAD:refs/heads/$HEAD_REF"; then
                   echo "PR #$PR_NUMBER: regenerated lockfile(s) committed and force-pushed"
                 else

@@ -46,6 +46,8 @@
 #   - pnpm: runs `pnpm install --frozen-lockfile --ignore-scripts`
 #     (Corepack-aware -- honors a `packageManager` pin in package.json;
 #     --frozen-lockfile fails on any package.json/pnpm-lock.yaml drift).
+#   - pnpm and yarn run `corepack enable` first and fail the manifest's
+#     check, running no install, when it fails.
 #   - yarn: replays yarn.lock and fails on any package.json/yarn.lock
 #     drift, blocking install/build lifecycle scripts to the same ACE
 #     standard as npm/pnpm (Corepack-aware). The flag surface is version-
@@ -189,6 +191,20 @@ if [ "$MODE" = "--present" ]; then
   exit 0
 fi
 
+# enable_corepack <manifest> <dir>: run `corepack enable` in <dir> so the
+# install runs the package manager version `packageManager` pins. Fails
+# closed: on failure it prints corepack's output and an error naming
+# <manifest> and returns non-zero, so the caller runs no install rather
+# than whatever pnpm or yarn is on PATH.
+enable_corepack() {
+  local manifest="$1" dir="$2" out
+  if ! out="$( cd "$dir" && corepack enable 2>&1 )"; then
+    echo "$out"
+    echo "::error file=$manifest::corepack enable failed for $manifest; running no $MODE install for it."
+    return 1
+  fi
+}
+
 # Strict, lockfile-honoring install for one manifest. No build steps.
 install_one() {
   local manifest="$1"
@@ -212,9 +228,8 @@ install_one() {
     # the project does.
     local dir
     dir="$(dirname "$manifest")"
-    ( cd "$dir" \
-      && { corepack enable >/dev/null 2>&1 || true; } \
-      && pnpm install --frozen-lockfile --ignore-scripts )
+    enable_corepack "$manifest" "$dir" || return 1
+    ( cd "$dir" && pnpm install --frozen-lockfile --ignore-scripts )
   elif [ "$MODE" = "yarn" ]; then
     # Replay yarn.lock exactly (drift check) AND block install/build
     # lifecycle scripts -- the same ACE rationale as npm/pnpm above: the
@@ -236,16 +251,17 @@ install_one() {
     # detection is fully preserved.
     local dir
     dir="$(dirname "$manifest")"
-    # FAILS CLOSED: if yarn cannot be provisioned (Corepack absent or
-    # unbundled, shim dir not writable, no registry egress to download the
-    # pinned `packageManager` yarn, an unresolvable `packageManager` pin, or a
+    # FAILS CLOSED: if Corepack is absent or its shim dir is not writable,
+    # `corepack enable` fails and no install runs. If yarn otherwise cannot
+    # be provisioned (no registry egress to download the pinned
+    # `packageManager` yarn, an unresolvable `packageManager` pin, or a
     # yarn.lock present with no pin and no yarn on the runner), `yarn --version`
     # fails, $yarn_major is empty, the && chain short-circuits, and this gate
     # job goes RED. That is the correct direction for an integrity gate: a red
     # check the operator investigates beats a silent green that gives false
     # assurance the lockfile was actually verified.
+    enable_corepack "$manifest" "$dir" || return 1
     ( cd "$dir" \
-      && { corepack enable >/dev/null 2>&1 || true; } \
       && yarn_major="$(yarn --version 2>/dev/null | cut -d. -f1)" \
       && if [ "$yarn_major" = "1" ]; then
            yarn install --frozen-lockfile --ignore-scripts
