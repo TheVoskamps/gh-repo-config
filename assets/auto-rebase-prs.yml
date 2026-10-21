@@ -358,10 +358,9 @@ jobs:
 
       # Needed by the lockfile-regen pass below (`npm ci` / `npm install
       # --package-lock-only`, and the Corepack that provisions pnpm).
-      # Pinned to node 22 to match the
-      # dependency-install-gate job's own `Set up Node`, so the regen
-      # replays the lockfile the same way the gate will after the
-      # force-push.
+      # Pinned to node 22 to match the dependency-install-gate job's own
+      # `Set up Node`, so the regen replays the lockfile the same way the
+      # gate will after the force-push.
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

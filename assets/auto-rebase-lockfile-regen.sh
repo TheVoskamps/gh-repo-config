@@ -38,8 +38,8 @@
 #     record UNFIXABLE and exit non-zero so the caller leaves the PR for
 #     a human. Regenerating a lockfile cannot fix an unsatisfiable
 #     manifest, and guessing a manifest resolution is not safe.
-#   - pnpm runs through Corepack, so the regen uses the pnpm version the
-#     manifest's `packageManager` pins. `corepack enable` must succeed:
+#   - pnpm runs through Corepack, so the replay and the regen use the
+#     pnpm version the manifest's `packageManager` pins. `corepack enable` must succeed:
 #     on failure the manifest is UNFIXABLE and no pnpm command runs for
 #     it, rather than falling back to whatever `pnpm` is on PATH.
 #   - A directory tracking both package-lock.json and pnpm-lock.yaml is
@@ -172,6 +172,8 @@ if [ "${#NPM_LOCKFILES[@]}" -gt 0 ] && [ "${#PNPM_LOCKFILES[@]}" -gt 0 ]; then
   done
 fi
 
+# is_mixed_dir <dir>: succeed when <dir> tracks both lockfiles. The loop
+# above has already recorded both as unfixable, so check_lockfile skips it.
 is_mixed_dir() {
   printf '%s' "$MIXED_DIRS" | grep -qxF -- "$1"
 }

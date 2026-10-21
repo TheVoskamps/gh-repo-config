@@ -9,7 +9,7 @@
 # Self-test for .github/scripts/auto-rebase-lockfile-regen.sh. Builds
 # throwaway git repos under a temp dir and FAKE `npm`, `pnpm`, and
 # `corepack` binaries (so no registry, no network) that simulate the
-# three states the regen script must distinguish:
+# states the regen script must distinguish:
 #   - in-sync:    the replay (`npm ci` / `pnpm install --frozen-lockfile`)
 #     exits 0.
 #   - fixable desync: the replay exits non-zero with the lockfile-out-of-
@@ -17,7 +17,9 @@
 #     `pnpm install --lockfile-only`) makes a subsequent replay pass.
 #   - unfixable:  the replay fails with the desync signature, but even
 #     after a regen it still fails (an unsatisfiable manifest); OR the
-#     replay fails for a reason that is NOT the desync signature.
+#     replay fails for a reason that is NOT the desync signature; OR
+#     `corepack enable` fails before a pnpm replay; OR one directory
+#     tracks both package-lock.json and pnpm-lock.yaml.
 #
 # Each fake keys its behavior off a sentinel string in its lockfile so
 # each case is deterministic. The regen step writes a "fixed" sentinel
@@ -86,7 +88,7 @@ make_manifest() {
   git -C "$repo" commit -q -m "add $subdir manifest"
 }
 
-# Write a fake `npm` into $1/bin and echo that bin dir. The fake reads
+# Write a fake `npm` into $1/bin and echo its path. The fake reads
 # the sentinel in ./package-lock.json:
 #   sentinel=insync      -> `npm ci` succeeds.
 #   sentinel=desync      -> `npm ci` fails with the out-of-sync signature;
