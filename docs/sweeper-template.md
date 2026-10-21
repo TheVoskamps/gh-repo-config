@@ -5,8 +5,11 @@
 org copies its private sweeper repo. The release tarball does not carry
 it: the template repo receives it from the push under "Publish the
 template". The template is bootstrap-only and unmanaged. Once an org
-has copied it, the template is out of that org's loop, and the
-converger keeps the org's sweep workflow current.
+has copied it, the converger keeps the org's sweep workflow current,
+and the template reaches the org's copy only when an operator there
+merges it in over the `upstream` remote `scripts/consumer-init.sh`
+added. The template never tracks `gh-repo-config.json`, so that merge
+never touches the org's config.
 
 The template repo is never itself a sweeper repo: TheVoskamps adopts it
 into a private repo like any other org, so the pin and the update
@@ -124,18 +127,28 @@ runs in:
 ORG=acme
 ```
 
-### 1. Copy the template
+### 1. Create the sweeper repo
+
+Fetch `consumer-init.sh` from the template and run it from the
+directory the clone should land in:
 
 ```bash
-gh repo create "$ORG/gh-repo-config-sweeper" --private \
-  --template TheVoskamps/gh-repo-config-sweeper-template --clone
+gh api -H "Accept: application/vnd.github.raw" \
+  repos/TheVoskamps/gh-repo-config-sweeper-template/contents/scripts/consumer-init.sh > consumer-init.sh
+bash consumer-init.sh -o "$ORG"
 cd gh-repo-config-sweeper
 ```
 
-In the GUI this is **Use this template** → **Create a new repository**
-on `TheVoskamps/gh-repo-config-sweeper-template`, owner `$ORG`, name
-`gh-repo-config-sweeper`, visibility **Private**. The name is the
-convention; the visibility is not optional.
+It creates `$ORG/gh-repo-config-sweeper` from the template, private,
+clones it, adds the template as `upstream` and merges `upstream/main`
+once with `--allow-unrelated-histories`, so later template merges have
+a merge base, then creates `gh-repo-config.json` from
+`gh-repo-config.example.json`, commits it, and pushes. The name is the
+convention, and `-n` changes it; the visibility is not optional, and
+the script offers no flag for it. A repo created from the template by
+hand, in the GUI or with `gh repo create --template`, has no `upstream`
+remote and no merge base, and `scripts/sync-upstream.sh` refuses it
+later.
 
 ### 2. Register the two Apps
 

@@ -5,11 +5,27 @@ This repo is an org's sweeper repo for
 private repo in the org whose scheduled `sweep` workflow runs the
 converger against every managed repo in the org. It starts life as a
 copy of the public template
-`TheVoskamps/gh-repo-config-sweeper-template` and carries two files of
-its own:
+`TheVoskamps/gh-repo-config-sweeper-template`, which
+`scripts/consumer-init.sh` creates, and carries these files of its own:
 
 - `gh-repo-config.json` — the org's configuration. It is org-owned: the
-  sweep reads it, and the converger never writes it.
+  sweep reads it, and the converger never writes it. The template never
+  tracks it — `.gitignore` lists the name, and the template ships only
+  `gh-repo-config.example.json` — so a template merge never touches
+  the org's copy. `consumer-init.sh` creates it from the example and
+  force-adds it once; a tracked file is no longer subject to the ignore
+  rule, so every later edit is committed as usual.
+- `gh-repo-config.example.json` — the starting content of
+  `gh-repo-config.json`.
+- `scripts/consumer-init.sh` — creates this repo from the template, as
+  a private repo, and leaves it ready for `bootstrap.sh`: it adds the
+  template as the `upstream` remote and merges `upstream/main` once with
+  `--allow-unrelated-histories`, since a repo created from a template
+  shares no history with it and every later template merge needs that
+  merge base. It runs before this repo exists, so it is fetched from the
+  template on its own rather than from a clone.
+- `scripts/sync-upstream.sh` — merges the template's later changes into
+  this repo over the `upstream` remote.
 - `bootstrap.sh` — places the sweep workflow once, so the first tick has
   something to run. It is bootstrap-only: once the first sweep has run,
   the converger owns `.github/workflows/sweep.yml`, and the script has
@@ -20,7 +36,27 @@ its own:
 Run these once, as an org owner, in this order. `ORG` is your org's
 login.
 
-1. **Register the org's two GitHub Apps**, both owned by the org and
+1. **Create this repo with `consumer-init.sh`**, from the directory the
+   clone should land in, under your own `gh` authentication:
+
+   ```bash
+   gh api -H "Accept: application/vnd.github.raw" \
+     repos/TheVoskamps/gh-repo-config-sweeper-template/contents/scripts/consumer-init.sh > consumer-init.sh
+   bash consumer-init.sh -o "$ORG"
+   cd gh-repo-config-sweeper
+   ```
+
+   `-n` picks another repo name, which is also the clone's directory;
+   without it the repo is `gh-repo-config-sweeper`, the name every
+   command below assumes. `-o` defaults to the authenticated user, so an
+   org's repo needs it. The script refuses to run when the directory
+   already exists, and creates nothing in that case. It registers no
+   App and sets no secret. When it finishes, `gh-repo-config.json` holds
+   the example content, the clone is clean on the default branch, and
+   the default branch is pushed: edit and commit the config there from
+   now on.
+
+2. **Register the org's two GitHub Apps**, both owned by the org and
    installed on all of its repositories:
    - the converger App, which renders, opens, and merges the converger
      PRs, converges repo settings and the `protect-main` ruleset, and
@@ -32,7 +68,7 @@ login.
    `pr-automation-identity` (see "Org config keys" below), and commit
    and push that change to the default branch.
 
-2. **Set the secrets and the org custom properties.**
+3. **Set the secrets and the org custom properties.**
    - Org secrets `CONVERGER_APP_CLIENT_ID` and
      `CONVERGER_APP_PRIVATE_KEY`, in the Actions store, visible to this
      repo.
@@ -48,8 +84,9 @@ login.
      workflow converged.
    - Org custom property `gh-repo-config-version`: a string.
 
-3. **Run `bootstrap.sh`** from the root of a clean local clone of this
-   repo, on the default branch, under your own `gh` authentication:
+4. **Run `bootstrap.sh`** from the root of the clone, on the default
+   branch with a clean working tree, under your own `gh`
+   authentication:
 
    ```bash
    ./bootstrap.sh
@@ -61,7 +98,7 @@ login.
    `.github/workflows/sweep.yml`, and commits and pushes that one file
    to the default branch. It registers no App and sets no secret.
 
-4. **Trigger the first sweep**, as a dry run first:
+5. **Trigger the first sweep**, as a dry run first:
 
    ```bash
    gh workflow run sweep.yml --repo "$ORG/gh-repo-config-sweeper" -f dry-run=true
@@ -193,18 +230,25 @@ converge-and-overwrite payload, so every sweeper repo runs the same
 `gh workflow run sweep.yml` runs a tick outside the schedule under any
 policy.
 
-## Manual fallback
+## Taking template changes
 
-This repo has no link back to the template it was copied from, and the
-converger updates only the files it renders. A structural change it
-cannot express — a later revision of `bootstrap.sh` that only new
-adopters need, say — is taken by hand, by merging the template in:
+The converger updates only the files it renders. A change to the
+template it cannot express — a later revision of `bootstrap.sh` or of
+these scripts, say — is taken by merging the template in, over the
+`upstream` remote `consumer-init.sh` added:
 
 ```bash
-git remote add template https://github.com/TheVoskamps/gh-repo-config-sweeper-template.git
-git fetch template
-git merge --allow-unrelated-histories template/main
+./scripts/sync-upstream.sh
 ```
 
-Resolve the conflicts in favour of your own `gh-repo-config.json`, then
+It fetches `upstream` and merges `upstream/main` into the default
+branch, then stops: pushing the merge is your next step. It refuses,
+changing nothing, unless `refs/remotes/origin/HEAD` is set (its message
+names `git remote set-head origin -a` as the fix), an `upstream` remote
+exists, tracked files carry no uncommitted change, and the default
+branch is checked out. It also refuses to merge a default branch that
+shares no history with `upstream/main`, which marks a repo that was not
+set up by `consumer-init.sh`; such a repo is started over with it.
+
+Resolve any conflict in favour of your own `gh-repo-config.json`, then
 push the merge through your usual review.
