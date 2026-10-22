@@ -1,114 +1,152 @@
 # Sweeper template runbook
 
-`template/` is the content of the public template repo
-`TheVoskamps/gh-repo-config-sweeper-template`, from which each managed
-org copies its private sweeper repo. The release tarball does not carry
-it: the template repo receives it from the push under "Publish the
-template". The template is bootstrap-only and unmanaged. Once an org
-has copied it, the converger keeps the org's sweep workflow current,
-and the template reaches the org's copy only when an operator there
-merges it in over the `upstream` remote `scripts/consumer-init.sh`
-added. The template never tracks `gh-repo-config.json`, so that merge
-never touches the org's config.
+The public template repo `TheVoskamps/gh-repo-config-sweeper-template`,
+from which each managed org creates its private sweeper repo, is
+publish output of this repo's `template/`: on every release,
+`.github/workflows/release.yml`'s `publish-template` job pushes the
+commit `git subtree split --prefix=template` makes to the template
+repo's `main`, so that repo holds `template/`'s contents at its root and
+nothing else. Nobody edits it by hand, and the release tarball does not
+carry it.
+
+A sweeper repo takes two things from two places. The operator scripts
+and the example config come by git from the template repo:
+`consumer-init.sh` creates the sweeper repo from it, and
+`sync-upstream.sh` later merges it in over the `upstream` remote. The
+converger and its payloads come as attested release tarballs from
+`TheVoskamps/gh-repo-config`: `consumer-init.sh` places
+`.github/workflows/sweep.yml` from one, and from the first sweep on the
+converger keeps that file current. The template never tracks
+`gh-repo-config.json`, so a template merge never touches the org's
+config.
 
 The template repo is never itself a sweeper repo: TheVoskamps adopts it
 into a private repo like any other org, so the pin and the update
 policy of the org that publishes the template stay private.
 
-## Publish the template
+## Set up the template repo
 
-Run once, as a TheVoskamps owner, from a clone of
-`TheVoskamps/gh-repo-config` at the `main` commit being published.
+Run once, as a TheVoskamps owner. The repo starts empty; the first
+release after this procedure fills it.
 
-1. Stage `template/` as a fresh single-commit repo and create the public
-   repo from it:
+Every file the template repo carries lands in each adopter's copy, so it
+holds `template/`'s content and nothing else: no `CODEOWNERS`, no
+community files, no workflows, no `dependabot.yml`, and no protection
+files. Everything below is a setting, a key or a ruleset, which an
+adopter's copy does not inherit. Do not run
+`/github-setup:gh-repo-setup-public`, or any other skill that commits
+into the repo it runs on.
+
+1. Create the repo, public with the template flag on, so any org can
+   create from it and fetch it:
 
    ```bash
-   src="$(git rev-parse --show-toplevel)"
-   rev="$(git rev-parse --short HEAD)"
-   stage="$(mktemp -d)"
-   cp -R "$src/template/." "$stage/"
-   cd "$stage"
-   git init -b main
-   git add -A
-   git commit -m "Add the gh-repo-config sweeper template from gh-repo-config ${rev}"
    gh repo create TheVoskamps/gh-repo-config-sweeper-template --public \
-     --description "Template for an org's private gh-repo-config sweeper repo" \
-     --source . --remote origin --push
-   ```
-
-2. Set the template flag:
-
-   ```bash
+     --description "Template for an org's private gh-repo-config sweeper repo"
    gh api -X PATCH /repos/TheVoskamps/gh-repo-config-sweeper-template -F is_template=true
    ```
 
-   Leave forking as it is. A public repo has no setting that disables
-   forking, so adopters copy the template while contributors can still
-   fork it and send a PR back.
-
-3. Set the repo's public posture, through settings alone. Every file the
-   template repo carries lands in each adopter's copy, so the repo holds
-   `template/`'s content and nothing else: no `CODEOWNERS`, no
-   community files, no workflows, no `dependabot.yml`. Do not run
-   `/github-setup:gh-repo-setup-public`, or any other skill that commits
-   into the repo it runs on.
-
-   Issues on, merge commits only, head branches deleted on merge:
+2. Set its posture. Issues stay on: an adopter reports a problem where
+   they find it, and an owner transfers the issue to
+   `TheVoskamps/gh-repo-config`. Forking stays on, since a public repo
+   cannot disable it; the repo takes no PRs, and the rulesets below
+   block every push but the deploy key's. Actions are disabled, since
+   nothing in the repo runs. Secret scanning and push protection are on:
 
    ```bash
-   gh repo edit TheVoskamps/gh-repo-config-sweeper-template \
-     --enable-issues \
-     --enable-merge-commit --enable-squash-merge=false --enable-rebase-merge=false \
-     --allow-update-branch --delete-branch-on-merge
-   ```
-
-   Dependabot alerts, secret scanning, and push protection:
-
-   ```bash
-   gh api -X PUT /repos/TheVoskamps/gh-repo-config-sweeper-template/vulnerability-alerts
+   gh repo edit TheVoskamps/gh-repo-config-sweeper-template --enable-issues
+   gh api -X PUT /repos/TheVoskamps/gh-repo-config-sweeper-template/actions/permissions \
+     -F enabled=false
    gh api -X PATCH /repos/TheVoskamps/gh-repo-config-sweeper-template \
      -f 'security_and_analysis[secret_scanning][status]=enabled' \
      -f 'security_and_analysis[secret_scanning_push_protection][status]=enabled'
    ```
 
-   The `protect-main` ruleset on the default branch: no deletion, no
-   force push, and a reviewed PR with every conversation resolved. It
-   requires no code-owner review and no status check, since either
-   would need a file in the repo. Repository admins may merge a PR
-   without the approval, which a sole maintainer cannot give their own
-   PR:
+3. Give `release.yml` its deploy key. Generate the pair, add the public
+   half to the template repo with write access, store the private half
+   as the `TEMPLATE_DEPLOY_KEY` Actions secret of
+   `TheVoskamps/gh-repo-config`, and delete both local files:
+
+   ```bash
+   ssh-keygen -t ed25519 -N '' -f template-deploy-key \
+     -C 'TheVoskamps/gh-repo-config release.yml: template/ -> TheVoskamps/gh-repo-config-sweeper-template'
+   gh repo deploy-key add template-deploy-key.pub \
+     --repo TheVoskamps/gh-repo-config-sweeper-template \
+     --allow-write --title 'gh-repo-config release.yml template/ publish'
+   gh secret set TEMPLATE_DEPLOY_KEY --repo TheVoskamps/gh-repo-config < template-deploy-key
+   rm template-deploy-key template-deploy-key.pub
+   ```
+
+   The publish key stays the template repo's only deploy key. The
+   `publish-only` ruleset below bypasses for the `DeployKey` actor type,
+   which covers every deploy key on the repo, so a second key would
+   share the publish key's write path.
+
+4. Add two rulesets on the default branch. A bypass actor skips every
+   rule in its ruleset, and the rules of all rulesets on a branch
+   aggregate, so the split is what lets the deploy key create and update
+   `main` but never delete or rewrite it.
+
+   `publish-only` blocks creation and update of the branch for everyone
+   but a deploy key:
 
    ```bash
    gh api -X POST /repos/TheVoskamps/gh-repo-config-sweeper-template/rulesets --input - <<'EOF'
    {
-     "name": "protect-main",
+     "name": "publish-only",
      "target": "branch",
      "enforcement": "active",
      "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
      "bypass_actors": [
-       { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }
+       { "actor_id": null, "actor_type": "DeployKey", "bypass_mode": "always" }
      ],
      "rules": [
-       { "type": "deletion" },
-       { "type": "non_fast_forward" },
-       {
-         "type": "pull_request",
-         "parameters": {
-           "required_approving_review_count": 1,
-           "dismiss_stale_reviews_on_push": true,
-           "require_code_owner_review": false,
-           "require_last_push_approval": true,
-           "required_review_thread_resolution": true,
-           "allowed_merge_methods": ["merge"]
-         }
-       }
+       { "type": "creation" },
+       { "type": "update" }
      ]
    }
    EOF
    ```
 
-   Check that nobody but the repo's intended maintainers holds write
+   `protect-history` blocks deletion and force-push for everyone, the
+   deploy key included. `release.yml` never force-pushes: each publish
+   is a fast-forward of the previous one, and this ruleset turns
+   anything else into a failed job rather than rewritten history
+   consumers have merged:
+
+   ```bash
+   gh api -X POST /repos/TheVoskamps/gh-repo-config-sweeper-template/rulesets --input - <<'EOF'
+   {
+     "name": "protect-history",
+     "target": "branch",
+     "enforcement": "active",
+     "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+     "bypass_actors": [],
+     "rules": [
+       { "type": "deletion" },
+       { "type": "non_fast_forward" }
+     ]
+   }
+   EOF
+   ```
+
+   Check that the rules of both rulesets apply to `main`:
+
+   ```bash
+   gh api repos/TheVoskamps/gh-repo-config-sweeper-template/rules/branches/main
+   ```
+
+5. Flag the repo `opt-out` in the org custom property
+   `gh-repo-config-mode`, so TheVoskamps' own sweep never manages it:
+
+   ```bash
+   gh api -X PATCH /orgs/TheVoskamps/properties/values \
+     -f "repository_names[]=gh-repo-config-sweeper-template" \
+     -f "properties[][property_name]=gh-repo-config-mode" \
+     -f "properties[][value]=opt-out"
+   ```
+
+6. Check that nobody but the repo's intended maintainers holds write
    access or above:
 
    ```bash
@@ -143,12 +181,19 @@ It creates `$ORG/gh-repo-config-sweeper` from the template, private,
 clones it, adds the template as `upstream` and merges `upstream/main`
 once with `--allow-unrelated-histories`, so later template merges have
 a merge base, then creates `gh-repo-config.json` from
-`gh-repo-config.example.json`, commits it, and pushes. The name is the
-convention, and `-n` changes it; the visibility is not optional, and
-the script offers no flag for it. A repo created from the template by
-hand, in the GUI or with `gh repo create --template`, has no `upstream`
-remote and no merge base, and `scripts/sync-upstream.sh` refuses it
-later.
+`gh-repo-config.example.json`, commits it, and pushes. It then
+downloads the converger release, verifies its attestation before
+unpacking it, commits the release's sweep workflow to
+`.github/workflows/sweep.yml` on the default branch, pushes, and
+disables the workflow, so no tick runs before the Apps, secrets and
+properties are in place. The name is the convention, and `-n` changes it; the visibility is
+not optional, and the script offers no flag for it. `-p <tag>` pins a
+release, as its `vX.Y.Z` tag: it is written into `gh-repo-config.json`
+as `version-pin` and is the release the workflow comes from. Without
+it the config carries no pin and the latest release is used. A repo
+created from the template by hand, in the GUI or with
+`gh repo create --template`, has no `upstream` remote and no merge
+base, and `scripts/sync-upstream.sh` refuses it later.
 
 ### 2. Register the two Apps
 
@@ -189,8 +234,7 @@ Name the PR-automation App in `gh-repo-config.json`, which then reads:
 }
 ```
 
-Commit it with the two metadata docs the skill wrote, so the working
-tree is clean for `bootstrap.sh`:
+Commit it with the two metadata docs the skill wrote:
 
 ```bash
 git add gh-repo-config.json docs/github-app-converger.md docs/github-app-pr-automation.md
@@ -275,17 +319,14 @@ gh api -X PATCH "/orgs/$ORG/properties/values" \
   -f "properties[][value]=opt-in"
 ```
 
-### 5. Run `bootstrap.sh`
+### 5. Enable the sweep workflow
 
-From the root of the clone, on the default branch, with a clean working
-tree:
+`consumer-init.sh` left it disabled; with the Apps, secrets and
+properties in place it can run:
 
 ```bash
-./bootstrap.sh
+gh workflow enable sweep.yml --repo "$ORG/gh-repo-config-sweeper"
 ```
-
-It commits `.github/workflows/sweep.yml` straight to the default branch
-and pushes it.
 
 ### 6. Trigger the first sweep
 
