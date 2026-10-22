@@ -80,7 +80,12 @@ into the repo it runs on.
    The publish key stays the template repo's only deploy key. The
    `publish-only` ruleset below bypasses for the `DeployKey` actor type,
    which covers every deploy key on the repo, so a second key would
-   share the publish key's write path.
+   share the publish key's write path. GitHub's REST reference for
+   "Create a repository ruleset" states this of a bypass actor's
+   `actor_id`: "Required for `Integration`, `RepositoryRole`, `Team`,
+   and `User` actor types. ... If `actor_type` is `DeployKey`, this
+   should be null." A deploy-key bypass names no key, so it names them
+   all.
 
 4. Add two rulesets on the default branch. A bypass actor skips every
    rule in its ruleset, and the rules of all rulesets on a branch

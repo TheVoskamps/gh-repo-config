@@ -62,9 +62,10 @@ login.
    The workflow is copied from the release tarball after
    `gh attestation verify` passes on it, and committed straight to the
    default branch, which a fresh template copy's lack of a ruleset
-   allows. Disabling it may need GitHub a short while to list the new
-   workflow; the script waits, and names the
-   `gh workflow disable` command to run by hand if it gives up.
+   allows. The script then waits, for up to a minute, until
+   `gh workflow view` lists the workflow before disabling it, and names
+   the `gh workflow disable` command to run by hand if the wait runs
+   out.
 
 2. **Register the org's two GitHub Apps**, both owned by the org and
    installed on all of its repositories:
