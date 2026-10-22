@@ -7,13 +7,15 @@
 # GH_REPO_CONFIG_SWEEPER_REPO. Every other managed repo in the org gets
 # no copy of this file at all.
 #
-# WHY THIS FILE IS A CONVERGER PAYLOAD. A sweeper repo is born from a
-# template copy, and a template copy cannot pull from its template
-# (unrelated histories, no upstream). It does not need to: the
-# converger's whole job is "render files, open a PR, merge when green",
-# so the sweeper's own workflow ships through that same channel. The
-# bootstrap copy gets the org running; from then on the sweep keeps this
-# file current from `assets/`, PR-reviewed in the org like any other
+# WHY THIS FILE IS A CONVERGER PAYLOAD. A sweeper repo takes two things
+# from two places. Its operator scripts and example config come by git
+# from the sweeper template repo, merged in over the `upstream` remote.
+# That template carries no workflow, so this file never travels that
+# way: the converger's whole job is "render files, open a PR, merge when
+# green", so the sweeper's own workflow ships through that same channel,
+# from attested release tarballs. The copy consumer-init.sh places from
+# a release gets the org running; from then on the sweep keeps this file
+# current from `assets/`, PR-reviewed in the org like any other
 # converger change.
 #
 # WHY IT IS NOT AUTO-MERGED BY DEFAULT. This file is where the
