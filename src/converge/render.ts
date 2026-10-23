@@ -459,11 +459,12 @@ function stripLeadingComments(text: string): string {
  *
  * The block placeholders (`__DIRECTORY_BLOCK__`,
  * `__VERSIONING_STRATEGY_BLOCK__`, `__COOLDOWN_BLOCK__`,
- * `__NAMED_GROUPS_BLOCK__`) each sit alone on an indented line. The
- * substituted value's first line carries no leading indent (the
- * template's own indent supplies it) and continuation lines carry their
- * own absolute indent. When a block is empty for a class
- * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip, or
+ * `__IGNORE_BLOCK__`, `__NAMED_GROUPS_BLOCK__`) each sit alone on an
+ * indented line. The substituted value's first line carries no leading
+ * indent (the template's own indent supplies it) and continuation lines
+ * carry their own absolute indent. When a block is empty for a class
+ * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip, `__IGNORE_BLOCK__` on
+ * github-actions, or
  * `__NAMED_GROUPS_BLOCK__` for an org whose registry is empty), the
  * whole placeholder line is dropped so no whitespace-only line remains.
  * `__NAMED_GROUPS_BLOCK__` renders the same `namedGroupsBlock` (already
@@ -499,6 +500,16 @@ function renderEcosystemBlock(
       ? "cooldown:\n      semver-major-days: 14\n      semver-minor-days: 7\n      semver-patch-days: 7\n      default-days: 7"
       : "cooldown:\n      default-days: 7";
 
+  // __IGNORE_BLOCK__: every ecosystem but github-actions ignores
+  // semver-major version updates; github-actions takes them after the
+  // cooldown, since an action's major release is mostly a runtime move
+  // (Node.js 20 to 24) that leaves a pin on a deprecated runtime when
+  // skipped. Empty (line dropped) for github-actions.
+  const ignoreBlock =
+    cls === "github-actions"
+      ? null
+      : 'ignore:\n      - dependency-name: "*"\n        update-types:\n          - "version-update:semver-major"';
+
   const lines = blockTemplate.split("\n");
   const out: string[] = [];
   for (const line of lines) {
@@ -507,6 +518,12 @@ function renderEcosystemBlock(
       // Empty-block collapse: drop the whole line when there is no value.
       if (versioningBlock !== null) {
         out.push(substituteBlockLine(line, versioningBlock));
+      }
+      continue;
+    }
+    if (trimmed === "__IGNORE_BLOCK__") {
+      if (ignoreBlock !== null) {
+        out.push(substituteBlockLine(line, ignoreBlock));
       }
       continue;
     }
