@@ -13,8 +13,9 @@
 # this workflow is what keeps them current instead. See the "Problem"
 # section of issue #60.
 #
-# All of the update-policy DECISION logic (security-bypass, 7-day soak,
-# semver-major gate) lives in scripts/bump-asset-pins.sh, which only
+# All of the update-policy DECISION logic (security-bypass, 7-day soak
+# for every release, semver-major included) lives in
+# scripts/bump-asset-pins.sh, which only
 # rewrites files -- it never touches git or opens a PR. This workflow
 # owns that plumbing: it runs the script, and only if it actually
 # changed something (`git status --porcelain` is non-empty) does it
@@ -307,9 +308,8 @@ jobs:
             printf '%s\n' 'Scheduled bump of `uses:` action pins in `assets/*.yml` (the'
             printf '%s\n' "fan-out's authoritative payload templates) to the current eligible"
             printf '%s\n' 'upstream release, per the policy in `scripts/bump-asset-pins.sh`:'
-            printf '%s\n' 'security fixes are taken immediately, everything else soaks 7 days,'
-            printf '%s\n' 'and semver-major bumps are limited to the `github/codeql-action/*`'
-            printf '%s\n' 'named group.'
+            printf '%s\n' 'security fixes are taken immediately, and everything else, semver-major'
+            printf '%s\n' 'releases included, soaks 7 days.'
             printf '\n'
             printf '%s\n' 'Files changed:'
             printf '%s\n' "${CHANGED_FILES}"
