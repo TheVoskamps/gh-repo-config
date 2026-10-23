@@ -180,6 +180,7 @@ export {
   type RulesetRule,
   type RefNameCondition,
   type RulesetWriteResult,
+  type InstallationInfo,
 } from "./github/rulesets.js";
 
 export {
@@ -197,6 +198,8 @@ export {
 
 export {
   findMissingPermissions,
+  assertPrAutomationPermissions,
+  PR_AUTOMATION_REQUIRED_PERMISSIONS,
   type MissingPermission,
   type PermissionLevel,
 } from "./converge/app-permissions.js";

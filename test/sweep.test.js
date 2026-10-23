@@ -8,6 +8,7 @@ import {
   CURRENT_VERSION,
   isBehind,
   DEFAULT_PR_AUTOMATION_IDENTITY,
+  PR_AUTOMATION_REQUIRED_PERMISSIONS,
   SWEEPER_WORKFLOW_PATH,
 } from "../dist/index.js";
 
@@ -445,7 +446,8 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
       return { ok: true, status: 200, statusText: "OK", json: async () => ({ state: "not-configured" }) };
     }
     // Org installations: resolve both the converger and AUTOMERGE App
-    // slugs to app_ids for the ruleset bypass actors.
+    // slugs to app_ids for the ruleset bypass actors, with the
+    // PR-automation App granted everything its preflight requires.
     if (url.includes("/installations")) {
       return {
         ok: true,
@@ -454,7 +456,11 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
         json: async () => ({
           installations: [
             { app_id: 4319606, app_slug: "test-converger" },
-            { app_id: 3835765, app_slug: DEFAULT_PR_AUTOMATION_IDENTITY.appName },
+            {
+              app_id: 3835765,
+              app_slug: DEFAULT_PR_AUTOMATION_IDENTITY.appName,
+              permissions: PR_AUTOMATION_REQUIRED_PERMISSIONS,
+            },
           ],
         }),
       };
@@ -551,6 +557,9 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     assert.deepEqual(report.failed, []);
     assert.equal(report.skippedCurrent, 1); // fixture-current, already at CURRENT_VERSION
     assert.ok(calls.some((c) => c.method === "PATCH"));
+    // The PR-automation preflight and the ruleset bypass actors share
+    // one installations read.
+    assert.equal(calls.filter((c) => c.url.includes("/installations")).length, 1);
     // The merge pass merged fixture-behind's converger PR #1 this tick.
     assert.equal(report.merged.length, 1);
     assert.equal(report.merged[0].pr.number, 1);
@@ -602,6 +611,80 @@ test("runSweepFromEnv requires GH_REPO_CONFIG_APP_SLUG", async () => {
       }),
     /GH_REPO_CONFIG_APP_SLUG is required/,
   );
+});
+
+/**
+ * Run `runSweepFromEnv` against an org whose installations response is
+ * `installations`, recording every call. Any call past the installations
+ * read fails the test, so a passing run proves the sweep stopped there.
+ */
+async function sweepAgainstInstallations(installations, extraEnv = {}) {
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, init = {}) => {
+    calls.push({ url, method: init.method ?? "GET" });
+    if (url.includes("/installations")) {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ installations }) };
+    }
+    throw new Error(`the sweep went past the preflight: ${init.method ?? "GET"} ${url}`);
+  };
+  try {
+    const outcome = await runSweepFromEnv({
+      GH_REPO_CONFIG_ORG: "TheVoskamps",
+      GH_REPO_CONFIG_TOKEN: "test-token",
+      GH_REPO_CONFIG_APP_SLUG: "test-converger",
+      ...extraEnv,
+    }).then(
+      () => ({ error: undefined }),
+      (error) => ({ error }),
+    );
+    return { ...outcome, calls };
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+test("the PR-automation preflight fails the sweep before any repo is read or converged (issue #78)", async () => {
+  const { issues: _absent, ...grant } = PR_AUTOMATION_REQUIRED_PERMISSIONS;
+  const { error, calls } = await sweepAgainstInstallations([
+    { app_id: 4319606, app_slug: "test-converger" },
+    { app_id: 3835765, app_slug: DEFAULT_PR_AUTOMATION_IDENTITY.appName, permissions: grant },
+  ]);
+  assert.ok(error, "the sweep must throw");
+  assert.match(error.message, /issues: none \(need write\)/);
+  assert.match(error.message, new RegExp(`${DEFAULT_PR_AUTOMATION_IDENTITY.appName} on TheVoskamps`));
+  assert.deepEqual(
+    calls.map((c) => c.url.replace(/\?.*/, "")),
+    ["https://api.github.com/orgs/TheVoskamps/installations"],
+  );
+});
+
+test("the PR-automation preflight fails the sweep when the App is not installed (issue #78)", async () => {
+  const { error, calls } = await sweepAgainstInstallations([
+    { app_id: 4319606, app_slug: "test-converger" },
+  ]);
+  assert.ok(error, "the sweep must throw");
+  assert.match(
+    error.message,
+    new RegExp(`${DEFAULT_PR_AUTOMATION_IDENTITY.appName} is not installed on TheVoskamps`),
+  );
+  assert.equal(calls.length, 1);
+});
+
+test("the PR-automation preflight runs and fails under dry run (issue #78)", async () => {
+  const { error, calls } = await sweepAgainstInstallations(
+    [
+      {
+        app_id: 3835765,
+        app_slug: DEFAULT_PR_AUTOMATION_IDENTITY.appName,
+        permissions: { ...PR_AUTOMATION_REQUIRED_PERMISSIONS, contents: "read" },
+      },
+    ],
+    { GH_REPO_CONFIG_DRY_RUN: "true" },
+  );
+  assert.ok(error, "the sweep must throw under dry run too");
+  assert.match(error.message, /contents: read \(need write\)/);
+  assert.equal(calls.length, 1);
 });
 
 test("the merge pass runs over every managed repo independent of the version-skip decision", async () => {

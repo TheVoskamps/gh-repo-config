@@ -13,6 +13,7 @@ import {
   SWEEPER_UPDATE_POLICIES,
   DEFAULT_PR_AUTOMATION_IDENTITY,
   CURRENT_VERSION,
+  PR_AUTOMATION_REQUIRED_PERMISSIONS,
   runSweepFromEnv,
 } from "../dist/index.js";
 
@@ -366,8 +367,16 @@ function fakeApi() {
       return ok({
         installations: [
           { app_id: 4319606, app_slug: "test-converger" },
-          { app_id: 3835765, app_slug: DEFAULT_PR_AUTOMATION_IDENTITY.appName },
-          { app_id: 5550001, app_slug: "acme-pr-automations" },
+          {
+            app_id: 3835765,
+            app_slug: DEFAULT_PR_AUTOMATION_IDENTITY.appName,
+            permissions: PR_AUTOMATION_REQUIRED_PERMISSIONS,
+          },
+          {
+            app_id: 5550001,
+            app_slug: "acme-pr-automations",
+            permissions: PR_AUTOMATION_REQUIRED_PERMISSIONS,
+          },
         ],
       });
     }
@@ -511,6 +520,31 @@ test("a populated config file reaches every consumer", async () => {
   // ...and the same identity's App is the protect-main bypass actor,
   // instead of the default identity's App the org has not installed.
   assert.deepEqual(bypassAppIds(api.rulesetBodies[0]), [4319606, 5550001]);
+});
+
+test("the PR-automation preflight checks the configured identity's App, not the default's (issue #78)", async () => {
+  const installations = [
+    {
+      app_id: 3835765,
+      app_slug: DEFAULT_PR_AUTOMATION_IDENTITY.appName,
+      permissions: PR_AUTOMATION_REQUIRED_PERMISSIONS,
+    },
+    { app_id: 5550001, app_slug: "acme-pr-automations", permissions: { metadata: "read" } },
+  ];
+  const fetchImpl = async (url) => {
+    if (url.includes("/installations")) {
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ installations }) };
+    }
+    throw new Error(`the sweep went past the preflight: ${url}`);
+  };
+  await withConfigFile(
+    JSON.stringify({ "pr-automation-identity": IDENTITY_JSON }),
+    (path) =>
+      assert.rejects(
+        () => withFetch(fetchImpl, () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path })),
+        /acme-pr-automations on TheVoskamps[\s\S]*issues: none \(need write\)/,
+      ),
+  );
 });
 
 test("a version-pin matching CURRENT_VERSION lets the sweep run", async () => {
