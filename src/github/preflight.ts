@@ -152,7 +152,12 @@ export function signAppJwt(
   return `${signingInput}.${base64url(signature)}`;
 }
 
-/** What {@link readInstallationPermissions} needs. */
+/**
+ * The installation to read and the App credentials to read it with.
+ * `GET /app/installations/{installation_id}` accepts only an App JWT, so
+ * these carry the Client ID and private key the JWT is signed with rather
+ * than an installation token.
+ */
 export interface InstallationReadOptions {
   readonly installationId: string;
   readonly clientId: string;

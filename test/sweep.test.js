@@ -644,7 +644,7 @@ async function sweepAgainstInstallations(installations, extraEnv = {}) {
   }
 }
 
-test("the PR-automation preflight fails the sweep before any repo is read or converged (issue #78)", async () => {
+test("the PR-automation preflight fails the sweep before any repo is read or converged", async () => {
   const { issues: _absent, ...grant } = PR_AUTOMATION_REQUIRED_PERMISSIONS;
   const { error, calls } = await sweepAgainstInstallations([
     { app_id: 4319606, app_slug: "test-converger" },
@@ -659,7 +659,7 @@ test("the PR-automation preflight fails the sweep before any repo is read or con
   );
 });
 
-test("the PR-automation preflight fails the sweep when the App is not installed (issue #78)", async () => {
+test("the PR-automation preflight fails the sweep when the App is not installed", async () => {
   const { error, calls } = await sweepAgainstInstallations([
     { app_id: 4319606, app_slug: "test-converger" },
   ]);
@@ -671,7 +671,7 @@ test("the PR-automation preflight fails the sweep when the App is not installed 
   assert.equal(calls.length, 1);
 });
 
-test("the PR-automation preflight runs and fails under dry run (issue #78)", async () => {
+test("the PR-automation preflight runs and fails under dry run", async () => {
   const { error, calls } = await sweepAgainstInstallations(
     [
       {

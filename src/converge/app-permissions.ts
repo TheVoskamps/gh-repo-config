@@ -22,7 +22,11 @@ const LEVEL_RANK: Readonly<Record<PermissionLevel, number>> = {
   admin: 3,
 };
 
-/** One required permission the grant does not satisfy. */
+/**
+ * One entry of the shortfall {@link findMissingPermissions} returns. It
+ * carries both levels rather than a message, so each caller words the
+ * failure for its own App and operator.
+ */
 export interface MissingPermission {
   readonly permission: string;
   readonly required: PermissionLevel;

@@ -522,7 +522,7 @@ test("a populated config file reaches every consumer", async () => {
   assert.deepEqual(bypassAppIds(api.rulesetBodies[0]), [4319606, 5550001]);
 });
 
-test("the PR-automation preflight checks the configured identity's App, not the default's (issue #78)", async () => {
+test("the PR-automation preflight checks the configured identity's App, not the default's", async () => {
   const installations = [
     {
       app_id: 3835765,

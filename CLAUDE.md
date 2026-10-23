@@ -41,10 +41,7 @@ message as a failed call, never as a grep that found nothing.
 A sweep, dry run included, throws before reading any repo when the
 PR-automation App is not installed on the org or lacks a permission its
 fanned-out workflows need. That preflight is
-`assertPrAutomationPermissions` in `src/converge/app-permissions.ts`,
-whose `findMissingPermissions` is the only granted-vs-required level
-comparison: a new App permission check calls it with its own required
-map rather than ordering levels itself.
+`assertPrAutomationPermissions` in `src/converge/app-permissions.ts`.
 
 ## Index
 

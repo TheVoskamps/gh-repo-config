@@ -505,7 +505,7 @@ test("the sweeper workflow mints with client-id, SHA-pins its actions, and verif
   assert.match(sweep.content, /GH_REPO_CONFIG_FILE: gh-repo-config\.json/);
 });
 
-test("the sweeper workflow checks the converger App's permissions between the mint and the sweep (issue #83)", () => {
+test("the sweeper workflow checks the converger App's permissions between the mint and the sweep", () => {
   const sweep = buildDesiredFiles(CTX, SWEEPER_OPTIONS).find(
     (f) => f.path === SWEEPER_WORKFLOW_PATH,
   );
