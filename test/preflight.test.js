@@ -88,10 +88,9 @@ test("the shortfall carries the settings URL and the acceptance step", () => {
     "acme-converger",
   );
   assert.match(message, /Organization permissions > Administration: Read-only/);
-  assert.ok(
-    message.includes(
-      "https://github.com/organizations/acme/settings/apps/acme-converger/permissions",
-    ),
+  assert.match(
+    message,
+    /^Grant them at https:\/\/github\.com\/organizations\/acme\/settings\/apps\/acme-converger\/permissions$/m,
   );
   assert.match(message, /org owner must accept the updated permissions on the App's installation/);
 });
