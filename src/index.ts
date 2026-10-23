@@ -180,6 +180,7 @@ export {
   type RulesetRule,
   type RefNameCondition,
   type RulesetWriteResult,
+  type InstallationInfo,
 } from "./github/rulesets.js";
 
 export {
@@ -194,3 +195,21 @@ export {
   type RulesetConvergeResult,
   type RulesetSemanticDiffResult,
 } from "./converge/ruleset.js";
+
+export {
+  findMissingPermissions,
+  assertPrAutomationPermissions,
+  PR_AUTOMATION_REQUIRED_PERMISSIONS,
+  type MissingPermission,
+  type PermissionLevel,
+} from "./converge/app-permissions.js";
+
+export {
+  runPreflightFromEnv,
+  checkConvergerPermissions,
+  readInstallationPermissions,
+  signAppJwt,
+  CONVERGER_REQUIRED_PERMISSIONS,
+  type ConvergerPermission,
+  type InstallationReadOptions,
+} from "./github/preflight.js";

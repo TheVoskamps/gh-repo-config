@@ -107,6 +107,7 @@ import {
   type AppBypass,
   type RulesetConvergeResult,
 } from "./converge/ruleset.js";
+import { assertPrAutomationPermissions } from "./converge/app-permissions.js";
 import {
   DEFAULT_PR_AUTOMATION_IDENTITY,
   type OrgRenderOptions,
@@ -892,6 +893,10 @@ export async function runSweep(
  * Build a client and run a sweep from environment-provided config. This
  * is the CI entry point the `sweep` CLI subcommand calls.
  *
+ * Before any repo is read, it throws when the PR-automation App is not
+ * installed on the org or lacks a permission its workflows need
+ * ({@link assertPrAutomationPermissions}), dry run included.
+ *
  * Required env:
  * - `GH_REPO_CONFIG_ORG` — the org to sweep.
  * - `GH_REPO_CONFIG_TOKEN` — a bearer token (the App installation token).
@@ -1004,21 +1009,21 @@ export async function runSweepFromEnv(
     config.prAutomationIdentity ?? DEFAULT_PR_AUTOMATION_IDENTITY
   ).appName;
 
-  // Resolve every installed App's slug -> app_id once for the whole
-  // sweep (the installation set is org-wide, not per-repo). Memoized so
-  // the ruleset step reuses the same lookup across all repos. An App
-  // absent from the map is not installed in the org — its bypass entry is
-  // omitted and reported, never failed (per issue #16 §3.4).
-  let appIdsBySlug: Map<string, number> | undefined;
-  const resolveAppBypass = async (): Promise<AppBypass[]> => {
-    if (!appIdsBySlug) {
-      appIdsBySlug = await rulesetsClient.readAppIdsBySlug(org);
-    }
-    return [appSlug, prAutomationSlug].map((slug) => ({
+  // The org's installations are read once for the whole sweep (the
+  // installation set is org-wide, not per-repo), before any repo is
+  // touched. The PR-automation App preflight fails the sweep outright,
+  // dry run included, when that App is missing or under-granted. The
+  // ruleset step reuses the same map for its bypass actors, where an App
+  // absent from the map can only be the converger App, since the
+  // preflight has already thrown for the other; its bypass entry is
+  // omitted and reported, never failed.
+  const installations = await rulesetsClient.readInstallationsBySlug(org);
+  assertPrAutomationPermissions(installations, org, prAutomationSlug);
+  const resolveAppBypass = (): AppBypass[] =>
+    [appSlug, prAutomationSlug].map((slug) => ({
       slug,
-      appId: appIdsBySlug!.get(slug),
+      appId: installations.get(slug)?.appId,
     }));
-  };
 
   // The org's community-file seed content (issue #90) is per-org, not
   // per-repo: read it from the org's `.github` repo once, lazily, on the
@@ -1071,11 +1076,12 @@ export async function runSweepFromEnv(
     // The real `protect-main` ruleset convergence step (issue #16). Runs
     // in the ordering-gated pass after the merge pass: create/converge
     // the ruleset (or delete-and-defer when an org ruleset governs).
-    // Resolves the repo's default branch and the App bypass app_ids at
-    // call time; a `code_quality` 422 is retried without that rule.
+    // Resolves the repo's default branch at call time and takes the App
+    // bypass app_ids from the installations read before the sweep; a
+    // `code_quality` 422 is retried without that rule.
     convergeRuleset: async (repo: string) => {
       const defaultBranch = await contentsClient.getDefaultBranch(org, repo);
-      const appBypass = await resolveAppBypass();
+      const appBypass = resolveAppBypass();
       return convergeProtectMainRuleset(
         rulesetsClient,
         org,

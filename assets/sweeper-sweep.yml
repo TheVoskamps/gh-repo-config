@@ -206,6 +206,24 @@ jobs:
           # reads and stamps are org-scoped.
           owner: ${{ github.repository_owner }}
 
+      # App permissions are UI-gated, so the sweep cannot converge a
+      # missing one. Checked here, before any repo is read or written, so
+      # a shortfall stops the job with the permissions named instead of
+      # failing repo by repo part-way through the sweep. Besides the mint
+      # step, this is the only step that receives the private key: it
+      # signs an App JWT to read the installation's granted permissions.
+      - name: Check converger App permissions
+        env:
+          GH_REPO_CONFIG_ORG: ${{ github.repository_owner }}
+          GH_REPO_CONFIG_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_REPO_CONFIG_INSTALLATION_ID: ${{ steps.app-token.outputs.installation-id }}
+          GH_REPO_CONFIG_APP_CLIENT_ID: ${{ secrets.CONVERGER_APP_CLIENT_ID }}
+          GH_REPO_CONFIG_APP_PRIVATE_KEY: ${{ secrets.CONVERGER_APP_PRIVATE_KEY }}
+          UNPACKED: ${{ steps.unpack.outputs.root }}
+        run: |
+          set -euo pipefail
+          node "${UNPACKED}/bin/gh-repo-config.js" preflight
+
       - name: Run sweep
         env:
           GH_REPO_CONFIG_ORG: ${{ github.repository_owner }}

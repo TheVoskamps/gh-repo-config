@@ -24,20 +24,34 @@ function jsonResp(status, body, ok = status >= 200 && status < 300) {
   };
 }
 
-test("readAppIdsBySlug maps every installed App slug to its app_id", async () => {
+test("readInstallationsBySlug maps every installed App slug to its app_id and permissions", async () => {
   const { client: c } = client((url) => {
     if (url.includes("/installations"))
       return jsonResp(200, {
         installations: [
-          { app_id: 111, app_slug: "converger" },
+          { app_id: 111, app_slug: "converger", permissions: { contents: "write" } },
+          // No `permissions` field at all: read as an empty grant.
           { app_id: 222, app_slug: "automerge" },
         ],
       });
   });
-  const map = await c.readAppIdsBySlug("O");
-  assert.equal(map.get("converger"), 111);
-  assert.equal(map.get("automerge"), 222);
+  const map = await c.readInstallationsBySlug("O");
+  assert.deepEqual(map.get("converger"), { appId: 111, permissions: { contents: "write" } });
+  assert.deepEqual(map.get("automerge"), { appId: 222, permissions: {} });
   assert.equal(map.get("not-installed"), undefined);
+});
+
+test("readInstallationsBySlug follows pagination", async () => {
+  const page = (n, from) =>
+    Array.from({ length: n }, (_, i) => ({ app_id: from + i, app_slug: `app-${from + i}` }));
+  const { client: c, calls } = client((url) => {
+    if (url.endsWith("&page=1")) return jsonResp(200, { installations: page(100, 0) });
+    if (url.endsWith("&page=2")) return jsonResp(200, { installations: page(1, 100) });
+  });
+  const map = await c.readInstallationsBySlug("O");
+  assert.equal(map.size, 101);
+  assert.equal(map.get("app-100").appId, 100);
+  assert.equal(calls.length, 2);
 });
 
 test("createRuleset classifies a code_quality-attributable 422 as code-quality-422", async () => {
