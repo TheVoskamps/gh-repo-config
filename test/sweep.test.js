@@ -615,8 +615,11 @@ test("runSweepFromEnv requires GH_REPO_CONFIG_APP_SLUG", async () => {
 
 /**
  * Run `runSweepFromEnv` against an org whose installations response is
- * `installations`, recording every call. Any call past the installations
- * read fails the test, so a passing run proves the sweep stopped there.
+ * `installations`, recording every call. Resolves to the sweep's
+ * rejection as `error`, or `undefined` when it completed, together with
+ * the recorded `calls`. Any call past the installations read throws from
+ * the fake `fetch`, so it lands in `calls` and the returned `error`
+ * names that call rather than a permission shortfall.
  */
 async function sweepAgainstInstallations(installations, extraEnv = {}) {
   const originalFetch = global.fetch;

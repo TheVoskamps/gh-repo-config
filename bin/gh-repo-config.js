@@ -19,11 +19,11 @@
 //   preflight — check the converger App installation's granted
 //              permissions against what the sweep needs, exiting
 //              non-zero with the shortfall, or the failed read, on
-//              stderr. Reads
-//              GH_REPO_CONFIG_ORG, GH_REPO_CONFIG_APP_SLUG,
-//              GH_REPO_CONFIG_INSTALLATION_ID, GH_REPO_CONFIG_APP_CLIENT_ID
-//              and GH_REPO_CONFIG_APP_PRIVATE_KEY; run by the sweep
-//              workflow between the token mint and the sweep.
+//              stderr. Reads GH_REPO_CONFIG_ORG, GH_REPO_CONFIG_APP_SLUG,
+//              GH_REPO_CONFIG_INSTALLATION_ID, GH_REPO_CONFIG_APP_CLIENT_ID,
+//              GH_REPO_CONFIG_APP_PRIVATE_KEY and optional GITHUB_API_URL;
+//              run by the sweep workflow between the token mint and the
+//              sweep.
 import {
   CURRENT_VERSION,
   describeDefaultModeProvenanceFailure,
