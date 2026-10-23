@@ -16,9 +16,17 @@
 //              owner/repo the sweep runs from); intended to be invoked by
 //              the scheduled + workflow_dispatch sweep workflow, which
 //              mints the App installation token.
+//   preflight — check the converger App installation's granted
+//              permissions against what the sweep needs (#83), exiting
+//              non-zero with the shortfall on stderr. Reads
+//              GH_REPO_CONFIG_ORG, GH_REPO_CONFIG_APP_SLUG,
+//              GH_REPO_CONFIG_INSTALLATION_ID, GH_REPO_CONFIG_APP_CLIENT_ID
+//              and GH_REPO_CONFIG_APP_PRIVATE_KEY; run by the sweep
+//              workflow between the token mint and the sweep.
 import {
   CURRENT_VERSION,
   describeDefaultModeProvenanceFailure,
+  runPreflightFromEnv,
   runSweepFromEnv,
 } from "../dist/index.js";
 
@@ -127,8 +135,20 @@ switch (command) {
       process.exit(1);
     }
     break;
+  case "preflight":
+    try {
+      const shortfall = await runPreflightFromEnv();
+      if (shortfall) {
+        console.error(shortfall);
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error(`Preflight failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+    break;
   default:
     console.error(`Unknown command: ${command}`);
-    console.error("Usage: gh-repo-config [version|sweep]");
+    console.error("Usage: gh-repo-config [version|sweep|preflight]");
     process.exit(1);
 }

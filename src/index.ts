@@ -194,3 +194,19 @@ export {
   type RulesetConvergeResult,
   type RulesetSemanticDiffResult,
 } from "./converge/ruleset.js";
+
+export {
+  findMissingPermissions,
+  type MissingPermission,
+  type PermissionLevel,
+} from "./converge/app-permissions.js";
+
+export {
+  runPreflightFromEnv,
+  checkConvergerPermissions,
+  readInstallationPermissions,
+  signAppJwt,
+  CONVERGER_REQUIRED_PERMISSIONS,
+  type ConvergerPermission,
+  type InstallationReadOptions,
+} from "./github/preflight.js";
