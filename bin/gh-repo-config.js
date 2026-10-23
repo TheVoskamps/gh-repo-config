@@ -17,8 +17,9 @@
 //              the scheduled + workflow_dispatch sweep workflow, which
 //              mints the App installation token.
 //   preflight — check the converger App installation's granted
-//              permissions against what the sweep needs (#83), exiting
-//              non-zero with the shortfall on stderr. Reads
+//              permissions against what the sweep needs, exiting
+//              non-zero with the shortfall, or the failed read, on
+//              stderr. Reads
 //              GH_REPO_CONFIG_ORG, GH_REPO_CONFIG_APP_SLUG,
 //              GH_REPO_CONFIG_INSTALLATION_ID, GH_REPO_CONFIG_APP_CLIENT_ID
 //              and GH_REPO_CONFIG_APP_PRIVATE_KEY; run by the sweep

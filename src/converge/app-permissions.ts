@@ -4,7 +4,7 @@
  * required map and words its own failure; {@link findMissingPermissions}
  * only says which required entries a grant leaves unsatisfied.
  *
- * Also the PR-automation App preflight (issue #78): the sweep refuses to
+ * Also the PR-automation App preflight: the sweep refuses to
  * run when the App the fanned-out PR-automation workflows run as is not
  * installed on the org, or is installed without every permission those
  * workflows need. The converger cannot grant a permission itself, and

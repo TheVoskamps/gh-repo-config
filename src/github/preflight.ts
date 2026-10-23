@@ -1,5 +1,5 @@
 /**
- * The converger App's permission preflight (issue #83): check the App
+ * The converger App's permission preflight: check the App
  * installation's granted permissions against what the sweep needs,
  * before the sweep starts.
  *

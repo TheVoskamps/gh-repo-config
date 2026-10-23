@@ -894,8 +894,8 @@ export async function runSweep(
  * is the CI entry point the `sweep` CLI subcommand calls.
  *
  * Before any repo is read, it throws when the PR-automation App is not
- * installed on the org or lacks a permission its workflows need (issue
- * #78, {@link assertPrAutomationPermissions}), dry run included.
+ * installed on the org or lacks a permission its workflows need
+ * ({@link assertPrAutomationPermissions}), dry run included.
  *
  * Required env:
  * - `GH_REPO_CONFIG_ORG` — the org to sweep.
@@ -1011,11 +1011,12 @@ export async function runSweepFromEnv(
 
   // The org's installations are read once for the whole sweep (the
   // installation set is org-wide, not per-repo), before any repo is
-  // touched. The PR-automation App preflight (issue #78) fails the sweep
-  // outright, dry run included, when that App is missing or under-granted.
-  // The ruleset step reuses the same map for its bypass actors, where an
-  // App absent from the map — now only ever the converger App — has its
-  // bypass entry omitted and reported, never failed (per issue #16 §3.4).
+  // touched. The PR-automation App preflight fails the sweep outright,
+  // dry run included, when that App is missing or under-granted. The
+  // ruleset step reuses the same map for its bypass actors, where an App
+  // absent from the map can only be the converger App, since the
+  // preflight has already thrown for the other; its bypass entry is
+  // omitted and reported, never failed.
   const installations = await rulesetsClient.readInstallationsBySlug(org);
   assertPrAutomationPermissions(installations, org, prAutomationSlug);
   const resolveAppBypass = (): AppBypass[] =>
