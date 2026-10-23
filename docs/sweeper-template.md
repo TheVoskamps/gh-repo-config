@@ -203,11 +203,15 @@ base, and `scripts/sync-upstream.sh` refuses it later.
 ### 2. Register the two Apps
 
 Run each from the root of the clone, in Claude Code. At the install
-step, install the App on **All repositories**.
+step, install the App on **All repositories**. Every sweep checks both
+installations' grants before it reads any repo and stops on a shortfall
+naming each missing permission, so a permission left out here costs a
+failed first run rather than a half-converged org.
 
 The converger App, with **Custom** permissions `Administration: write`,
 `Contents: write`, `Pull requests: write`, `Workflows: write`,
-`Code scanning alerts: write`, `Organization administration: write`,
+`Checks: read`, `Commit statuses: read`, `Code scanning alerts: write`,
+`Organization administration: write`,
 `Organization custom properties: write`, `Metadata: read`:
 
 ```text
@@ -216,7 +220,8 @@ The converger App, with **Custom** permissions `Administration: write`,
 
 The PR-automation App, with **Custom** permissions `Contents: write`,
 `Pull requests: write`, `Issues: write`, `Workflows: write`,
-`Checks: read`, `Commit statuses: read`, `Metadata: read`:
+`Actions: read`, `Checks: read`, `Commit statuses: read`,
+`Metadata: read`:
 
 ```text
 /github-setup:gh-create-app --scope=org --owner=acme --app-name=acme-pr-automations --permissions=custom --secret-scope=organization --app-id-secret=AUTOMERGE_APP_CLIENT_ID --app-key-secret=AUTOMERGE_APP_PRIVATE_KEY --metadata-path=docs/github-app-pr-automation.md
@@ -352,3 +357,14 @@ The dry run's summary header names the declared default, `opt-out`, and
 lists `gh-repo-config-sweeper` as the only converge candidate. A header
 reporting `gh-repo-config-mode` undefined or without a default is a
 failed step 4.
+
+The dry run also exercises both App preflights. The workflow's "Check
+converger App permissions" step fails before the sweep starts when the
+converger App's installation grants less than the sweep requires, and
+the sweep itself fails before reading any repo when the PR-automation
+App is not installed on the org or its installation lacks a permission
+the fanned-out workflows need. Either message names the permissions to
+grant and the settings page to grant them on. Grant them, accept the
+updated permissions on the App's installation as an org owner, and
+re-run; until that acceptance the installation keeps its old grant and
+the run fails the same way.
