@@ -99,6 +99,37 @@ test("github-actions block: singular directory, daily, no versioning-strategy, d
   assert.match(gha, /default-days: 7/);
 });
 
+const SEMVER_MAJOR_IGNORE =
+  '    open-pull-requests-limit: 10\n    ignore:\n      - dependency-name: "*"\n        update-types:\n          - "version-update:semver-major"\n    groups:\n';
+
+test("github-actions block takes semver-major updates: no ignore entry, no line left where it was", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  const gha = blockFor(out, "github-actions");
+  assert.doesNotMatch(gha, /ignore:/);
+  assert.doesNotMatch(gha, /version-update:semver-major/);
+  assert.ok(
+    gha.includes("    open-pull-requests-limit: 10\n    groups:\n"),
+    "groups: follows open-pull-requests-limit directly",
+  );
+});
+
+test("npm and docker blocks keep the semver-major ignore entry", () => {
+  const out = renderDependabotYml(
+    readAssetText("dependabot.yml"),
+    readAssetText("ecosystem-block.yml"),
+    CTX,
+  );
+  for (const eco of ["npm", "docker"]) {
+    const block = blockFor(out, eco);
+    assert.match(block, /version-update:semver-major/);
+    assert.ok(block.includes(SEMVER_MAJOR_IGNORE), `${eco} ignore entry`);
+  }
+});
+
 test("other-class (docker) block: recursing directory, daily, no versioning-strategy, default-days only", () => {
   const out = renderDependabotYml(
     readAssetText("dependabot.yml"),
