@@ -18,18 +18,17 @@ copy of the public template
 - `gh-repo-config.example.json` — the starting content of
   `gh-repo-config.json`.
 - `scripts/consumer-init.sh` — creates this repo from the template, as
-  a private repo, and leaves it ready for `bootstrap.sh`: it adds the
-  template as the `upstream` remote and merges `upstream/main` once with
-  `--allow-unrelated-histories`, since a repo created from a template
-  shares no history with it and every later template merge needs that
-  merge base. It runs before this repo exists, so it is fetched from the
-  template on its own rather than from a clone.
+  a private repo: it adds the template as the `upstream` remote and
+  merges `upstream/main` once with `--allow-unrelated-histories`, since
+  a repo created from a template shares no history with it and every
+  later template merge needs that merge base. It then places the sweep
+  workflow at `.github/workflows/sweep.yml` from a converger release and
+  disables it, so no tick runs before the Apps, secrets and custom
+  properties are in place. Once the first sweep has run, the converger
+  owns that file. The script runs before this repo exists, so it is
+  fetched from the template on its own rather than from a clone.
 - `scripts/sync-upstream.sh` — merges the template's later changes into
   this repo over the `upstream` remote.
-- `bootstrap.sh` — places the sweep workflow once, so the first tick has
-  something to run. It is bootstrap-only: once the first sweep has run,
-  the converger owns `.github/workflows/sweep.yml`, and the script has
-  nothing left to do.
 
 ## Operator steps
 
@@ -49,12 +48,24 @@ login.
    `-n` picks another repo name, which is also the clone's directory;
    without it the repo is `gh-repo-config-sweeper`, the name every
    command below assumes. `-o` defaults to the authenticated user, so an
-   org's repo needs it. The script refuses to run when the directory
-   already exists, and creates nothing in that case. It registers no
-   App and sets no secret. When it finishes, `gh-repo-config.json` holds
-   the example content, the clone is clean on the default branch, and
-   the default branch is pushed: edit and commit the config there from
-   now on.
+   org's repo needs it. `-p <tag>` pins a converger release, as its
+   `vX.Y.Z` tag: the script writes it into `gh-repo-config.json` as
+   `version-pin` and takes the sweep workflow from that release; without
+   it the config carries no pin and the workflow comes from the latest
+   release. The script refuses a tag of any other form, and refuses to
+   run when the directory already exists, and creates nothing in either
+   case. It registers no App and sets no secret. When it finishes,
+   `gh-repo-config.json` holds the example content, the default branch
+   is pushed, and `.github/workflows/sweep.yml` is in place and
+   disabled: edit and commit the config there from now on.
+
+   The workflow is copied from the release tarball after
+   `gh attestation verify` passes on it, and committed straight to the
+   default branch, which a fresh template copy's lack of a ruleset
+   allows. The script then waits, for up to a minute, until
+   `gh workflow view` lists the workflow before disabling it, and names
+   the `gh workflow disable` command to run by hand if the wait runs
+   out.
 
 2. **Register the org's two GitHub Apps**, both owned by the org and
    installed on all of its repositories:
@@ -84,19 +95,12 @@ login.
      workflow converged.
    - Org custom property `gh-repo-config-version`: a string.
 
-4. **Run `bootstrap.sh`** from the root of the clone, on the default
-   branch with a clean working tree, under your own `gh`
-   authentication:
+4. **Enable the sweep workflow**, which `consumer-init.sh` left
+   disabled:
 
    ```bash
-   ./bootstrap.sh
+   gh workflow enable sweep.yml --repo "$ORG/gh-repo-config-sweeper"
    ```
-
-   It reads `version-pin`, downloads that converger release (the latest
-   when no pin is set), verifies its build-provenance attestation before
-   unpacking it, copies the release's sweep workflow to
-   `.github/workflows/sweep.yml`, and commits and pushes that one file
-   to the default branch. It registers no App and sets no secret.
 
 5. **Trigger the first sweep**, as a dry run first:
 
@@ -118,9 +122,9 @@ TheVoskamps controls.
 The trust that remains — that a converger release does what it should —
 is narrowed three ways:
 
-- **Attested immutable releases.** The sweep, and `bootstrap.sh`, run
-  `gh attestation verify` against `TheVoskamps/gh-repo-config` on the
-  release tarball before anything in it is unpacked or run.
+- **Attested immutable releases.** The sweep, and `consumer-init.sh`,
+  run `gh attestation verify` against `TheVoskamps/gh-repo-config` on
+  the release tarball before anything in it is unpacked or run.
 - **An org-controlled version pin.** Once set, `version-pin` holds your
   org on a release you chose, and a new release reaches your org only
   when you move the pin, through a change to this repo.
@@ -233,8 +237,8 @@ policy.
 ## Taking template changes
 
 The converger updates only the files it renders. A change to the
-template it cannot express — a later revision of `bootstrap.sh` or of
-these scripts, say — is taken by merging the template in, over the
+template it cannot express — a later revision of `consumer-init.sh` or
+`sync-upstream.sh`, say — is taken by merging the template in, over the
 `upstream` remote `consumer-init.sh` added:
 
 ```bash

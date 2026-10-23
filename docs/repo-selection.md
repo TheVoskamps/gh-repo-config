@@ -185,10 +185,13 @@ working, not a regression.
 gh api /orgs/TheVoskamps/properties/values --paginate \
   --jq '.[] | [.repository_name, (.properties[] | select(.property_name == "gh-repo-config-mode") | .value // "(unset)")] | @tsv'
 
-# 2. Clear the one live old-vocabulary value (the allowed-values change
-#    in step 3 conflicts with a repo still holding "process")
+# 2. Clear the two live old-vocabulary values: convergence-test holds
+#    "process" and gh-repo-config-sweeper-template holds "ignore", set so
+#    the template repo stays unmanaged under every org default. The
+#    allowed-values change in step 3 conflicts with either.
 gh api -X PATCH /orgs/TheVoskamps/properties/values \
   -f "repository_names[]=convergence-test" \
+  -f "repository_names[]=gh-repo-config-sweeper-template" \
   -f "properties[][property_name]=gh-repo-config-mode" \
   -F "properties[][value]=null"
 
@@ -201,11 +204,16 @@ gh api -X PUT /orgs/TheVoskamps/properties/schema/gh-repo-config-mode \
   -f "allowed_values[]=opt-in" \
   -f "allowed_values[]=opt-out"
 
-# 4. Re-flag the canary repo under the new vocabulary
+# 4. Re-flag both repos under the new vocabulary: the canary opt-in, the
+#    template repo opt-out
 gh api -X PATCH /orgs/TheVoskamps/properties/values \
   -f "repository_names[]=convergence-test" \
   -f "properties[][property_name]=gh-repo-config-mode" \
   -f "properties[][value]=opt-in"
+gh api -X PATCH /orgs/TheVoskamps/properties/values \
+  -f "repository_names[]=gh-repo-config-sweeper-template" \
+  -f "properties[][property_name]=gh-repo-config-mode" \
+  -f "properties[][value]=opt-out"
 
 # 5. Retire the org-default property
 gh api -X DELETE /orgs/TheVoskamps/properties/schema/gh-repo-config-default

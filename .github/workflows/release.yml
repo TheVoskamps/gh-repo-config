@@ -1,5 +1,6 @@
 # Builds the converger and publishes it as a tagged GitHub Release
-# asset, with a Sigstore-format build-provenance attestation.
+# asset, with a Sigstore-format build-provenance attestation, then
+# publishes `template/` to the sweeper template repo.
 #
 # Slice 1 of the org-wide repo-configuration fan-out (issue #12):
 # this workflow is the only supported way this repo's releases are
@@ -75,3 +76,48 @@ jobs:
             "${asset_path}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes
+
+  # Publishes `template/` as the whole tree of
+  # TheVoskamps/gh-repo-config-sweeper-template's `main`: the commit
+  # `git subtree split --prefix=template` makes from this tag's history,
+  # holding `template/`'s contents at its root. Runs only after the
+  # release succeeds, so the template never carries scripts from a
+  # release that failed its build or tests.
+  #
+  # The push is never forced. The split is deterministic, so each
+  # publish's commit descends from the previous one and fast-forwards
+  # the template's `main`, which keeps the merge base every consumer's
+  # sync-upstream.sh merge relies on. A non-fast-forward rejection means
+  # the template's history moved under this repo, and fails the job
+  # rather than rewriting history consumers have merged.
+  #
+  # Authenticates with the template repo's write deploy key, the
+  # TEMPLATE_DEPLOY_KEY secret. known_hosts holds GitHub's published
+  # github.com ed25519 host key as a literal, never `ssh-keyscan`
+  # output, which would trust whatever host answered.
+  publish-template:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Push template/ to the template repo
+        env:
+          TEMPLATE_DEPLOY_KEY: ${{ secrets.TEMPLATE_DEPLOY_KEY }}
+          TEMPLATE_URL: git@github.com:TheVoskamps/gh-repo-config-sweeper-template.git
+          GITHUB_HOST_KEY: github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        run: |
+          key="${RUNNER_TEMP}/template-deploy-key"
+          known_hosts="${RUNNER_TEMP}/known_hosts"
+          (umask 077 && printf '%s\n' "$TEMPLATE_DEPLOY_KEY" > "$key")
+          chmod 600 "$key"
+          printf '%s\n' "$GITHUB_HOST_KEY" > "$known_hosts"
+          export GIT_SSH_COMMAND="ssh -i ${key} -o IdentitiesOnly=yes -o UserKnownHostsFile=${known_hosts} -o StrictHostKeyChecking=yes"
+          split="$(git subtree split --prefix=template)"
+          git push "$TEMPLATE_URL" "${split}:refs/heads/main"
