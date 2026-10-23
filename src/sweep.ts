@@ -1076,8 +1076,9 @@ export async function runSweepFromEnv(
     // The real `protect-main` ruleset convergence step (issue #16). Runs
     // in the ordering-gated pass after the merge pass: create/converge
     // the ruleset (or delete-and-defer when an org ruleset governs).
-    // Resolves the repo's default branch and the App bypass app_ids at
-    // call time; a `code_quality` 422 is retried without that rule.
+    // Resolves the repo's default branch at call time and takes the App
+    // bypass app_ids from the installations read before the sweep; a
+    // `code_quality` 422 is retried without that rule.
     convergeRuleset: async (repo: string) => {
       const defaultBranch = await contentsClient.getDefaultBranch(org, repo);
       const appBypass = resolveAppBypass();
