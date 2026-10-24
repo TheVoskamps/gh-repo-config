@@ -464,9 +464,9 @@ function stripLeadingComments(text: string): string {
  * indent (the template's own indent supplies it) and continuation lines
  * carry their own absolute indent. When a block is empty for a class
  * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip, `__IGNORE_BLOCK__` on
- * github-actions, or
- * `__NAMED_GROUPS_BLOCK__` for an org whose registry is empty), the
- * whole placeholder line is dropped so no whitespace-only line remains.
+ * github-actions, or `__NAMED_GROUPS_BLOCK__` for an org whose registry
+ * is empty), the whole placeholder line is dropped so no whitespace-only
+ * line remains.
  * `__NAMED_GROUPS_BLOCK__` renders the same `namedGroupsBlock` (already
  * rendered by {@link renderNamedGroupsBlock}) into every ecosystem.
  */

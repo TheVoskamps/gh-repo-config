@@ -57,7 +57,7 @@
 #                                version updates for every dependency, on
 #                                every ecosystem EXCEPT github-actions;
 #                                empty (line dropped) for github-actions.
-#   __DEFAULT_BRANCH__          Default branch of the target repo.
+#   __DEFAULT_BRANCH__           Default branch of the target repo.
 #
 # The `groups:` entries batch PRs per ecosystem:
 #   __NAMED_GROUPS_BLOCK__  the org's canonical registry of lockstep/
