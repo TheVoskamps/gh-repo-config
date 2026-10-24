@@ -186,7 +186,7 @@ for (owner, repo, subpath, sha), (version, bare) in seen.items():
     # string: bash's `read` collapses a run of consecutive IFS
     # whitespace characters (tab is whitespace-class) into a single
     # delimiter even with a single-character IFS, which would otherwise
-    # silently swallow an empty subpath/version field and shift every
+    # silently swallow an empty subpath/version/bare field and shift every
     # later column left by one.
     subpath_out = subpath if subpath else "-"
     version_out = version if version else "-"
@@ -408,9 +408,9 @@ print(t.get('object', {}).get('sha', ''))
 # action_runtime_is_current <owner> <repo> <subpath> <tag>: exit 0 when
 # the action's action.yml (or action.yaml) at <tag> declares node24 or
 # later in `runs.using`, or a runtime that is not `node*` (composite,
-# docker). Exit 1 when it declares an older `node*` runtime, or when
-# neither file can be read, so an unreadable release is never selected
-# on an unknown runtime.
+# docker). Exit 1 when it declares a `node*` runtime older than node24
+# or with no numeric suffix, or when neither file yields a `runs.using`
+# value, so a release is never selected on an unknown runtime.
 # ---------------------------------------------------------------------
 action_runtime_is_current() {
   local owner="$1" repo="$2" subpath="$3" tag="$4"

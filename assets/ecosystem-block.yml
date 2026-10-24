@@ -7,9 +7,9 @@
 # This is the HARDENED generated baseline (issue #51): cooldown soak,
 # versioning-strategy, recursive directory coverage, semver-major
 # ignore on every ecosystem except github-actions, and per-ecosystem
-# schedules. Several values vary BY ECOSYSTEM
-# CLASS (npm/pip vs docker vs github-actions vs the rest), so the variant
-# parts are placeholders the skill resolves per ecosystem — see SKILL.md
+# schedules. Several values vary BY ECOSYSTEM CLASS (npm/pip vs docker
+# vs github-actions vs the rest), so the variant parts are placeholders
+# the skill resolves per ecosystem — see SKILL.md
 # "Step 3" for the resolution table, which covers EVERY armed ecosystem
 # class. A wrong variant (e.g. `versioning-strategy` on docker) makes
 # Dependabot reject the whole config, so the per-class resolution must be
