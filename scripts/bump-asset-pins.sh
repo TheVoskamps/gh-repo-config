@@ -29,6 +29,10 @@
 #     latest release at least 7 days old whose action.yml, when it
 #     declares a `node*` runtime in `runs.using`, declares node24 or
 #     later, and gains that release's `# vX.Y.Z` comment.
+#   - A bare occurrence of a SHA that another occurrence pins with a
+#     `# vX.Y.Z` comment follows that versioned pin: it moves with it
+#     when a release is selected, and otherwise keeps its SHA and gains
+#     the versioned pin's comment.
 #
 # WHY assets/*.yml AND NOT .github/workflows/*.yml: Dependabot's
 # `github-actions` ecosystem can only scan `.github/workflows/` (plus a
@@ -132,10 +136,13 @@ fi
 # Step 1: discover every distinct `owner/repo[/subpath]@<40-hex-sha>`
 # pin across the scan targets, deduped by owner/repo (the SHA and
 # subpath vary; the upstream release train is per owner/repo). Prints
-# one `owner<TAB>repo<TAB>subpath-or-empty<TAB>sha<TAB>version` line per
-# distinct pin (the FIRST occurrence's version comment is used to seed
-# comparison; every occurrence of the same owner/repo/subpath/sha is
-# rewritten together in step 3 regardless of which file it came from).
+# one `owner<TAB>repo<TAB>subpath-or-empty<TAB>sha<TAB>version<TAB>bare`
+# line per distinct pin. `version` is the first `# vX.Y.Z` comment any
+# occurrence of the pin carries, so a versioned occurrence seeds the
+# comparison wherever it sits in the scan order; `bare` is `1` when some
+# occurrence carries no such comment. Every occurrence of the same
+# owner/repo/subpath/sha is rewritten together in step 3 regardless of
+# which file it came from.
 # ---------------------------------------------------------------------
 discover_pins() {
   python3 - "${scan_targets[@]}" <<'PY'
@@ -171,10 +178,10 @@ for path in sys.argv[1:]:
             vm = VER_RE.search(raw)
             version = vm.group(1) if vm else ""
             key = (owner, repo, subpath, sha)
-            if key not in seen:
-                seen[key] = version
+            seen_version, bare = seen.get(key, ("", False))
+            seen[key] = (seen_version or version, bare or not version)
 
-for (owner, repo, subpath, sha), version in seen.items():
+for (owner, repo, subpath, sha), (version, bare) in seen.items():
     # Empty fields are rendered as a literal "-" sentinel, not an empty
     # string: bash's `read` collapses a run of consecutive IFS
     # whitespace characters (tab is whitespace-class) into a single
@@ -183,7 +190,8 @@ for (owner, repo, subpath, sha), version in seen.items():
     # later column left by one.
     subpath_out = subpath if subpath else "-"
     version_out = version if version else "-"
-    print(f"{owner}\t{repo}\t{subpath_out}\t{sha}\t{version_out}")
+    bare_out = "1" if bare else "-"
+    print(f"{owner}\t{repo}\t{subpath_out}\t{sha}\t{version_out}\t{bare_out}")
 PY
 }
 
@@ -471,13 +479,14 @@ PY
 changed=0
 pins_seen=0
 
-while IFS=$'\t' read -r owner repo subpath sha version; do
+while IFS=$'\t' read -r owner repo subpath sha version bare; do
   [ -z "$owner" ] && continue
-  # Undo discover_pins' "-" sentinel for an empty subpath/version (see
-  # that function for why: bash `read` collapses consecutive tab
+  # Undo discover_pins' "-" sentinel for an empty subpath/version/bare
+  # (see that function for why: bash `read` collapses consecutive tab
   # delimiters even under a single-character IFS).
   [ "$subpath" = "-" ] && subpath=""
   [ "$version" = "-" ] && version=""
+  [ "$bare" = "-" ] && bare=""
   pins_seen=$((pins_seen + 1))
   echo "Checking ${owner}/${repo} (current: ${version:-unknown} @ ${sha})..."
 
@@ -492,45 +501,66 @@ while IFS=$'\t' read -r owner repo subpath sha version; do
       break
     fi
   done <<<"$(resolve_bump "$owner" "$repo" "$subpath" "$version")"
-  if [ -z "$bump_tag" ]; then
-    echo "  up to date (or no eligible release)."
-    continue
-  fi
-
-  ref_info="$(resolve_tag_ref "$owner" "$repo" "$bump_tag")"
-  ref_sha="$(echo "$ref_info" | sed -n '1p')"
-  ref_type="$(echo "$ref_info" | sed -n '2p')"
-  if [ -z "$ref_sha" ]; then
-    echo "  warn: could not resolve commit SHA for ${owner}/${repo}@${bump_tag} -- skipping" >&2
-    continue
-  fi
-
-  commit_sha="$ref_sha"
-  # Dereference an annotated tag object to the commit it points at.
-  if [ "$ref_type" = "tag" ]; then
-    deref_sha="$(resolve_annotated_tag_commit "$owner" "$repo" "$ref_sha")"
-    if [ -n "$deref_sha" ]; then
-      commit_sha="$deref_sha"
-    fi
-  fi
-
-  # An unversioned pin already at the selected release's commit is still
-  # rewritten, to gain that release's comment.
-  if [ "$commit_sha" = "$sha" ]; then
-    if [ -n "$version" ]; then
-      echo "  ${bump_tag} resolves to the same SHA already pinned -- skipping."
+  # The SHA and tag every occurrence is rewritten to. When no bump is due,
+  # a pin with both versioned and bare occurrences still has its bare
+  # ones rewritten, keeping its SHA and gaining the versioned ones'
+  # comment.
+  commit_sha=""
+  new_tag=""
+  if [ -n "$bump_tag" ]; then
+    ref_info="$(resolve_tag_ref "$owner" "$repo" "$bump_tag")"
+    ref_sha="$(echo "$ref_info" | sed -n '1p')"
+    ref_type="$(echo "$ref_info" | sed -n '2p')"
+    if [ -z "$ref_sha" ]; then
+      echo "  warn: could not resolve commit SHA for ${owner}/${repo}@${bump_tag} -- skipping" >&2
       continue
     fi
-    echo "  adding the ${bump_tag} comment to ${owner}/${repo}@${sha}"
+
+    commit_sha="$ref_sha"
+    # Dereference an annotated tag object to the commit it points at.
+    if [ "$ref_type" = "tag" ]; then
+      deref_sha="$(resolve_annotated_tag_commit "$owner" "$repo" "$ref_sha")"
+      if [ -n "$deref_sha" ]; then
+        commit_sha="$deref_sha"
+      fi
+    fi
+
+    # An unversioned pin already at the selected release's commit is
+    # still rewritten, to gain that release's comment.
+    if [ "$commit_sha" = "$sha" ]; then
+      if [ -n "$version" ]; then
+        echo "  ${bump_tag} resolves to the same SHA already pinned."
+        commit_sha=""
+      else
+        echo "  adding the ${bump_tag} comment to ${owner}/${repo}@${sha}"
+        new_tag="$bump_tag"
+      fi
+    else
+      echo "  bumping ${owner}/${repo} -> ${bump_tag} (${commit_sha})"
+      new_tag="$bump_tag"
+    fi
   else
-    echo "  bumping ${owner}/${repo} -> ${bump_tag} (${commit_sha})"
+    echo "  up to date (or no eligible release)."
+  fi
+
+  if [ -z "$new_tag" ]; then
+    if [ -z "$bare" ] || [ -z "$version" ]; then
+      continue
+    fi
+    echo "  adding the ${version} comment to the bare occurrences of ${owner}/${repo}@${sha}"
+    commit_sha="$sha"
+    new_tag="$version"
+    bare_only=1
+  else
+    bare_only=""
   fi
 
   # Rewrite every occurrence of this exact owner/repo/subpath@sha pin,
   # across every *.yml under ASSETS_DIR (not just scan_targets -- a
   # stray occurrence elsewhere should not be missed), updating both the
   # SHA and the trailing version comment together so they never drift
-  # out of sync with each other.
+  # out of sync with each other. With bare_only set, an occurrence that
+  # already carries a `# vX.Y.Z` comment is left as it is.
   old_ref="${owner}/${repo}"
   if [ -n "$subpath" ]; then
     old_ref="${old_ref}/${subpath}"
@@ -538,12 +568,14 @@ while IFS=$'\t' read -r owner repo subpath sha version; do
 
   for f in "$ASSETS_DIR"/*.yml "$ASSETS_DIR"/*.yaml; do
     [ -f "$f" ] || continue
-    python3 - "$f" "$old_ref" "$sha" "$commit_sha" "$bump_tag" <<'PY'
+    python3 - "$f" "$old_ref" "$sha" "$commit_sha" "$new_tag" "$bare_only" <<'PY'
 import re, sys
 
-path, old_ref, old_sha, new_sha, new_tag = sys.argv[1:6]
+path, old_ref, old_sha, new_sha, new_tag, bare_only = sys.argv[1:7]
 
 USES_RE = re.compile(r'^(\s*-?\s*uses:\s*)' + re.escape(old_ref) + '@' + re.escape(old_sha) + r'\s*(?:#.*)?$')
+# The same full-version test discover_pins applies.
+VER_RE = re.compile(r'#\s*(v[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*)\s*$')
 
 with open(path) as fh:
     lines = fh.readlines()
@@ -552,6 +584,8 @@ changed = False
 out = []
 for line in lines:
     m = USES_RE.match(line.rstrip("\n"))
+    if m and bare_only and VER_RE.search(line):
+        m = None
     if m:
         prefix = m.group(1)
         newline = f"{prefix}{old_ref}@{new_sha} # {new_tag}\n"

@@ -40,6 +40,11 @@
 #      patched version.
 #   16. A partial-version pin (`# v4`, `# v4.4`) is unversioned: it
 #      selects no node20 release and gains a full `# vX.Y.Z` comment.
+#   17. A bare occurrence of a SHA another occurrence pins with a
+#      `# vX.Y.Z` comment gains that comment when no bump is due, in
+#      either scan order.
+#   18. Such a bare occurrence moves with the versioned one when a bump is
+#      due, in either scan order.
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -812,6 +817,89 @@ else
   cat "$TMP_ROOT/case16.log"
   cat "$CASE16/assets/workflow.yml"
 fi
+
+# ---------------------------------------------------------------------
+# Case 17: a bare occurrence of a SHA another occurrence pins as
+# `# v1.2.3`, already the newest soaked release, keeps its SHA and gains
+# the `# v1.2.3` comment whichever occurrence is scanned first. The
+# versioned occurrence is left as it is.
+# ---------------------------------------------------------------------
+for order in versioned-first bare-first; do
+  CASE17="$TMP_ROOT/case17-$order"
+  mkdir -p "$CASE17/assets" "$CASE17/fixtures"
+  make_fake_gh "$CASE17/fixtures"
+
+  versioned_line='  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717 # v1.2.3'
+  bare_line='  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717'
+  if [ "$order" = versioned-first ]; then
+    first="$versioned_line" second="$bare_line"
+  else
+    first="$bare_line" second="$versioned_line"
+  fi
+  printf 'on:\n  pull_request:\nsteps:\n%s\n%s\n' "$first" "$second" > "$CASE17/assets/workflow.yml"
+
+  cat > "$CASE17/fixtures/repos_mixed-owner_mixed-action_releases.json" <<JSON
+[
+  {"tag_name": "v1.2.3", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+  echo '[]' > "$CASE17/fixtures/advisories_ecosystem_actions_affects_mixed-owner_mixed-action.json"
+  write_action_yml_fixture "$CASE17/fixtures/repos_mixed-owner_mixed-action_contents_action.yml_ref_v1.2.3.json" node24
+  cat > "$CASE17/fixtures/repos_mixed-owner_mixed-action_git_ref_tags_v1.2.3.json" <<'JSON'
+{"object": {"sha": "1717171717171717171717171717171717171717", "type": "commit"}}
+JSON
+
+  run_bumper "$CASE17/assets" "$CASE17/fixtures" > "$TMP_ROOT/case17-$order.log" 2>&1
+  case17_lines="$(grep -cxF "$versioned_line" "$CASE17/assets/workflow.yml")"
+  if [ "$case17_lines" -eq 2 ]; then
+    pass "bare occurrence of a versioned pin's SHA gains its # vX.Y.Z comment ($order)"
+  else
+    fail "expected both occurrences to read '# v1.2.3' at the unchanged SHA ($order)"
+    cat "$TMP_ROOT/case17-$order.log"
+    cat "$CASE17/assets/workflow.yml"
+  fi
+done
+
+# ---------------------------------------------------------------------
+# Case 18: when a bump is due, a bare occurrence of the versioned pin's
+# SHA moves with it, whichever is scanned first.
+# ---------------------------------------------------------------------
+for order in versioned-first bare-first; do
+  CASE18="$TMP_ROOT/case18-$order"
+  mkdir -p "$CASE18/assets" "$CASE18/fixtures"
+  make_fake_gh "$CASE18/fixtures"
+
+  versioned_line='  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717 # v1.2.3'
+  bare_line='  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717'
+  if [ "$order" = versioned-first ]; then
+    first="$versioned_line" second="$bare_line"
+  else
+    first="$bare_line" second="$versioned_line"
+  fi
+  printf 'on:\n  pull_request:\nsteps:\n%s\n%s\n' "$first" "$second" > "$CASE18/assets/workflow.yml"
+
+  cat > "$CASE18/fixtures/repos_mixed-owner_mixed-action_releases.json" <<JSON
+[
+  {"tag_name": "v1.3.0", "published_at": "$(iso_days_ago 10)", "draft": false, "prerelease": false},
+  {"tag_name": "v1.2.3", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+  echo '[]' > "$CASE18/fixtures/advisories_ecosystem_actions_affects_mixed-owner_mixed-action.json"
+  write_action_yml_fixture "$CASE18/fixtures/repos_mixed-owner_mixed-action_contents_action.yml_ref_v1.3.0.json" node24
+  cat > "$CASE18/fixtures/repos_mixed-owner_mixed-action_git_ref_tags_v1.3.0.json" <<'JSON'
+{"object": {"sha": "1818181818181818181818181818181818181818", "type": "commit"}}
+JSON
+
+  run_bumper "$CASE18/assets" "$CASE18/fixtures" > "$TMP_ROOT/case18-$order.log" 2>&1
+  case18_lines="$(grep -cxF '  - uses: mixed-owner/mixed-action@1818181818181818181818181818181818181818 # v1.3.0' "$CASE18/assets/workflow.yml")"
+  if [ "$case18_lines" -eq 2 ]; then
+    pass "bare occurrence of a versioned pin's SHA moves with it to the selected release ($order)"
+  else
+    fail "expected both occurrences to move to v1.3.0 ($order)"
+    cat "$TMP_ROOT/case18-$order.log"
+    cat "$CASE18/assets/workflow.yml"
+  fi
+done
 
 if [ "$failures" -ne 0 ]; then
   echo "test-bump-asset-pins: ${failures} case(s) failed." >&2

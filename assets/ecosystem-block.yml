@@ -6,7 +6,8 @@
 #
 # This is the HARDENED generated baseline (issue #51): cooldown soak,
 # versioning-strategy, recursive directory coverage, semver-major
-# ignore, and per-ecosystem schedules. Several values vary BY ECOSYSTEM
+# ignore on every ecosystem except github-actions, and per-ecosystem
+# schedules. Several values vary BY ECOSYSTEM
 # CLASS (npm/pip vs docker vs github-actions vs the rest), so the variant
 # parts are placeholders the skill resolves per ecosystem — see SKILL.md
 # "Step 3" for the resolution table, which covers EVERY armed ecosystem
