@@ -24,11 +24,11 @@
 #     runtime move (Node.js 20 to 24) and skipping it leaves the pin on a
 #     deprecated runtime.
 #   - A pin whose trailing comment is not a full `# vX.Y.Z` (none, or
-#     `# v4`) has no current version, so no advisory can be shown to affect it and the security bypass
-#     does not apply. It moves to the latest release at least 7 days old
-#     whose action.yml, when it declares a `node*` runtime in
-#     `runs.using`, declares node24 or later, and gains that release's
-#     `# vX.Y.Z` comment.
+#     `# v4`) has no current version, so no advisory can be shown to
+#     affect it and the security bypass does not apply. It moves to the
+#     latest release at least 7 days old whose action.yml, when it
+#     declares a `node*` runtime in `runs.using`, declares node24 or
+#     later, and gains that release's `# vX.Y.Z` comment.
 #
 # WHY assets/*.yml AND NOT .github/workflows/*.yml: Dependabot's
 # `github-actions` ecosystem can only scan `.github/workflows/` (plus a
