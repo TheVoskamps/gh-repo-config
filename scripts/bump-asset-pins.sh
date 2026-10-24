@@ -7,23 +7,28 @@
 # territory (the converger overwrites it from assets/ on every tick), so
 # a repo-own script placed there would be destroyed on the next sweep.
 #
-# Keeps every `uses: <owner>/<repo>[/<path>]@<sha> # v<ver>` pin in
+# Keeps every `uses: <owner>/<repo>[/<path>]@<sha>[ # v<ver>]` pin in
 # assets/*.yml current, applying the SAME update policy the rendered
 # `github-actions` Dependabot ecosystem applies on every managed repo
-# (see NAMED_DEPENDABOT_GROUPS in src/converge/render.ts and the
-# `github-actions` block of the rendered assets/dependabot.yml):
+# (see renderEcosystemBlock in src/converge/render.ts, which renders
+# assets/ecosystem-block.yml once per ecosystem):
 #
-#   - A release that fixes a security advisory is taken IMMEDIATELY,
-#     bypassing the soak (Dependabot's own cooldown applies to version
-#     updates only; security updates bypass it).
+#   - A release that fixes a security advisory affecting the current pin
+#     is taken IMMEDIATELY, bypassing the soak (Dependabot's own cooldown
+#     applies to version updates only; security updates bypass it).
 #   - Every other release must be at least 7 days old
 #     (cooldown: default-days: 7 on the github-actions block).
-#   - A semver-MAJOR bump is skipped UNLESS the action belongs to the
-#     one named group whose patterns match a GitHub Action:
-#     `codeql-action` (pattern `github/codeql-action/*`). Every other
-#     action's major bumps are left alone, matching the rendered
-#     config's `ignore: version-update:semver-major` for
-#     `dependency-name: "*"`.
+#   - A semver-MAJOR release is a candidate for every action, under the
+#     same two rules: the rendered github-actions block carries no
+#     semver-major `ignore:` entry, since an action's major is mostly a
+#     runtime move (Node.js 20 to 24) and skipping it leaves the pin on a
+#     deprecated runtime.
+#   - A pin whose trailing comment is not a full `# vX.Y.Z` (none, or
+#     `# v4`) has no current version, so no advisory can be shown to
+#     affect it and the security bypass does not apply. It moves to the
+#     latest release at least 7 days old whose action.yml, when it
+#     declares a `node*` runtime in `runs.using`, declares node24 or
+#     later, and gains that release's `# vX.Y.Z` comment.
 #
 # WHY assets/*.yml AND NOT .github/workflows/*.yml: Dependabot's
 # `github-actions` ecosystem can only scan `.github/workflows/` (plus a
@@ -34,9 +39,10 @@
 #
 # WHAT THIS SCRIPT DOES: discovers pins, resolves each owner/repo's
 # eligible upstream release via the GitHub API (through `gh api`, all
-# READ-ONLY calls -- repos/*/releases, advisories, git/ref/tags,
-# git/tags), and rewrites the SHA + trailing `# vX.Y.Z` comment in
-# place, everywhere that pin occurs across assets/*.yml. It does NOT
+# READ-ONLY calls -- repos/*/releases, advisories, contents,
+# git/ref/tags, git/tags), and rewrites the SHA and the trailing
+# `# vX.Y.Z` comment in place, adding the comment where the pin had
+# none, everywhere that pin occurs across assets/*.yml. It does NOT
 # create a branch, commit, push, or open a PR -- that git/PR plumbing
 # lives in the calling workflow (.github/workflows/assets-pin-bump.yml),
 # which only proceeds to commit when this script actually changed
@@ -137,7 +143,10 @@ import re, sys
 
 USES_RE = re.compile(r'^\s*-?\s*uses:\s*(\S+)')
 SHA_RE = re.compile(r'^[0-9a-fA-F]{40}$')
-VER_RE = re.compile(r'#\s*(v[0-9][0-9A-Za-z.\-]*)\s*$')
+# Only a comment that parses as vX.Y.Z is a current version. A partial
+# one (`# v4`, `# v4.1`) leaves the pin unversioned, so it takes the
+# unversioned path, runtime check included, and gains a full comment.
+VER_RE = re.compile(r'#\s*(v[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*)\s*$')
 
 seen = {}
 for path in sys.argv[1:]:
@@ -179,12 +188,15 @@ PY
 }
 
 # ---------------------------------------------------------------------
-# Step 2: for one owner/repo/current-version, resolve the best eligible
-# upstream release per policy. Emits `<version>\t<sha>` on stdout when
-# an eligible bump is found, nothing when the current pin is already
-# current or no eligible release exists. All network access (gh api)
-# is isolated in this function and its helpers so the self-test can
-# stub `gh` on PATH and exercise the pure decision logic underneath.
+# Step 2: for one owner/repo/current-version, resolve the eligible
+# upstream releases per policy. With a current version, emits the one
+# best eligible tag on stdout. With none (an unversioned pin), emits
+# every release at least 7 days old, newest first, one tag per line, for
+# the main loop to check each one's runtime in turn. Emits nothing when
+# the current pin is already current or no eligible release exists.
+# Every network call in this script goes through `gh api`, so the
+# self-test can stub `gh` on PATH and exercise the pure decision logic
+# underneath.
 # ---------------------------------------------------------------------
 resolve_bump() {
   local owner="$1" repo="$2" subpath="$3" current_version="$4"
@@ -210,11 +222,6 @@ resolve_bump() {
     printf '[]' > "$advisories_file"
   fi
 
-  local is_codeql_action="false"
-  if [ "${owner}/${repo}" = "github/codeql-action" ]; then
-    is_codeql_action="true"
-  fi
-
   # Untrusted input: `releases` and `advisories` are attacker-controlled
   # upstream JSON (release names/bodies/tags, advisory text). NEVER
   # interpolate them into Python source -- a release body containing
@@ -224,23 +231,22 @@ resolve_bump() {
   # (the combined JSON is written to disk by jq --slurpfile, itself a
   # pure data operation reading each file's own bytes, never by shell
   # string interpolation or a CLI argument), so they are always inert
-  # data, never program text. `current_version` / `allow_major` are
-  # our own trusted values and still arrive via argv directly. The
-  # Python source itself is a quoted heredoc (<<'PY'), so no shell
-  # expansion happens inside it at all.
+  # data, never program text. `current_version` is our own trusted
+  # value and still arrives via argv directly. The Python source itself
+  # is a quoted heredoc (<<'PY'), so no shell expansion happens inside
+  # it at all.
   local combined_json_file
   combined_json_file="$(mktemp)"
   jq -n --slurpfile releases "$releases_file" --slurpfile advisories "$advisories_file" \
     '{releases: $releases[0], advisories: $advisories[0]}' > "$combined_json_file"
   rm -f "$releases_file" "$advisories_file"
 
-  python3 - "$current_version" "$is_codeql_action" "$combined_json_file" <<'PY'
+  python3 - "$current_version" "$combined_json_file" <<'PY'
 import json, re, sys
 from datetime import datetime, timezone, timedelta
 
 current_version = sys.argv[1]
-allow_major = sys.argv[2] == "true"
-payload_path = sys.argv[3]
+payload_path = sys.argv[2]
 
 with open(payload_path) as f:
     payload = json.load(f)
@@ -274,41 +280,31 @@ for adv in advisories:
 # first_patched_version). Without this guard, any action that has ever
 # had ANY historical advisory would have every later release --
 # forever -- treated as a security fix, permanently defeating the
-# 7-day soak for that action (and, for github/codeql-action, also
-# bypassing the semver-major gate).
+# 7-day soak for that action.
 if current is not None:
     applicable_first_patched = [fp for fp in first_patched if current < fp]
 else:
-    # No version comment to compare against -- treat every advisory as
-    # potentially applicable rather than silently disabling the
-    # security path; bump_class() below still refuses anything but a
-    # major-eligible action in this case.
-    applicable_first_patched = first_patched
+    # No version comment to compare against, so no advisory can be shown
+    # to affect the pin: every release competes on its 7-day soak alone,
+    # whatever its advisories, and none is diverted into the security
+    # pool, which an unversioned pin never reads.
+    applicable_first_patched = []
 
 now = datetime.now(timezone.utc)
 soak_cutoff = now - timedelta(days=7)
 
-def bump_class(cur, cand):
-    if cur is None:
-        return "major"
-    if cand[0] != cur[0]:
-        return "major"
-    if cand[1] != cur[1]:
-        return "minor"
-    return "patch"
-
-# Two disjoint candidate pools, gathered separately:
-#   security_candidates -- newer than current, passes the major-bump
-#     gate, and its version is >= at least one APPLICABLE advisory's
-#     first_patched_version (i.e. the current pin is actually affected
-#     by that advisory -- see the guard above). Eligible IMMEDIATELY
-#     regardless of age (mirrors Dependabot: security updates bypass
-#     cooldown entirely and target the MINIMUM patched version, not
-#     necessarily the latest release -- so the smallest such candidate
-#     wins).
-#   soak_candidates -- newer than current, passes the major-bump gate,
-#     and is at least 7 days old. The LARGEST such candidate wins (the
-#     most current release that has finished soaking).
+# Two disjoint candidate pools, gathered separately; a semver-major
+# release is a candidate in either:
+#   security_candidates -- newer than current, and its version is >= at
+#     least one APPLICABLE advisory's first_patched_version (i.e. the
+#     current pin is actually affected by that advisory -- see the guard
+#     above). Eligible IMMEDIATELY regardless of age (mirrors
+#     Dependabot: security updates bypass cooldown entirely and target
+#     the MINIMUM patched version, not necessarily the latest release --
+#     so the smallest such candidate wins).
+#   soak_candidates -- newer than current, and at least 7 days old. The
+#     LARGEST such candidate wins (the most current release that has
+#     finished soaking).
 # Trying the security pool first means an old, unpatched pin gets
 # fixed immediately even if a separate newer-but-still-soaking release
 # also exists.
@@ -325,10 +321,6 @@ for rel in releases:
     if current is not None and cand <= current:
         continue
 
-    cls = bump_class(current, cand)
-    if cls == "major" and not allow_major:
-        continue
-
     if any(cand >= fp for fp in applicable_first_patched):
         security_candidates.append((cand, tag))
         continue
@@ -340,6 +332,14 @@ for rel in releases:
     if published > soak_cutoff:
         continue
     soak_candidates.append((cand, tag))
+
+if current is None:
+    # An unversioned pin: every soaked release, newest first. The main
+    # loop takes the first whose runtime is current, which it can only
+    # learn by fetching each release's action.yml.
+    for _, tag in sorted(soak_candidates, key=lambda t: t[0], reverse=True):
+        print(tag)
+    sys.exit(0)
 
 if security_candidates:
     # The smallest candidate that is itself >= some applicable
@@ -397,6 +397,75 @@ print(t.get('object', {}).get('sha', ''))
 }
 
 # ---------------------------------------------------------------------
+# action_runtime_is_current <owner> <repo> <subpath> <tag>: exit 0 when
+# the action's action.yml (or action.yaml) at <tag> declares node24 or
+# later in `runs.using`, or a runtime that is not `node*` (composite,
+# docker). Exit 1 when it declares an older `node*` runtime, or when
+# neither file can be read, so an unreadable release is never selected
+# on an unknown runtime.
+# ---------------------------------------------------------------------
+action_runtime_is_current() {
+  local owner="$1" repo="$2" subpath="$3" tag="$4"
+  local dir="" name using="" contents_file
+  [ -n "$subpath" ] && dir="${subpath}/"
+  contents_file="$(mktemp)"
+  for name in action.yml action.yaml; do
+    if gh api "repos/${owner}/${repo}/contents/${dir}${name}?ref=${tag}" >"$contents_file" 2>/dev/null; then
+      using="$(read_runs_using "$contents_file")"
+      [ -n "$using" ] && break
+    fi
+  done
+  rm -f "$contents_file"
+
+  case "$using" in
+    "")
+      echo "  warn: could not read runs.using for ${owner}/${repo}@${tag} -- not selecting it" >&2
+      return 1
+      ;;
+    node*)
+      if [ "${using#node}" -ge 24 ] 2>/dev/null; then
+        return 0
+      fi
+      echo "  ${tag} runs on ${using}, older than node24 -- not selecting it."
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+# read_runs_using <contents-json-file>: print the `runs.using` value of
+# the action.yml a `repos/*/contents/*` payload carries, or nothing when
+# the payload holds no readable file or the file declares no runtime.
+# The payload is upstream data: it reaches Python as a file path on
+# argv, never as program text (see resolve_bump).
+read_runs_using() {
+  python3 - "$1" <<'PY'
+import base64, json, re, sys
+
+try:
+    with open(sys.argv[1]) as f:
+        payload = json.load(f)
+    text = base64.b64decode(payload["content"]).decode("utf-8")
+except (ValueError, KeyError, TypeError):
+    sys.exit(0)
+
+in_runs = False
+for line in text.splitlines():
+    if re.match(r'^runs:\s*(#.*)?$', line):
+        in_runs = True
+        continue
+    if not in_runs:
+        continue
+    if line and not line[0].isspace() and not line.startswith("#"):
+        break
+    m = re.match(r'^\s+using:\s*["\']?([^"\'\s#]+)', line)
+    if m:
+        print(m.group(1))
+        break
+PY
+}
+
+# ---------------------------------------------------------------------
 # Main loop.
 # ---------------------------------------------------------------------
 changed=0
@@ -412,12 +481,17 @@ while IFS=$'\t' read -r owner repo subpath sha version; do
   pins_seen=$((pins_seen + 1))
   echo "Checking ${owner}/${repo} (current: ${version:-unknown} @ ${sha})..."
 
-  if [ -z "$version" ]; then
-    echo "  warn: no trailing # vX.Y.Z comment -- cannot determine bump class (every candidate looks like a major bump), skipping" >&2
-    continue
-  fi
-
-  bump_tag="$(resolve_bump "$owner" "$repo" "$subpath" "$version")"
+  # A versioned pin gets one candidate. An unversioned pin gets every
+  # soaked release, newest first, and takes the first whose runtime is
+  # current.
+  bump_tag=""
+  while IFS= read -r candidate; do
+    [ -z "$candidate" ] && continue
+    if [ -n "$version" ] || action_runtime_is_current "$owner" "$repo" "$subpath" "$candidate"; then
+      bump_tag="$candidate"
+      break
+    fi
+  done <<<"$(resolve_bump "$owner" "$repo" "$subpath" "$version")"
   if [ -z "$bump_tag" ]; then
     echo "  up to date (or no eligible release)."
     continue
@@ -440,12 +514,17 @@ while IFS=$'\t' read -r owner repo subpath sha version; do
     fi
   fi
 
+  # An unversioned pin already at the selected release's commit is still
+  # rewritten, to gain that release's comment.
   if [ "$commit_sha" = "$sha" ]; then
-    echo "  ${bump_tag} resolves to the same SHA already pinned -- skipping."
-    continue
+    if [ -n "$version" ]; then
+      echo "  ${bump_tag} resolves to the same SHA already pinned -- skipping."
+      continue
+    fi
+    echo "  adding the ${bump_tag} comment to ${owner}/${repo}@${sha}"
+  else
+    echo "  bumping ${owner}/${repo} -> ${bump_tag} (${commit_sha})"
   fi
-
-  echo "  bumping ${owner}/${repo} -> ${bump_tag} (${commit_sha})"
 
   # Rewrite every occurrence of this exact owner/repo/subpath@sha pin,
   # across every *.yml under ASSETS_DIR (not just scan_targets -- a

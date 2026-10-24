@@ -170,7 +170,7 @@ jobs:
       swift_runner: ${{ steps.detect.outputs.swift_runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -221,7 +221,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           # A comma-separated list: every present ubuntu-runner language
           # in one database bootstrap.
@@ -236,7 +236,7 @@ jobs:
       # No `category:` — see the "NO EXPLICIT `category:`" note in the
       # header. The action derives one from this job's id.
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
 
   # The non-ubuntu (today: swift, on macOS) analysis, which EXISTS ONLY
   # when such a language is in the tree — a Swift-less repo never
@@ -254,12 +254,12 @@ jobs:
       contents: read # clone the repository
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: ${{ needs.codeql-required.outputs.swift_languages }}
           config-file: ./.github/codeql/codeql-config.yml
@@ -268,4 +268,4 @@ jobs:
       # distinct from `codeql-required`'s, which is exactly what keeps
       # the two uploads from displacing each other.
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0

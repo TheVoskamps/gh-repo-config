@@ -16,12 +16,13 @@
 # here; the skill renders the right variant for each ecosystem.
 #
 # Multi-line block placeholders (__DIRECTORY_BLOCK__,
-# __VERSIONING_STRATEGY_BLOCK__, __COOLDOWN_BLOCK__) each sit alone on a
-# line at the SAME 4-space indent as the keys around them. The skill
-# substitutes a value whose FIRST line has no leading indent (the
-# template's 4 spaces supply it) and whose CONTINUATION lines carry
-# their own absolute indentation. When a block is empty for an ecosystem
-# (e.g. __VERSIONING_STRATEGY_BLOCK__ on docker/github-actions), the
+# __VERSIONING_STRATEGY_BLOCK__, __COOLDOWN_BLOCK__, __IGNORE_BLOCK__)
+# each sit alone on a line at the SAME 4-space indent as the keys around
+# them. The skill substitutes a value whose FIRST line has no leading
+# indent (the template's 4 spaces supply it) and whose CONTINUATION
+# lines carry their own absolute indentation. When a block is empty for
+# an ecosystem (e.g. __VERSIONING_STRATEGY_BLOCK__ on
+# docker/github-actions, __IGNORE_BLOCK__ on github-actions), the
 # skill drops the whole placeholder line so no blank/whitespace-only
 # line remains — see SKILL.md "Step 3 → empty-block collapse".
 #
@@ -52,6 +53,10 @@
 #                                rejects them) — `default-days: 7` only.
 #                                Cooldown applies to version updates only;
 #                                security PRs bypass it.
+#   __IGNORE_BLOCK__             An `ignore:` entry dropping semver-major
+#                                version updates for every dependency, on
+#                                every ecosystem EXCEPT github-actions;
+#                                empty (line dropped) for github-actions.
 #   __DEFAULT_BRANCH__           Default branch of the target repo.
 #
 # The `groups:` entries batch PRs per ecosystem:
@@ -89,11 +94,15 @@
 # both a named group and the catch-all lands in the named group.
 #
 # The `ignore:` entry drops semver-MAJOR version updates on every
-# ecosystem (majors are reviewed/applied deliberately, not auto-batched)
-# — this does not apply to the named lockstep groups above, which cover
-# all update types including majors (a lockstep family must move
-# together on majors too); Dependabot groups bypass an ecosystem-level
-# `ignore:` for any update that is part of a group.
+# ecosystem except github-actions (majors are reviewed/applied
+# deliberately, not auto-batched) — this does not apply to the named
+# lockstep groups above, which cover all update types including majors
+# (a lockstep family must move together on majors too); Dependabot
+# groups bypass an ecosystem-level `ignore:` for any update that is part
+# of a group. github-actions carries no `ignore:` entry, so an action's
+# major release is taken after the same 7-day cooldown as a minor or
+# patch release: an action's major is mostly a runtime move (Node.js 20
+# to 24), and skipping it leaves the pin on a deprecated runtime.
 #
 # Indentation is two spaces because this block nests under `updates:`.
   - package-ecosystem: "__ECOSYSTEM__"
@@ -104,10 +113,7 @@
     __VERSIONING_STRATEGY_BLOCK__
     __COOLDOWN_BLOCK__
     open-pull-requests-limit: 10
-    ignore:
-      - dependency-name: "*"
-        update-types:
-          - "version-update:semver-major"
+    __IGNORE_BLOCK__
     groups:
       __NAMED_GROUPS_BLOCK__
       __ECOSYSTEM__-minor-and-patch:

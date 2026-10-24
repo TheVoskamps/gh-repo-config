@@ -13,13 +13,13 @@
 # this workflow is what keeps them current instead. See the "Problem"
 # section of issue #60.
 #
-# All of the update-policy DECISION logic (security-bypass, 7-day soak,
-# semver-major gate) lives in scripts/bump-asset-pins.sh, which only
-# rewrites files -- it never touches git or opens a PR. This workflow
-# owns that plumbing: it runs the script, and only if it actually
-# changed something (`git status --porcelain` is non-empty) does it
-# commit, push a branch, and open a PR. No eligible bumps -> no diff ->
-# no branch, no PR.
+# All of the update-policy DECISION logic (security-bypass, 7-day soak
+# for every other release, semver-major included) lives in
+# scripts/bump-asset-pins.sh, which only rewrites files -- it never
+# touches git or opens a PR. This workflow owns that plumbing: it runs
+# the script, and only if it actually changed something
+# (`git status --porcelain` is non-empty) does it commit, push a branch,
+# and open a PR. No eligible bumps -> no diff -> no branch, no PR.
 #
 # Auth: this workflow MUST mint a short-lived GitHub App installation
 # token (from the AUTOMERGE_APP_CLIENT_ID / AUTOMERGE_APP_PRIVATE_KEY
@@ -115,7 +115,7 @@ jobs:
           private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
 
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -307,9 +307,8 @@ jobs:
             printf '%s\n' 'Scheduled bump of `uses:` action pins in `assets/*.yml` (the'
             printf '%s\n' "fan-out's authoritative payload templates) to the current eligible"
             printf '%s\n' 'upstream release, per the policy in `scripts/bump-asset-pins.sh`:'
-            printf '%s\n' 'security fixes are taken immediately, everything else soaks 7 days,'
-            printf '%s\n' 'and semver-major bumps are limited to the `github/codeql-action/*`'
-            printf '%s\n' 'named group.'
+            printf '%s\n' 'security fixes are taken immediately, and everything else, semver-major'
+            printf '%s\n' 'releases included, soaks 7 days.'
             printf '\n'
             printf '%s\n' 'Files changed:'
             printf '%s\n' "${CHANGED_FILES}"
