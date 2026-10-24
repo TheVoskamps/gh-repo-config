@@ -365,6 +365,10 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+          # setup-node otherwise restores an npm cache whenever package.json
+          # names npm as its packageManager, which can fail the step when it
+          # finds no lockfile, and adds a cache restore to this App-token job.
+          package-manager-cache: false
 
       - name: Rebase eligible PRs
         env:

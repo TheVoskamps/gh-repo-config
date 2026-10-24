@@ -34,6 +34,12 @@
 #      at an advisory's first patched version.
 #   13. An unversioned pin selects no release whose action.yml declares
 #      node20.
+#   14. An unversioned pin already at the selected release's commit gains
+#      its `# vX.Y.Z` comment.
+#   15. An unversioned pin takes a soaked release at an advisory's first
+#      patched version.
+#   16. A partial-version pin (`# v4`, `# v4.4`) is unversioned: it
+#      selects no node20 release and gains a full `# vX.Y.Z` comment.
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -686,6 +692,125 @@ else
   fail "expected the unversioned pin to skip node20 v2.1.0 and move to node24 v2.0.0"
   cat "$TMP_ROOT/case13.log"
   cat "$CASE13/assets/workflow.yml"
+fi
+
+# ---------------------------------------------------------------------
+# Case 14: an unversioned pin already at the commit of the release the
+# bumper selects keeps its SHA and gains that release's comment.
+# ---------------------------------------------------------------------
+CASE14="$TMP_ROOT/case14"
+mkdir -p "$CASE14/assets" "$CASE14/fixtures"
+make_fake_gh "$CASE14/fixtures"
+
+cat > "$CASE14/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: bare-owner/bare-action@abababababababababababababababababababab
+YAML
+
+cat > "$CASE14/fixtures/repos_bare-owner_bare-action_releases.json" <<JSON
+[
+  {"tag_name": "v2.1.0", "published_at": "$(iso_days_ago 10)", "draft": false, "prerelease": false}
+]
+JSON
+echo '[]' > "$CASE14/fixtures/advisories_ecosystem_actions_affects_bare-owner_bare-action.json"
+write_action_yml_fixture "$CASE14/fixtures/repos_bare-owner_bare-action_contents_action.yml_ref_v2.1.0.json" node24
+cat > "$CASE14/fixtures/repos_bare-owner_bare-action_git_ref_tags_v2.1.0.json" <<'JSON'
+{"object": {"sha": "abababababababababababababababababababab", "type": "commit"}}
+JSON
+
+run_bumper "$CASE14/assets" "$CASE14/fixtures" > "$TMP_ROOT/case14.log" 2>&1
+if grep -qE '^  - uses: bare-owner/bare-action@abababababababababababababababababababab # v2\.1\.0$' "$CASE14/assets/workflow.yml"; then
+  pass "unversioned pin already at the selected release's commit gains its # vX.Y.Z comment"
+else
+  fail "expected the unversioned pin at v2.1.0's commit to gain its # v2.1.0 comment"
+  cat "$TMP_ROOT/case14.log"
+  cat "$CASE14/assets/workflow.yml"
+fi
+
+# ---------------------------------------------------------------------
+# Case 15: an advisory leaves an unversioned pin's soak pool alone. The
+# only release, v2.0.0, is 30 days old and is the advisory's first
+# patched version; it is still the release the pin moves to.
+# ---------------------------------------------------------------------
+CASE15="$TMP_ROOT/case15"
+mkdir -p "$CASE15/assets" "$CASE15/fixtures"
+make_fake_gh "$CASE15/fixtures"
+
+cat > "$CASE15/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: bare-owner/bare-action@eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+YAML
+
+cat > "$CASE15/fixtures/repos_bare-owner_bare-action_releases.json" <<JSON
+[
+  {"tag_name": "v2.0.0", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+cat > "$CASE15/fixtures/advisories_ecosystem_actions_affects_bare-owner_bare-action.json" <<'JSON'
+[
+  {"vulnerabilities": [{"first_patched_version": {"identifier": "v2.0.0"}}]}
+]
+JSON
+write_action_yml_fixture "$CASE15/fixtures/repos_bare-owner_bare-action_contents_action.yml_ref_v2.0.0.json" node24
+cat > "$CASE15/fixtures/repos_bare-owner_bare-action_git_ref_tags_v2.0.0.json" <<'JSON'
+{"object": {"sha": "1313131313131313131313131313131313131313", "type": "commit"}}
+JSON
+
+run_bumper "$CASE15/assets" "$CASE15/fixtures" > "$TMP_ROOT/case15.log" 2>&1
+if grep -qE '^  - uses: bare-owner/bare-action@1313131313131313131313131313131313131313 # v2\.0\.0$' "$CASE15/assets/workflow.yml"; then
+  pass "unversioned pin takes a soaked release at an advisory's first patched version"
+else
+  fail "expected the unversioned pin to move to soaked v2.0.0 despite its advisory"
+  cat "$TMP_ROOT/case15.log"
+  cat "$CASE15/assets/workflow.yml"
+fi
+
+# ---------------------------------------------------------------------
+# Case 16: a pin whose comment is a partial version (`# v4`, `# v4.4`)
+# is unversioned. The newest soaked release, v5.0.0, runs on node20, so
+# both pins pass over it to v4.5.0, which runs on node24, and each gains
+# the full `# v4.5.0` comment.
+# ---------------------------------------------------------------------
+CASE16="$TMP_ROOT/case16"
+mkdir -p "$CASE16/assets" "$CASE16/fixtures"
+make_fake_gh "$CASE16/fixtures"
+
+cat > "$CASE16/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: partial-owner/partial-action@eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee # v4
+  - uses: partial-owner/partial-action@ffffffffffffffffffffffffffffffffffffffff # v4.4
+YAML
+
+cat > "$CASE16/fixtures/repos_partial-owner_partial-action_releases.json" <<JSON
+[
+  {"tag_name": "v5.0.0", "published_at": "$(iso_days_ago 10)", "draft": false, "prerelease": false},
+  {"tag_name": "v4.5.0", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+echo '[]' > "$CASE16/fixtures/advisories_ecosystem_actions_affects_partial-owner_partial-action.json"
+write_action_yml_fixture "$CASE16/fixtures/repos_partial-owner_partial-action_contents_action.yml_ref_v5.0.0.json" node20
+write_action_yml_fixture "$CASE16/fixtures/repos_partial-owner_partial-action_contents_action.yml_ref_v4.5.0.json" node24
+cat > "$CASE16/fixtures/repos_partial-owner_partial-action_git_ref_tags_v5.0.0.json" <<'JSON'
+{"object": {"sha": "1515151515151515151515151515151515151515", "type": "commit"}}
+JSON
+cat > "$CASE16/fixtures/repos_partial-owner_partial-action_git_ref_tags_v4.5.0.json" <<'JSON'
+{"object": {"sha": "1414141414141414141414141414141414141414", "type": "commit"}}
+JSON
+
+run_bumper "$CASE16/assets" "$CASE16/fixtures" > "$TMP_ROOT/case16.log" 2>&1
+case16_lines="$(grep -cE '^  - uses: partial-owner/partial-action@1414141414141414141414141414141414141414 # v4\.5\.0$' "$CASE16/assets/workflow.yml")"
+if [ "$case16_lines" -eq 2 ]; then
+  pass "partial-version pins pass over a node20 release and gain a full # vX.Y.Z comment"
+else
+  fail "expected both partial-version pins to skip node20 v5.0.0 and move to node24 v4.5.0"
+  cat "$TMP_ROOT/case16.log"
+  cat "$CASE16/assets/workflow.yml"
 fi
 
 if [ "$failures" -ne 0 ]; then

@@ -23,8 +23,8 @@
 #     semver-major `ignore:` entry, since an action's major is mostly a
 #     runtime move (Node.js 20 to 24) and skipping it leaves the pin on a
 #     deprecated runtime.
-#   - A pin with no trailing `# vX.Y.Z` comment has no current version,
-#     so no advisory can be shown to affect it and the security bypass
+#   - A pin whose trailing comment is not a full `# vX.Y.Z` (none, or
+#     `# v4`) has no current version, so no advisory can be shown to affect it and the security bypass
 #     does not apply. It moves to the latest release at least 7 days old
 #     whose action.yml, when it declares a `node*` runtime in
 #     `runs.using`, declares node24 or later, and gains that release's
@@ -143,7 +143,10 @@ import re, sys
 
 USES_RE = re.compile(r'^\s*-?\s*uses:\s*(\S+)')
 SHA_RE = re.compile(r'^[0-9a-fA-F]{40}$')
-VER_RE = re.compile(r'#\s*(v[0-9][0-9A-Za-z.\-]*)\s*$')
+# Only a comment that parses as vX.Y.Z is a current version. A partial
+# one (`# v4`, `# v4.1`) leaves the pin unversioned, so it takes the
+# unversioned path, runtime check included, and gains a full comment.
+VER_RE = re.compile(r'#\s*(v[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*)\s*$')
 
 seen = {}
 for path in sys.argv[1:]:
@@ -282,10 +285,9 @@ if current is not None:
     applicable_first_patched = [fp for fp in first_patched if current < fp]
 else:
     # No version comment to compare against, so no advisory can be shown
-    # to affect the pin: an unversioned pin takes no release before its
-    # 7 days, whatever its advisories. Counting every advisory the
-    # action has ever had would instead move the pin, unsoaked, to
-    # whatever old release closed a past advisory.
+    # to affect the pin: every release competes on its 7-day soak alone,
+    # whatever its advisories, and none is diverted into the security
+    # pool, which an unversioned pin never reads.
     applicable_first_patched = []
 
 now = datetime.now(timezone.utc)
@@ -512,12 +514,17 @@ while IFS=$'\t' read -r owner repo subpath sha version; do
     fi
   fi
 
+  # An unversioned pin already at the selected release's commit is still
+  # rewritten, to gain that release's comment.
   if [ "$commit_sha" = "$sha" ]; then
-    echo "  ${bump_tag} resolves to the same SHA already pinned -- skipping."
-    continue
+    if [ -n "$version" ]; then
+      echo "  ${bump_tag} resolves to the same SHA already pinned -- skipping."
+      continue
+    fi
+    echo "  adding the ${bump_tag} comment to ${owner}/${repo}@${sha}"
+  else
+    echo "  bumping ${owner}/${repo} -> ${bump_tag} (${commit_sha})"
   fi
-
-  echo "  bumping ${owner}/${repo} -> ${bump_tag} (${commit_sha})"
 
   # Rewrite every occurrence of this exact owner/repo/subpath@sha pin,
   # across every *.yml under ASSETS_DIR (not just scan_targets -- a
