@@ -7,7 +7,7 @@
 # territory (the converger overwrites it from assets/ on every tick), so
 # a repo-own script placed there would be destroyed on the next sweep.
 #
-# Keeps every `uses: <owner>/<repo>[/<path>]@<sha> # v<ver>` pin in
+# Keeps every `uses: <owner>/<repo>[/<path>]@<sha>[ # v<ver>]` pin in
 # assets/*.yml current, applying the SAME update policy the rendered
 # `github-actions` Dependabot ecosystem applies on every managed repo
 # (see renderEcosystemBlock in src/converge/render.ts, which renders
@@ -40,8 +40,9 @@
 # WHAT THIS SCRIPT DOES: discovers pins, resolves each owner/repo's
 # eligible upstream release via the GitHub API (through `gh api`, all
 # READ-ONLY calls -- repos/*/releases, advisories, contents,
-# git/ref/tags, git/tags), and rewrites the SHA + trailing `# vX.Y.Z` comment in
-# place, everywhere that pin occurs across assets/*.yml. It does NOT
+# git/ref/tags, git/tags), and rewrites the SHA and the trailing
+# `# vX.Y.Z` comment in place, adding the comment where the pin had
+# none, everywhere that pin occurs across assets/*.yml. It does NOT
 # create a branch, commit, push, or open a PR -- that git/PR plumbing
 # lives in the calling workflow (.github/workflows/assets-pin-bump.yml),
 # which only proceeds to commit when this script actually changed
@@ -228,9 +229,9 @@ resolve_bump() {
   # pure data operation reading each file's own bytes, never by shell
   # string interpolation or a CLI argument), so they are always inert
   # data, never program text. `current_version` is our own trusted
-  # value and still arrives via argv directly. The
-  # Python source itself is a quoted heredoc (<<'PY'), so no shell
-  # expansion happens inside it at all.
+  # value and still arrives via argv directly. The Python source itself
+  # is a quoted heredoc (<<'PY'), so no shell expansion happens inside
+  # it at all.
   local combined_json_file
   combined_json_file="$(mktemp)"
   jq -n --slurpfile releases "$releases_file" --slurpfile advisories "$advisories_file" \

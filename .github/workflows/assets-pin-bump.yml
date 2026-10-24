@@ -15,8 +15,8 @@
 #
 # All of the update-policy DECISION logic (security-bypass, 7-day soak
 # for every release, semver-major included) lives in
-# scripts/bump-asset-pins.sh, which only
-# rewrites files -- it never touches git or opens a PR. This workflow
+# scripts/bump-asset-pins.sh, which only rewrites files -- it never
+# touches git or opens a PR. This workflow
 # owns that plumbing: it runs the script, and only if it actually
 # changed something (`git status --porcelain` is non-empty) does it
 # commit, push a branch, and open a PR. No eligible bumps -> no diff ->
