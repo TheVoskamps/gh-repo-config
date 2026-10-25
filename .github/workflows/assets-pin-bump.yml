@@ -71,7 +71,7 @@ name: assets-pin-bump
 
 on:
   schedule:
-    # Daily at 09:00 UTC. Idempotent (no eligible bump -> no PR), so
+    # Daily at 09:00 UTC. Idempotent (no pin to rewrite -> no PR), so
     # over-running is harmless.
     - cron: "0 9 * * *"
   workflow_dispatch: {}

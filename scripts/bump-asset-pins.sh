@@ -50,8 +50,8 @@
 # create a branch, commit, push, or open a PR -- that git/PR plumbing
 # lives in the calling workflow (.github/workflows/assets-pin-bump.yml),
 # which only proceeds to commit when this script actually changed
-# something (`git status --porcelain` is non-empty). No eligible bumps
-# -> no changed files -> no branch, no PR.
+# something (`git status --porcelain` is non-empty). No SHA to move and
+# no comment to add -> no changed files -> no branch, no PR.
 #
 # Because every call this script makes is read-only, the CALLER can run
 # it with nothing more than the ambient github.token (contents: read).
@@ -72,7 +72,7 @@
 # Requires: gh (authenticated via GITHUB_TOKEN / GH_TOKEN), python3, jq.
 #
 # Exit codes:
-#   0 -- ran to completion (with or without any eligible bump found)
+#   0 -- ran to completion (with or without any pin rewritten)
 #   1 -- usage / environment error
 #
 # bash 3.2 compatible (no `mapfile`) so the script and its self-test run
