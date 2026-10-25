@@ -129,12 +129,27 @@ jobs:
           persist-credentials: false
 
       - name: Run bump-asset-pins
+        id: bump
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/bump-asset-pins.sh
+        run: |
+          bash scripts/bump-asset-pins.sh | tee "$RUNNER_TEMP/bump.log"
+
+          # The script's summary line carries its own per-pin counts:
+          # `bumped` pins moved to a new SHA, `annotated` pins kept their
+          # SHA and only gained a comment. A run that found no
+          # workflow-shaped file prints no summary, and counts as zero.
+          summary_re='^bump-asset-pins: checked [0-9]+ distinct pin\(s\), ([0-9]+) bumped, ([0-9]+) annotated\.$'
+          bumped="$(sed -nE "s/${summary_re}/\\1/p" "$RUNNER_TEMP/bump.log")"
+          annotated="$(sed -nE "s/${summary_re}/\\2/p" "$RUNNER_TEMP/bump.log")"
+          echo "bumped=${bumped:-0}" >> "$GITHUB_OUTPUT"
+          echo "annotated=${annotated:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Check for changes
         id: diff
+        env:
+          BUMPED: ${{ steps.bump.outputs.bumped }}
+          ANNOTATED: ${{ steps.bump.outputs.annotated }}
         run: |
           if ! git status --porcelain assets/ | grep -q .; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -143,25 +158,17 @@ jobs:
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
-          # Classify the rewritten `uses:` lines with their trailing
-          # comments stripped: a removed line that some added line
-          # matches kept its SHA and only changed its comment; one that
-          # no added line matches moved its SHA.
-          export LC_ALL=C
-          git diff -U0 -- assets/ > "$RUNNER_TEMP/pins.diff"
-          { grep -E '^-[[:space:]]*-?[[:space:]]*uses:' "$RUNNER_TEMP/pins.diff" || true; } \
-            | sed -E 's/^-//; s/[[:space:]]*(#.*)?$//' | sort > "$RUNNER_TEMP/pins.removed"
-          { grep -E '^\+[[:space:]]*-?[[:space:]]*uses:' "$RUNNER_TEMP/pins.diff" || true; } \
-            | sed -E 's/^\+//; s/[[:space:]]*(#.*)?$//' | sort > "$RUNNER_TEMP/pins.added"
-          sha_moved="$(comm -23 "$RUNNER_TEMP/pins.removed" "$RUNNER_TEMP/pins.added" | wc -l)"
-          comment_only="$(comm -12 "$RUNNER_TEMP/pins.removed" "$RUNNER_TEMP/pins.added" | wc -l)"
-          echo "Pin lines with a moved SHA: ${sha_moved}; with only a comment added: ${comment_only}."
-          if [ "$sha_moved" -gt 0 ]; then
+          # Classify the run by the counts bump-asset-pins reported,
+          # never by re-reading the diff: when one pin moves onto the SHA
+          # another pin of the same action moves off, that `uses:` line
+          # sits on both sides of the diff although no pin kept its SHA.
+          echo "Pins with a moved SHA: ${BUMPED}; with only a comment added: ${ANNOTATED}."
+          if [ "$BUMPED" -gt 0 ]; then
             echo "sha_moved=true" >> "$GITHUB_OUTPUT"
           else
             echo "sha_moved=false" >> "$GITHUB_OUTPUT"
           fi
-          if [ "$comment_only" -gt 0 ]; then
+          if [ "$ANNOTATED" -gt 0 ]; then
             echo "comment_only=true" >> "$GITHUB_OUTPUT"
           else
             echo "comment_only=false" >> "$GITHUB_OUTPUT"
