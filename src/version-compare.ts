@@ -13,7 +13,7 @@
  * prerelease `CURRENT_VERSION` is *rejected*, not tolerated:
  * `test/version.test.js` asserts it against an anchored
  * `/^\d+\.\d+\.\d+$/`, so `0.3.0-rc.1` (or `0.3.0+build5`) fails
- * `npm test` and cannot ship.
+ * `pnpm test` and cannot ship.
  *
  * Rejecting is the only option because a prerelease and its release
  * share an `X.Y.Z` core, which this comparison cannot tell apart: a

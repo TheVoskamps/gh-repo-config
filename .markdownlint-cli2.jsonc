@@ -1,6 +1,6 @@
 {
-  // Owns WHAT gets linted, so every caller agrees: `npm run lint:md`
-  // and a bare `markdownlint-cli2` lint the same set. Rule configuration stays in
+  // Owns WHAT gets linted, so every caller agrees: `pnpm lint` and a
+  // bare `markdownlint-cli2` lint the same set. Rule configuration stays in
   // `.markdownlint.jsonc`; this file is globs and ignores only.
   "globs": ["**/*.md"],
   "ignores": [

@@ -1,11 +1,11 @@
 # The lint tools CI runs, declared so a host has them on PATH.
 
 [tools]
-actionlint = "latest"
-markdownlint-cli2 = "latest"
-"npm:@prantlf/jsonlint" = "latest"
-oxfmt = "latest"
-oxlint = "latest"
-shellcheck = "latest"
-tombi = "latest"
-yamllint = "latest"
+actionlint = "1.7.12"
+markdownlint-cli2 = "0.23.3"
+"npm:@prantlf/jsonlint" = "17.0.1"
+oxfmt = "0.73.0"
+oxlint = "1.88.0"
+shellcheck = "0.11.0"
+tombi = "1.8.6"
+yamllint = "1.38.0"

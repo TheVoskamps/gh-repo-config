@@ -5,20 +5,10 @@
 ### Committed code imports only what `package.json` declares
 
 No import the diff adds under `src/`, `test/`, or `assets/` names a
-package the root `package.json` does not declare. `npm test` backs the
-`ci-required` check, so an undeclared transitive import couples that
-check to another package's dependency graph. The live case is
-`js-yaml`, which resolves only as a dependency of `markdownlint-cli2`:
-tests inspect rendered YAML with hand-rolled string helpers instead.
-Scratch under `.claude/tmp/<task slug>/` may import it, and a real
-parse there is the oracle a hand-rolled helper is cross-checked
-against.
-
-### A `js-yaml` import uses the namespace form
-
-Every `js-yaml` import is `import * as yaml from "js-yaml"`: the
-version `package-lock.json` hoists has named exports only, so a default
-import throws.
+package the root `package.json` does not declare. pnpm links only
+declared packages into the root `node_modules`, so an undeclared import
+does not resolve. Tests inspect rendered YAML with hand-rolled string
+helpers, since no YAML parser is declared.
 
 ### A test fixture never coincides with the runtime value it stands in for
 
@@ -62,32 +52,19 @@ names itself in the failure.
 
 ## For Authors and Checkers
 
-### Code passes the linter for its format, run as CI runs it
+### Code passes `pnpm lint`
 
-Every Code file the diff touches passes the linter for its format, run
-from the worktree root as the binary on `PATH`, in exactly this form:
-
-- shell script (`assets/*.sh`, `scripts/*.sh`, `template/scripts/*.sh`):
-  `shellcheck assets/*.sh scripts/*.sh template/scripts/*.sh`, and
-  `bash -n <file>` on each for syntax.
-- GitHub Actions workflow (`.github/workflows/*.yml`, and each
-  `assets/*.yml` with a top-level `on:`):
-  `grep -l --null '^on:' assets/*.yml | xargs -0 actionlint -shellcheck= .github/workflows/*.yml`.
-  `-shellcheck=` turns off actionlint's own shellcheck pass over `run:`
-  blocks; a bare `actionlint` picks up `shellcheck` from `PATH` and
-  fails on `SC2016` findings CI never reports.
-- TypeScript: `npm run build`, whose `tsc` is the type check.
-- JS and TS: `oxlint --deny-warnings`.
-- YAML: `yamllint .`, configured by `.yamllint`.
-- JSON: `git ls-files -z '*.json' | xargs -0 jsonlint --quiet`. A
-  `.jsonc` file goes through `oxfmt` alone.
-- TOML: `tombi lint`.
-- formatting of JS, TS, JSON, JSONC, YAML, and TOML: `oxfmt --check`,
-  configured by `.oxfmtrc.json`. A bare `oxfmt` writes the fix.
+Every Code file the diff touches passes `pnpm lint`, run from the
+worktree root; `pnpm format` writes the formatting fixes it reports.
+Run a linter only through `pnpm lint`, which spells each the way CI
+runs it: actionlint's `-shellcheck=`, for one, turns off its own
+shellcheck pass over `run:` blocks, so a bare `actionlint` picks up
+`shellcheck` from `PATH` and fails on `SC2016` findings CI never
+reports.
 
 A linter absent from `PATH` is a stop-and-report, never an install, and
-the report gives the PR's `gh pr checks <N>` state, since CI runs every
-one of these linters.
+the report gives the PR's `gh pr checks <N>` state, since CI runs
+`pnpm lint`.
 
 ### A TSDoc comment on an exported symbol states its contract and why
 

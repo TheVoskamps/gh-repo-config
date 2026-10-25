@@ -7,7 +7,7 @@ Every PR bumps `version` in the root `package.json` past main's
 never a release tarball, and skips every repo already stamped at that
 version, so a change merged without a bump reaches no repo a prior
 sweep stamped. The version compare reads only the core, so a
-prerelease or build identifier delivers nothing and fails `npm test`.
+prerelease or build identifier delivers nothing and fails `pnpm test`.
 Re-check the bump after a rebase, since a concurrent merge may have
 taken the value you picked. Semver picks the component; the move to
 `1.0.0` is a human's decision, never routine work.

@@ -9,16 +9,15 @@ with this package's `version`.
 ## Commands
 
 ```bash
-npm ci                      # install from the lockfile
-npm run build               # TypeScript -> dist/
-npm run build && npm test   # tests import dist/, so build first
-npm run lint:md
+pnpm install --frozen-lockfile  # install from the lockfile
+pnpm run build                  # TypeScript -> dist/
+pnpm run build && pnpm test     # tests import dist/, so build first
+pnpm lint                       # every linter, as CI runs them
+pnpm format                     # rewrite the tree's formatting
 ```
 
-`npm run lint:md` takes no arguments: `.markdownlint-cli2.jsonc` owns
-the linted set, so a caller passing its own globs lints a different set
-than CI does. That set includes `.claude/agent-memory/**/*.md`, so an
-agent-memory entry file needs a `# H1` as its first line after the
+`pnpm lint`'s Markdown set includes `.claude/agent-memory/**/*.md`, so
+an agent-memory entry file needs a `# H1` as its first line after the
 front matter.
 
 The Bash tool runs zsh, which aborts the whole call before any part of
