@@ -2,7 +2,7 @@
 # renderPrAutomationTemplate) into the target repo at
 # .github/workflows/auto-enable-automerge.yml.
 #
-# Placeholders (see the github-setup plugin payload README for the convention):
+# Placeholders, each substituted by renderPrAutomationTemplate:
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
 #   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
@@ -86,9 +86,8 @@ on:
 # Both reasons are properties of the secrets, so they hold for the
 # private key exactly as they do for the Client ID, and wherever else
 # these secrets are read.
-# Set both by hand, at that scope, in both stores: the interactive
-# /gh-repo-setup-pr-automation skill seeds an App-ID secret
-# (<prefix>_APP_ID) and no Client-ID secret at all. The mint step below
+# The converger provisions neither: set both by hand, at that scope, in
+# both stores. The mint step below
 # feeds the Client ID to actions/create-github-app-token's client-id:
 # input, the non-deprecated one; its app-id: input carries an upstream
 # deprecationMessage, so passing that one warns on every run on every

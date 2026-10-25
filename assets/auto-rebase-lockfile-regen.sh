@@ -2,9 +2,9 @@
 #
 # auto-rebase-lockfile-regen.sh
 #
-# Rendered by /gh-repo-setup-pr-automation into the target repo at
-# .github/scripts/auto-rebase-lockfile-regen.sh. It has NO placeholders;
-# it ships verbatim.
+# Shipped byte-for-byte by this repo's converger (src/converge/files.ts's
+# VERBATIM_SCRIPTS) into the target repo at
+# .github/scripts/auto-rebase-lockfile-regen.sh. It has NO placeholders.
 #
 # Regenerate npm and pnpm lockfiles that are desynced from their
 # manifest, the single most common Dependabot failure: package.json

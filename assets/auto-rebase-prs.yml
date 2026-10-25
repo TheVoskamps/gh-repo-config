@@ -2,7 +2,7 @@
 # renderPrAutomationTemplate) into the target repo at
 # .github/workflows/auto-rebase-prs.yml.
 #
-# Placeholders (see the github-setup plugin payload README for the convention):
+# Placeholders, each substituted by renderPrAutomationTemplate:
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
 #   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
@@ -16,10 +16,10 @@
 #                        "<repo>-auto-rebase[bot]"
 #   __REQUIRED_CHECK_WORKFLOW__  name of the repo's required-check
 #                        workflow that, on completion, should trigger a
-#                        rebase pass (e.g. no-back-merging-guard). If the
-#                        repo has no such workflow, the
-#                        /gh-repo-setup-pr-automation skill drops this
-#                        workflow_run trigger when rendering.
+#                        rebase pass (e.g. no-back-merging-guard). The
+#                        trigger always renders: the converger ships that
+#                        workflow (src/converge/files.ts's
+#                        RENDERED_WORKFLOWS) in the same converger PR.
 #   __DO_NOT_MERGE_LABEL__  label that opts a PR out of automation
 #   __REST_MERGE_METHOD__  REST merge method (lowercase): merge | squash
 #                        | rebase. Used by the Dependabot REST-merge
@@ -27,11 +27,9 @@
 #   __INSTALL_GATE_WORKFLOW__  name of the dependency-install-gate
 #                        workflow whose failing check signals a
 #                        lockfile desync (e.g. dependency-install-gate).
-#                        Drives the #1218 lockfile-regen pass below. If
-#                        the repo has no such workflow, the
-#                        /gh-repo-setup-pr-automation skill drops the
-#                        lockfile-regen step (and the auto-rebase-lockfile-
-#                        regen.sh script) when rendering.
+#                        Drives the #1218 lockfile-regen pass below. The
+#                        pass always renders, for the same reason as the
+#                        __REQUIRED_CHECK_WORKFLOW__ trigger above.
 #   __INSTALL_GATE_CHECK__  name of the CheckRun within
 #                        __INSTALL_GATE_WORKFLOW__ that fails on a lockfile
 #                        desync (e.g. install-gate-required).
@@ -247,9 +245,8 @@ on:
 # That is one provisioning requirement on the secret objects, so
 # satisfying it once covers every workflow that reads them;
 # auto-enable-automerge.yml's header states why each half of it is
-# needed. Set both by hand: the interactive /gh-repo-setup-pr-automation
-# skill seeds an App-ID secret (<prefix>_APP_ID) and no Client-ID secret
-# at all. The mint step below feeds the Client ID to
+# needed. The converger provisions neither: set both by hand. The mint
+# step below feeds the Client ID to
 # actions/create-github-app-token's client-id: input, the non-deprecated
 # one; its app-id: input carries an upstream deprecationMessage.
 # Until the App is provisioned the first workflow run fails fast at the
@@ -587,9 +584,7 @@ jobs:
       # on a DIFFERENT trigger (the dependency-install-gate's
       # `__INSTALL_GATE_CHECK__` check failing) and on a DIFFERENT
       # candidate set (any author, including Dependabot). See the header
-      # comment. The /gh-repo-setup-pr-automation skill drops this whole
-      # step (and the auto-rebase-lockfile-regen.sh script) when the repo
-      # has no dependency-install-gate workflow to key off.
+      # comment.
       # ---------------------------------------------------------------
       - name: Regenerate desynced lockfiles on gate-red PRs
         env:

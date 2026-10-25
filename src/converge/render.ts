@@ -243,12 +243,10 @@ export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
  * {@link renderTemplate} already resolves
  * (`__GH_ORG__`/`__GH_REPO__`/`__DEFAULT_BRANCH__`).
  *
- * The full surface always renders — no conditional-drop logic (unlike
- * the interactive `gh-repo-setup-pr-automation` skill, which drops the
- * `workflow_run` trigger / REST-merge job / regen scripts when a repo
- * lacks the workflows they key off). On a managed repo the gates and
- * guards are guaranteed present in the same per-repo converger PR, so
- * every placeholder always resolves.
+ * The full surface always renders, with no conditional-drop logic: the
+ * `workflow_run` trigger and the lockfile-regen pass key off the gate
+ * and guard workflows `src/converge/files.ts` ships in
+ * the same per-repo converger PR, so every placeholder always resolves.
  *
  * @param options per-org inputs; `prAutomationIdentity` defaults to
  *   {@link DEFAULT_PR_AUTOMATION_IDENTITY} when absent.

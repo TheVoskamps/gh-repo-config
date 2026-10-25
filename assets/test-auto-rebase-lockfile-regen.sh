@@ -2,9 +2,10 @@
 #
 # test-auto-rebase-lockfile-regen.sh
 #
-# Rendered by /gh-repo-setup-pr-automation into the target repo at
+# Shipped byte-for-byte by this repo's converger (src/converge/files.ts's
+# VERBATIM_SCRIPTS) into the target repo at
 # .github/scripts/test-auto-rebase-lockfile-regen.sh. It has NO
-# placeholders; it ships verbatim.
+# placeholders.
 #
 # Self-test for .github/scripts/auto-rebase-lockfile-regen.sh. Builds
 # throwaway git repos under a temp dir and FAKE `npm`, `pnpm`, and
