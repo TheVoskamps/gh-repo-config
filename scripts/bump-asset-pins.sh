@@ -28,9 +28,10 @@
 #   - A pin whose trailing comment is not a full `# vX.Y.Z` (none, or
 #     `# v4`) has no current version, so no advisory can be shown to
 #     affect it and the security bypass does not apply. It moves to the
-#     latest release at least 7 days old whose action.yml, when it
-#     declares a `node*` runtime in `runs.using`, declares node24 or
-#     later, and gains that release's `# vX.Y.Z` comment.
+#     latest release at least 7 days old whose action.yml declares, in
+#     `runs.using`, node24 or later or a runtime that is not `node*`,
+#     and gains that release's `# vX.Y.Z` comment. A release whose
+#     `runs.using` cannot be read is never selected.
 #   - A bare occurrence of a SHA that another occurrence pins with a
 #     `# vX.Y.Z` comment follows that versioned pin: it moves with it
 #     when a release is selected, and otherwise keeps its SHA and gains
