@@ -13,7 +13,10 @@
  * - **One branch + PR per repo per sweep run**, shared by all
  *   file-rendering concerns. A prior run's still-open branch is *reset*
  *   onto the current default-branch head with the newly rendered files
- *   (force-update the ref) rather than opening a second PR.
+ *   (force-update the ref) rather than opening a second PR — unless it
+ *   already holds exactly that tree on exactly that parent, in which
+ *   case it is left alone, since an identical re-push restarts the PR's
+ *   checks and holds off the merge pass for nothing.
  * - **Whole-file compare.** A file differs when its content differs OR
  *   (for a script) its content matches but its mode is not `100755`.
  * - **No diff → no branch, no PR.** An already-converged repo is a
@@ -33,7 +36,7 @@
  *   lands on it. Draft state is the hold itself: nothing merges a draft
  *   PR, so the reservation does not rest on a ruleset that a first-tick
  *   sweeper repo does not have yet, nor on any workflow's cooperation.
- *   The hold is re-asserted on every tick that commits, so marking such
+ *   The hold is re-asserted on every tick with a diff, so marking such
  *   a PR ready without merging it holds only until the next one.
  *   Under a policy that stops reserving that path — `auto` or `off` —
  *   the release runs instead: a draft PR on that same branch is marked
@@ -125,7 +128,9 @@ function hasOwnCopy(desired: DesiredFile, existingPaths: ReadonlySet<string>): b
  * The commit's base is always the **current default-branch head**, so a
  * stale prior-run branch is reset onto the latest default head rather
  * than stacked on an outdated base — the "update the existing branch"
- * path the issue calls for.
+ * path the issue calls for. An open PR's branch whose head already has
+ * this tree and that single parent gets no commit and no ref update,
+ * and its result carries `unchanged: true`.
  *
  * @param client the git-data/PR client (already authenticated).
  * @param owner the target repo's owner (org/user).
@@ -183,9 +188,10 @@ export async function convergeRepoFiles(
   }
 
   // Create a blob per changed file, then one tree overlaying them on the
-  // default-branch head's tree, then a commit, then point the work
-  // branch at it. The git-data flow lets each tree entry carry an
-  // explicit mode, so scripts land 100755.
+  // default-branch head's tree, then — unless the work branch already
+  // holds that tree — a commit, then point the work branch at it. The
+  // git-data flow lets each tree entry carry an explicit mode, so scripts
+  // land 100755.
   const entries: { path: string; mode: string; sha: string }[] = [];
   for (const file of changed) {
     const sha = await client.createBlob(owner, repo, file.content);
@@ -196,48 +202,56 @@ export async function convergeRepoFiles(
     });
   }
   const treeSha = await client.createTree(owner, repo, baseSha, entries);
-  const commitSha = await client.createCommit(
-    owner,
-    repo,
-    commitMessage(changedPaths),
-    treeSha,
-    baseSha,
-  );
 
-  // This commit's own paths decide the hold. They are diffed against the
-  // DEFAULT branch, so the anchor is in every tick's changed set for as
-  // long as the PR is unmerged, and the hold is therefore re-asserted
-  // each tick: a maintainer who marks the held PR ready and then waits
-  // has it drafted again on the next one. Landing it means marking it
-  // ready and merging it in one sitting. The failure direction is
-  // deliberate — more holding, never an unattended merge.
+  // This tick's changed paths decide the hold. They are diffed against
+  // the DEFAULT branch, so the anchor is in every tick's changed set for
+  // as long as the PR is unmerged, and the hold is therefore re-asserted
+  // each tick, an unchanged branch included: a maintainer who marks the
+  // held PR ready and then waits has it drafted again on the next one.
+  // Landing it means marking it ready and merging it in one sitting. The
+  // failure direction is deliberate — more holding, never an unattended
+  // merge.
   const reserved = sweeperHumanApprovalPaths(owner, repo, options);
   const holdForHuman = changedPaths.some((p) => reserved.includes(p));
 
-  // Reset the fixed work branch onto the new commit (force-update when a
+  // Reset the fixed work branch onto a new commit (force-update when a
   // prior-run branch is still around), then open the PR unless one is
-  // already open for that branch (in which case the branch update above
-  // already carries the new files into the existing PR).
+  // already open for that branch (in which case the branch update
+  // already carries the new files into the existing PR). An open PR's
+  // branch that already holds this tree on this base is left untouched.
   const existingPr = await client.findOpenPullRequest(
     owner,
     repo,
     CONVERGE_BRANCH,
   );
-  await client.setBranchRef(
-    owner,
-    repo,
-    CONVERGE_BRANCH,
-    commitSha,
-    existingPr !== undefined,
-  );
+  const unchanged =
+    existingPr !== undefined &&
+    (await branchHoldsTree(client, owner, repo, treeSha, baseSha));
+  if (!unchanged) {
+    const commitSha = await client.createCommit(
+      owner,
+      repo,
+      commitMessage(changedPaths),
+      treeSha,
+      baseSha,
+    );
+    await client.setBranchRef(
+      owner,
+      repo,
+      CONVERGE_BRANCH,
+      commitSha,
+      existingPr !== undefined,
+    );
+  }
 
   if (existingPr) {
     // Under a policy that no longer reserves the anchor (`auto`, or
     // `off`), a draft on this branch is a hold the sweep itself placed
     // and whose justification is gone, and only the sweep can lift it —
     // nothing else ever marks a converger PR ready. It is lifted here,
-    // after the branch reset above, because under `off` that reset is
-    // what drops the anchor from the branch.
+    // once the branch holds this tick's tree — by the reset above, or
+    // because it already did — because under `off` that tree is what
+    // drops the anchor from the branch.
     const releaseHold =
       existingPr.draft && sweeperPolicyReleasesHold(owner, repo, options);
     if (holdForHuman && !existingPr.draft) {
@@ -261,7 +275,8 @@ export async function convergeRepoFiles(
       pullRequest: {
         number: existingPr.number,
         url: existingPr.url,
-        updated: true,
+        updated: !unchanged,
+        unchanged,
         draft: (existingPr.draft || holdForHuman) && !releaseHold,
       },
       noop: false,
@@ -279,9 +294,36 @@ export async function convergeRepoFiles(
   );
   return {
     changed: changedPaths,
-    pullRequest: { ...created, updated: false, draft: holdForHuman },
+    pullRequest: {
+      ...created,
+      updated: false,
+      unchanged: false,
+      draft: holdForHuman,
+    },
     noop: false,
   };
+}
+
+/**
+ * Decide whether {@link CONVERGE_BRANCH}'s head is already the commit
+ * this tick would write: its tree is `treeSha` and its only parent is
+ * `baseSha`. A default branch that moved since that commit fails the
+ * parent test, so the branch is still reset onto the new head.
+ */
+async function branchHoldsTree(
+  client: ContentsClient,
+  owner: string,
+  repo: string,
+  treeSha: string,
+  baseSha: string,
+): Promise<boolean> {
+  const headSha = await client.getBranchHeadSha(owner, repo, CONVERGE_BRANCH);
+  const head = await client.getCommit(owner, repo, headSha);
+  return (
+    head.treeSha === treeSha &&
+    head.parentShas.length === 1 &&
+    head.parentShas[0] === baseSha
+  );
 }
 
 /** The commit message for a converge commit, listing the changed paths. */

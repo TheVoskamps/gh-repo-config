@@ -24,7 +24,8 @@
  *   #92).
  * - Merge: `PUT /repos/{owner}/{repo}/pulls/{number}/merge`, merge
  *   method `merge` (merge-commit only, per the org's merge-commit-only
- *   standard — never squash, never rebase).
+ *   standard — never squash, never rebase), pinned by `sha` to the head
+ *   whose checks were evaluated.
  */
 
 /** A single open PR, projected to the fields the merge pass needs. */
@@ -105,21 +106,23 @@ export type MergeOutcome =
    * (issue #92). Either it changes a path the caller reserved for human
    * approval (a sweeper repo's own trust-anchor workflow under
    * `sweeper-update-policy: manual`), or it is a draft — including one a
-   * maintainer drafted by hand on any managed repo. Left open and
-   * updated every tick until a human marks it ready and merges it.
+   * maintainer drafted by hand on any managed repo. Left open, its branch
+   * kept converged every tick, until a human marks it ready and merges
+   * it.
    * Expected, not a failure and not a retry: while the reservation
    * stands, no later tick resolves this one on its own, unlike the
    * other left-open outcomes. The one exception is the reservation
    * being withdrawn — a sweeper repo moved to `auto` or `off` has its
-   * drafted PR marked ready by the next tick that commits (see
+   * drafted PR marked ready by the next tick with a diff (see
    * `converge/files.ts`'s `sweeperPolicyReleasesHold`), which is the
    * sweep releasing its own hold rather than resolving the outcome.
    */
   | "awaiting-human"
   /**
    * Checks were green and mergeable at read time, but the merge call
-   * itself got a 405/409 (head moved, or no-longer-mergeable) between
-   * the read and the merge attempt. Retry next tick, not a failure.
+   * itself got a 405/409 (head moved past the evaluated SHA, or
+   * no-longer-mergeable) between the read and the merge attempt. Retry
+   * next tick, not a failure.
    */
   | "awaiting-retry";
 
@@ -137,7 +140,7 @@ export interface EvaluateAndMergeOptions {
    * `converge/writer.ts` puts such a PR in, off the same path list
    * (`converge/files.ts`'s `sweeperHumanApprovalPaths`). Keep both: a
    * human who marks the held PR ready without merging it clears the
-   * draft lock until the next tick that commits re-applies it, and this
+   * draft lock until the next tick with a diff re-applies it, and this
    * list is what holds the PR in that window — which is the whole reason
    * it is still consulted on a PR the draft check would also catch.
    */
@@ -413,22 +416,30 @@ export class MergeClient {
 
   /**
    * REST-merge one PR with the `merge` method (merge-commit only, per
-   * the org's merge-commit-only standard). Returns `true` on success.
-   * Returns `false` (rather than throwing) on a 405 or 409 — "head
-   * moved" / "not mergeable" between the read and this call — so the
-   * caller can record it as awaiting-retry instead of a hard failure.
-   * Any other non-ok status throws.
+   * the org's merge-commit-only standard), pinned to `headSha`. Returns
+   * `true` on success. Returns `false` (rather than throwing) on a 405
+   * or 409 — "not mergeable", or a PR head that is no longer `headSha` —
+   * so the caller can record it as awaiting-retry instead of a hard
+   * failure. Any other non-ok status throws.
+   *
+   * The pin is what ties the merge to the checks: the converger App is a
+   * bypass actor on `protect-main`, so the ruleset's required checks do
+   * not stop it merging a head they never ran on, and without `sha`
+   * GitHub merges whatever the head is at call time.
+   *
+   * @param headSha the PR head the caller evaluated the checks on.
    */
   async mergePullRequest(
     owner: string,
     repo: string,
     number: number,
+    headSha: string,
   ): Promise<boolean> {
     const url = `${this.apiBase}/repos/${owner}/${repo}/pulls/${number}/merge`;
     const res = await this.doFetch(url, {
       method: "PUT",
       headers: { ...this.headers(), "content-type": "application/json" },
-      body: JSON.stringify({ merge_method: "merge" }),
+      body: JSON.stringify({ merge_method: "merge", sha: headSha }),
     });
     if (res.status === 405 || res.status === 409) {
       return false;
@@ -545,7 +556,12 @@ export class MergeClient {
       };
     }
 
-    const merged = await this.mergePullRequest(owner, repo, pr.number);
+    const merged = await this.mergePullRequest(
+      owner,
+      repo,
+      pr.number,
+      pr.headSha,
+    );
     if (!merged) {
       return {
         pr,

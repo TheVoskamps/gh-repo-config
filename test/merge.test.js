@@ -209,15 +209,15 @@ test("evaluateRequiredChecks with an empty required-context list makes no networ
   assert.deepEqual(results, []);
 });
 
-test("mergePullRequest issues a merge-commit-only PUT and returns true on success", async () => {
+test("mergePullRequest issues a merge-commit-only PUT pinned to the given head and returns true on success", async () => {
   const fetch = fakeFetch([
     { match: "/pulls/5/merge", method: "PUT", status: 200, body: { merged: true } },
   ]);
   const client = new MergeClient({ token: "t", fetch });
-  const merged = await client.mergePullRequest("Org", "repo", 5);
+  const merged = await client.mergePullRequest("Org", "repo", 5, "sha5");
   assert.equal(merged, true);
   const call = fetch.calls.find((c) => c.method === "PUT");
-  assert.equal(JSON.parse(call.body).merge_method, "merge");
+  assert.deepEqual(JSON.parse(call.body), { merge_method: "merge", sha: "sha5" });
 });
 
 test("mergePullRequest returns false (not throw) on 405/409", async () => {
@@ -226,7 +226,7 @@ test("mergePullRequest returns false (not throw) on 405/409", async () => {
       { match: "/pulls/5/merge", method: "PUT", status, body: {} },
     ]);
     const client = new MergeClient({ token: "t", fetch });
-    const merged = await client.mergePullRequest("Org", "repo", 5);
+    const merged = await client.mergePullRequest("Org", "repo", 5, "sha5");
     assert.equal(merged, false, `status ${status} should return false, not throw`);
   }
 });
@@ -236,7 +236,7 @@ test("mergePullRequest throws on other non-ok statuses", async () => {
     { match: "/pulls/5/merge", method: "PUT", status: 500, body: {} },
   ]);
   const client = new MergeClient({ token: "t", fetch });
-  await assert.rejects(() => client.mergePullRequest("Org", "repo", 5), /500/);
+  await assert.rejects(() => client.mergePullRequest("Org", "repo", 5, "sha5"), /500/);
 });
 
 test("evaluateAndMerge: all green -> merges and reports merged", async () => {
@@ -265,7 +265,10 @@ test("evaluateAndMerge: all green -> merges and reports merged", async () => {
     false,
   );
   assert.equal(result.outcome, "merged");
-  assert.ok(fetch.calls.some((c) => c.method === "PUT"));
+  // The merge is pinned to the head whose checks were rolled up, so a
+  // head that moved after the read is never merged on that verdict.
+  const put = fetch.calls.find((c) => c.method === "PUT");
+  assert.deepEqual(JSON.parse(put.body), { merge_method: "merge", sha: "sha1" });
 });
 
 test("evaluateAndMerge: empty required-check set on an unprotected branch merges too", async () => {
@@ -397,9 +400,10 @@ test("evaluateAndMerge: a 405/409 from the merge call itself is reported as awai
   assert.equal(result.outcome, "awaiting-retry");
 });
 
-// Issue #92's merge-pass exclusion. The green routes below are the same
-// ones the "all green -> merges" case uses, so the ONLY thing separating
-// a merge from an `awaiting-human` here is the reserved path.
+// The green routes below are the same ones the "all green -> merges" case
+// uses, so in each test that follows the ONLY thing separating a merge
+// from the outcome it asserts is the one input that test varies: the
+// merge call's own status, or issue #92's reserved path or draft flag.
 const GREEN_ROUTES = [
   {
     match: "/rules/branches/main",
@@ -419,6 +423,25 @@ const GREEN_ROUTES = [
 ];
 
 const OPEN_PR = { number: 1, headSha: "sha1", headRef: "work", baseRef: "main" };
+
+test("evaluateAndMerge: a 409 for a head that moved past the evaluated SHA is awaiting-retry", async () => {
+  // GitHub answers 409 when the merge's `sha` is no longer the PR head.
+  const fetch = fakeFetch([
+    ...GREEN_ROUTES.filter((r) => r.method !== "PUT"),
+    {
+      match: "/pulls/1/merge",
+      method: "PUT",
+      status: 409,
+      statusText: "Conflict",
+      body: { message: "Head branch was modified. Review and try the merge again." },
+    },
+  ]);
+  const client = new MergeClient({ token: "t", fetch });
+  const result = await client.evaluateAndMerge("Org", "repo", OPEN_PR, false);
+  assert.equal(result.outcome, "awaiting-retry");
+  const put = fetch.calls.find((c) => c.method === "PUT");
+  assert.equal(JSON.parse(put.body).sha, OPEN_PR.headSha);
+});
 
 test("evaluateAndMerge: a green PR touching a reserved path is awaiting-human and is never merged (issue #92)", async () => {
   const fetch = fakeFetch([

@@ -22,6 +22,8 @@
  *   `GET /repos/{o}/{r}/git/trees/{sha}?recursive=1`.
  * - Blob content read (compare existing vs desired):
  *   `GET /repos/{o}/{r}/git/blobs/{sha}`.
+ * - Commit read (tree + parents of the work branch's head):
+ *   `GET /repos/{o}/{r}/git/commits/{sha}`.
  * - Create blob / tree / commit:
  *   `POST /repos/{o}/{r}/git/blobs|trees|commits`.
  * - Create / update the work-branch ref:
@@ -95,6 +97,17 @@ interface RawCreated {
   readonly sha: string;
 }
 
+interface RawCommit {
+  readonly tree: { readonly sha: string };
+  readonly parents: readonly { readonly sha: string }[];
+}
+
+/** A commit's tree and parents, as the write path compares them. */
+export interface CommitInfo {
+  readonly treeSha: string;
+  readonly parentShas: readonly string[];
+}
+
 interface RawContentsFile {
   readonly type: string;
   readonly content?: string;
@@ -129,6 +142,13 @@ export interface PullRequestResult {
   readonly url: string;
   /** `true` when an existing open PR's branch was updated in place. */
   readonly updated: boolean;
+  /**
+   * `true` when an existing open PR's branch already held this tick's
+   * commit content — same tree, parented on the current default-branch
+   * head — so no commit was created and the ref was left alone. Pushing
+   * an identical commit would restart the PR's checks for nothing.
+   */
+  readonly unchanged: boolean;
   /**
    * `true` when the PR is a draft and so cannot merge (issue #92: the
    * sweeper repo's trust anchor under `sweeper-update-policy: manual`).
@@ -362,6 +382,30 @@ export class ContentsClient {
       `Failed to create tree for ${owner}/${repo}`,
     );
     return body.sha;
+  }
+
+  /**
+   * Read a commit's tree SHA and parent SHAs. The write path compares
+   * them against the commit it is about to create, since a commit with
+   * the same tree and parents carries nothing the existing one does not.
+   */
+  async getCommit(
+    owner: string,
+    repo: string,
+    sha: string,
+  ): Promise<CommitInfo> {
+    const res = await this.doFetch(
+      `${this.apiBase}/repos/${owner}/${repo}/git/commits/${sha}`,
+      { headers: this.headers() },
+    );
+    const body = await this.json<RawCommit>(
+      res,
+      `Failed to read commit ${sha} for ${owner}/${repo}`,
+    );
+    return {
+      treeSha: body.tree.sha,
+      parentShas: body.parents.map((p) => p.sha),
+    };
   }
 
   /** Create a commit with the given tree and parent; returns its SHA. */

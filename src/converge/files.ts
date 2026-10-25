@@ -388,17 +388,19 @@ export function sweeperHumanApprovalPaths(
  * anchor as a draft forever, and `manual`→`off` would leave the sweep's
  * own litter blocking every later payload change on the same branch.
  *
- * The release rides on the commit the calling tick writes, and must
- * keep doing so: under `off` the work branch stops carrying the anchor
- * only when that commit resets it onto the default head, so marking a
- * PR ready without one would offer an unattended merge exactly the
- * anchor the org just switched off. A tick with nothing to commit
- * therefore leaves the draft standing.
+ * The release rides on the tree the calling tick converges the work
+ * branch to, and must keep doing so: under `off` the work branch stops
+ * carrying the anchor only once it holds that tree on the default head,
+ * whether a fresh commit reset it there or it already held it, so
+ * marking a PR ready before then would offer an unattended merge exactly
+ * the anchor the org just switched off. A tick with no diff against the
+ * default branch builds no such tree, and therefore leaves the draft
+ * standing.
  *
  * The consequence a human must know: on the sweeper repo under `auto`
  * or `off`, hand-drafting a converger PR does not hold it — the next
- * tick that commits marks it ready again. Holding one means flipping
- * the policy back to `manual`.
+ * tick with a diff marks it ready again. Holding one means flipping the
+ * policy back to `manual`.
  */
 export function sweeperPolicyReleasesHold(
   org: string,

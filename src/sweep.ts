@@ -180,15 +180,16 @@ export interface SweepReport {
   readonly converged: readonly string[];
   /**
    * Per-repo file-convergence outcome (which files changed, whether a PR
-   * was opened/updated and its number/url, or `noop: true` when there
-   * was no diff to write) for every repo whose `converge` step returned
-   * a {@link ConvergeResult} — i.e. every repo in `converged` whose
-   * injected `converge` callback reported one. `runSweepFromEnv`'s real
-   * converge step (issue #14, {@link convergeRepoFiles}) always returns
-   * one; a test stub that returns nothing simply contributes no entry
-   * here. This is what lets a sweep run's report surface which
-   * converger PR was opened or updated per repo, rather than only
-   * whether convergence succeeded.
+   * was opened, updated, or left unchanged and its number/url, or
+   * `noop: true` when there was no diff to write) for every repo whose
+   * `converge` step returned a {@link ConvergeResult} — i.e. every repo
+   * in `converged` whose injected `converge` callback reported one.
+   * `runSweepFromEnv`'s real converge step (issue #14,
+   * {@link convergeRepoFiles}) always returns one; a test stub that
+   * returns nothing simply contributes no entry here. This is what lets
+   * a sweep run's report surface which converger PR was opened, updated,
+   * or left unchanged per repo, rather than only whether convergence
+   * succeeded.
    */
   readonly convergeResults: readonly SweepConvergeResult[];
   /**
@@ -323,7 +324,7 @@ function markFailed(
 /**
  * One-line human-readable summary of a repo's {@link ConvergeResult}, for
  * the sweep's per-repo log line — e.g. "PR #12 opened", "PR #12 updated",
- * or "no diff, no PR".
+ * "PR #12 unchanged", or "no diff, no PR".
  */
 function describeConvergeResult(result: ConvergeResult): string {
   if (result.noop) {
@@ -334,7 +335,8 @@ function describeConvergeResult(result: ConvergeResult): string {
     // dryRun with a diff: files would change but no PR is opened.
     return `${result.changed.length} file(s) would change (dry-run, no PR)`;
   }
-  return `PR #${pr.number} ${pr.updated ? "updated" : "opened"} (${pr.url})`;
+  const verb = pr.unchanged ? "unchanged" : pr.updated ? "updated" : "opened";
+  return `PR #${pr.number} ${verb} (${pr.url})`;
 }
 
 /**
@@ -478,7 +480,8 @@ export interface SweepOptions {
    * {@link ConvergeResult} describing what it wrote (or would have
    * written, under `dryRun`); when it does, `runSweep` carries it into
    * {@link SweepReport.convergeResults} so the report can surface which
-   * converger PR was opened or updated per repo. A stub that returns
+   * converger PR was opened, updated, or left unchanged per repo. A stub
+   * that returns
    * nothing (the common case in tests that don't care about file
    * convergence) simply contributes no `convergeResults` entry.
    */
@@ -1046,8 +1049,9 @@ export async function runSweepFromEnv(
   // `runSweep` records as that repo's `failed` outcome — the repo is
   // not stamped and is retried next tick. Under `dryRun` it computes the
   // file diff without writing. Its return value (which files changed,
-  // and the PR that was opened/updated, or `noop: true`) flows back into
-  // `runSweep`, which carries it into `SweepReport.convergeResults`.
+  // and the PR that was opened, updated, or left unchanged, or
+  // `noop: true`) flows back into `runSweep`, which carries it into
+  // `SweepReport.convergeResults`.
   return runSweep(client, org, CURRENT_VERSION, {
     dryRun,
     converge: async (repo: string) =>
