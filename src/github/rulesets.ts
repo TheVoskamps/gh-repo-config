@@ -15,7 +15,8 @@
  * - `PUT  /repos/{o}/{r}/rulesets/{id}` — replace a ruleset's body.
  * - `DELETE /repos/{o}/{r}/rulesets/{id}` — delete a ruleset.
  * - `GET  /orgs/{org}/installations` — resolve App slug → app_id for the
- *   bypass-actor entries (paginated).
+ *   bypass-actor entries, and each installation's granted permissions
+ *   for the PR-automation App preflight (paginated).
  */
 
 /** Config for {@link RulesetsClient}. */
@@ -78,6 +79,14 @@ export interface ExistingRuleset extends RulesetBody {
 interface RawInstallation {
   readonly app_id: number;
   readonly app_slug: string;
+  readonly permissions?: Readonly<Record<string, string>>;
+}
+
+/** One App's installation on an org, as {@link RulesetsClient.readInstallationsBySlug} returns it. */
+export interface InstallationInfo {
+  readonly appId: number;
+  /** The installation's granted permissions; `{}` when the response carries none. */
+  readonly permissions: Readonly<Record<string, string>>;
 }
 
 /**
@@ -222,14 +231,15 @@ export class RulesetsClient {
   }
 
   /**
-   * Resolve every installed App's slug → app_id for the org, via
+   * Read every App installed on the org, via
    * `GET /orgs/{org}/installations` (paginated). Returns a map keyed by
-   * app slug. A slug absent from the map is an App not installed in the
-   * org — the caller omits its bypass entry and reports, never fails.
+   * app slug, carrying each installation's app_id and granted
+   * permissions. A slug absent from the map is an App not installed in
+   * the org.
    */
-  async readAppIdsBySlug(org: string): Promise<Map<string, number>> {
+  async readInstallationsBySlug(org: string): Promise<Map<string, InstallationInfo>> {
     const perPage = 100;
-    const out = new Map<string, number>();
+    const out = new Map<string, InstallationInfo>();
     for (let page = 1; ; page++) {
       const url = `${this.apiBase}/orgs/${org}/installations?per_page=${perPage}&page=${page}`;
       const res = await this.doFetch(url, { headers: this.headers() });
@@ -243,7 +253,10 @@ export class RulesetsClient {
       };
       const installations = body.installations ?? [];
       for (const inst of installations) {
-        out.set(inst.app_slug, inst.app_id);
+        out.set(inst.app_slug, {
+          appId: inst.app_id,
+          permissions: inst.permissions ?? {},
+        });
       }
       if (installations.length < perPage) {
         break;

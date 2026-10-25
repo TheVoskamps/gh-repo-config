@@ -38,6 +38,11 @@ fails with `no matches found` and `echo =====` with `==== not found`.
 Quote both (`--include='*.md'`, `echo '====='`), and read either
 message as a failed call, never as a grep that found nothing.
 
+A sweep, dry run included, throws before reading any repo when the
+PR-automation App is not installed on the org or lacks a permission its
+fanned-out workflows need. That preflight is
+`assertPrAutomationPermissions` in `src/converge/app-permissions.ts`.
+
 ## Index
 
 - `docs/rules/workflows-and-payloads.md` — read before editing a file

@@ -505,6 +505,26 @@ test("the sweeper workflow mints with client-id, SHA-pins its actions, and verif
   assert.match(sweep.content, /GH_REPO_CONFIG_FILE: gh-repo-config\.json/);
 });
 
+test("the sweeper workflow checks the converger App's permissions between the mint and the sweep", () => {
+  const sweep = buildDesiredFiles(CTX, SWEEPER_OPTIONS).find(
+    (f) => f.path === SWEEPER_WORKFLOW_PATH,
+  );
+  const steps = sweep.content.split(/^      - name: /m).slice(1);
+  const names = steps.map((s) => s.split("\n")[0]);
+  const mint = names.indexOf("Mint converger App installation token");
+  const check = names.indexOf("Check converger App permissions");
+  const run = names.indexOf("Run sweep");
+  assert.ok(mint >= 0 && mint < check && check < run, names.join(" | "));
+  assert.match(steps[check], /gh-repo-config\.js" preflight$/m);
+
+  // Only the mint and the preflight receive the private key.
+  const withKey = names.filter((_, i) => steps[i].includes("CONVERGER_APP_PRIVATE_KEY"));
+  assert.deepEqual(withKey, [
+    "Mint converger App installation token",
+    "Check converger App permissions",
+  ]);
+});
+
 const COMMUNITY_PATHS = ["CONTRIBUTORS", "LICENSE", "PATENTS", "PRIOR_ART.md"];
 
 test("COMMUNITY_FILE_PATHS names exactly the community files, in payload order (issue #90)", () => {
