@@ -62,12 +62,9 @@
 # path>:<job id>` plus any matrix variables, so `codeql-required` and
 # `analyze-swift` get distinct categories automatically, keyed on the
 # job ids below. Within the ubuntu job the per-language SARIF files are
-# merged by the CodeQL CLI into that one analysis. Consequence to expect
-# ONCE, on the first run after this change lands: the old per-language
-# categories
-# (`/language:javascript-typescript`, ...) stop being written, so their
-# previous analyses go stale in the Security tab until GitHub ages them
-# out. Do NOT "fix" that by reinstating a literal `category:`.
+# merged by the CodeQL CLI into that one analysis, so no per-language
+# category (`/language:javascript-typescript`, ...) is written. Do NOT
+# add a literal `category:` to get one.
 #
 # SWIFT IS ITS OWN JOB, AND ONLY WHEN SWIFT IS PRESENT. Swift analysis
 # needs macOS, which bills at roughly ten times the Linux rate, so a
