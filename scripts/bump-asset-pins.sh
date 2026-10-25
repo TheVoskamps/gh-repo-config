@@ -8,10 +8,12 @@
 # a repo-own script placed there would be destroyed on the next sweep.
 #
 # Keeps every `uses: <owner>/<repo>[/<path>]@<sha>[ # v<ver>]` pin in
-# assets/*.yml current, applying the SAME update policy the rendered
-# `github-actions` Dependabot ecosystem applies on every managed repo
-# (see renderEcosystemBlock in src/converge/render.ts, which renders
-# assets/ecosystem-block.yml once per ecosystem):
+# assets/*.yml current under the policy below. Its security, soak, and
+# semver-major rules are the ones the rendered `github-actions`
+# Dependabot ecosystem applies on every managed repo (see
+# renderEcosystemBlock in src/converge/render.ts, which renders
+# assets/ecosystem-block.yml once per ecosystem); its rules for pins
+# without a full version comment are this script's own:
 #
 #   - A release that fixes a security advisory affecting the current pin
 #     is taken IMMEDIATELY, bypassing the soak (Dependabot's own cooldown

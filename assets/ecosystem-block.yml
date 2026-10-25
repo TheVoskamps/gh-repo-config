@@ -69,8 +69,8 @@
 #                        security-updates) so Dependabot opens ONE
 #                        security PR per ecosystem instead of one per
 #                        advisory — the in-file deterministic half of
-#                        grouped security updates. The settings-level toggle handles
-#                        ecosystems not listed here.
+#                        grouped security updates. The settings-level
+#                        toggle handles ecosystems not listed here.
 #
 # __NAMED_GROUPS_BLOCK__ (issue #36): ONE canonical union of every named
 # lockstep/stack group — codeql-action, aws-cdk, vite-toolchain,

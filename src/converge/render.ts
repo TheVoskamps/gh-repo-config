@@ -245,8 +245,8 @@ export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
  *
  * The full surface always renders, with no conditional-drop logic: the
  * `workflow_run` trigger and the lockfile-regen pass key off the gate
- * and guard workflows `src/converge/files.ts` ships in
- * the same per-repo converger PR, so every placeholder always resolves.
+ * and guard workflows `src/converge/files.ts` ships in the same
+ * per-repo converger PR, so every placeholder always resolves.
  *
  * @param options per-org inputs; `prAutomationIdentity` defaults to
  *   {@link DEFAULT_PR_AUTOMATION_IDENTITY} when absent.

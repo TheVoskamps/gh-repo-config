@@ -211,7 +211,8 @@ export class RepoSettingsClient {
    * Best-effort push-protection bypass lockdown: enable delegated bypass
    * so nobody may bypass push protection without review. There is no
    * clean, stable per-repo public REST toggle that sets the bypass list
-   * to "nobody" directly, so this is a best-effort repo-level enablement — never a hard failure regardless of outcome (a 404/422
+   * to "nobody" directly, so this is a best-effort repo-level
+   * enablement — never a hard failure regardless of outcome (a 404/422
    * means the endpoint/feature is unavailable; the residual manual step
    * is surfaced in the sweep report, not treated as an error).
    */

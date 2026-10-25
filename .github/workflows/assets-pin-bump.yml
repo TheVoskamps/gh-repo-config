@@ -25,9 +25,8 @@
 # a PR. This workflow owns that plumbing: it runs the script, and only
 # if it actually changed something (`git status --porcelain` is
 # non-empty) does it commit, push a branch, and open a PR whose title,
-# commit message, and body say which of the two kinds of change the run
-# made. No SHA to move and no comment to add -> no diff -> no branch, no
-# PR.
+# commit message, and body say which kinds of change the run made. No
+# SHA to move and no comment to add -> no diff -> no branch, no PR.
 #
 # Auth: this workflow MUST mint a short-lived GitHub App installation
 # token (from the AUTOMERGE_APP_CLIENT_ID / AUTOMERGE_APP_PRIVATE_KEY
