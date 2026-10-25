@@ -479,7 +479,10 @@ PY
 # ---------------------------------------------------------------------
 # Main loop.
 # ---------------------------------------------------------------------
-changed=0
+# bumped counts pins rewritten to a new SHA; annotated counts pins that
+# keep their SHA and only gain a `# vX.Y.Z` comment.
+bumped=0
+annotated=0
 pins_seen=0
 
 while IFS=$'\t' read -r owner repo subpath sha version bare; do
@@ -510,6 +513,7 @@ while IFS=$'\t' read -r owner repo subpath sha version bare; do
   # comment.
   commit_sha=""
   new_tag=""
+  rewrite_kind=""
   if [ -n "$bump_tag" ]; then
     ref_info="$(resolve_tag_ref "$owner" "$repo" "$bump_tag")"
     ref_sha="$(echo "$ref_info" | sed -n '1p')"
@@ -537,10 +541,12 @@ while IFS=$'\t' read -r owner repo subpath sha version bare; do
       else
         echo "  adding the ${bump_tag} comment to ${owner}/${repo}@${sha}"
         new_tag="$bump_tag"
+        rewrite_kind=annotated
       fi
     else
       echo "  bumping ${owner}/${repo} -> ${bump_tag} (${commit_sha})"
       new_tag="$bump_tag"
+      rewrite_kind=bumped
     fi
   else
     echo "  up to date (or no eligible release)."
@@ -554,6 +560,7 @@ while IFS=$'\t' read -r owner repo subpath sha version bare; do
     commit_sha="$sha"
     new_tag="$version"
     bare_only=1
+    rewrite_kind=annotated
   else
     bare_only=""
   fi
@@ -603,9 +610,13 @@ if changed:
 PY
   done
 
-  changed=$((changed + 1))
+  if [ "$rewrite_kind" = bumped ]; then
+    bumped=$((bumped + 1))
+  else
+    annotated=$((annotated + 1))
+  fi
 done < <(discover_pins)
 
 echo ""
-echo "bump-asset-pins: checked ${pins_seen} distinct pin(s), ${changed} bumped."
+echo "bump-asset-pins: checked ${pins_seen} distinct pin(s), ${bumped} bumped, ${annotated} annotated."
 exit 0

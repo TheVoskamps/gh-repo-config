@@ -45,6 +45,9 @@
 #      either scan order.
 #   18. Such a bare occurrence, scanned first, moves with the versioned
 #      one when a security bump is due.
+#   19. The closing summary counts SHA bumps and comment-only rewrites
+#      separately, as `M bumped, K annotated`, each count agreeing with
+#      the per-pin lines; cases 1, 2, 14, 17 and 18 check it too.
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -131,6 +134,24 @@ run_bumper() {
   return $status
 }
 
+# check_summary <log> <bumped> <annotated> <case>: passes when the
+# bumper's closing line reports <bumped> bumped and <annotated> annotated
+# pins, and the log's per-pin `bumping` and `adding the` lines number the
+# same.
+check_summary() {
+  local log="$1" want_bumped="$2" want_annotated="$3" label="$4"
+  local bumping_lines adding_lines
+  bumping_lines="$(grep -c '^  bumping ' "$log")"
+  adding_lines="$(grep -c '^  adding the ' "$log")"
+  if grep -qE "^bump-asset-pins: checked [0-9]+ distinct pin\(s\), ${want_bumped} bumped, ${want_annotated} annotated\.$" "$log" \
+    && [ "$bumping_lines" -eq "$want_bumped" ] && [ "$adding_lines" -eq "$want_annotated" ]; then
+    pass "summary reports ${want_bumped} bumped, ${want_annotated} annotated, matching the per-pin lines (${label})"
+  else
+    fail "expected the summary and per-pin lines to agree on ${want_bumped} bumped, ${want_annotated} annotated (${label})"
+    cat "$log"
+  fi
+}
+
 # ---------------------------------------------------------------------
 # Case 1 + 2: soak vs. security bypass, checked over the SAME
 # owner/repo so both policies are exercised against each other.
@@ -193,6 +214,7 @@ else
   fail "SHA and version comment did not land together on one line"
   cat "$CASE1/assets/workflow.yml"
 fi
+check_summary "$TMP_ROOT/case1.log" 1 0 "case 1"
 
 # ---------------------------------------------------------------------
 # Case 2 (age-only, no security): a plain release must soak 7 days.
@@ -226,6 +248,7 @@ else
   fail "expected no change (release still soaking) but file was rewritten"
   cat "$TMP_ROOT/case2.log"
 fi
+check_summary "$TMP_ROOT/case2.log" 0 0 "case 2"
 
 # ---------------------------------------------------------------------
 # Case 3: a soaked semver-major release IS applied for
@@ -733,6 +756,7 @@ else
   cat "$TMP_ROOT/case14.log"
   cat "$CASE14/assets/workflow.yml"
 fi
+check_summary "$TMP_ROOT/case14.log" 0 1 "case 14"
 
 # ---------------------------------------------------------------------
 # Case 15: an advisory leaves an unversioned pin's soak pool alone. The
@@ -860,6 +884,7 @@ JSON
     cat "$TMP_ROOT/case17-$order.log"
     cat "$CASE17/assets/workflow.yml"
   fi
+  check_summary "$TMP_ROOT/case17-$order.log" 0 1 "case 17, $order"
 done
 
 # ---------------------------------------------------------------------
@@ -913,6 +938,63 @@ else
   cat "$TMP_ROOT/case18.log"
   cat "$CASE18/assets/workflow.yml"
 fi
+check_summary "$TMP_ROOT/case18.log" 1 0 "case 18"
+
+# ---------------------------------------------------------------------
+# Case 19: one run that bumps a SHA and makes both kinds of comment-only
+# rewrite counts each separately. bump-owner/bump-action moves to a new
+# SHA; bare-owner/bare-action is already at its selected release's
+# commit; mixed-owner/mixed-action's bare occurrence gains its versioned
+# occurrence's comment with no bump due.
+# ---------------------------------------------------------------------
+CASE19="$TMP_ROOT/case19"
+mkdir -p "$CASE19/assets" "$CASE19/fixtures"
+make_fake_gh "$CASE19/fixtures"
+
+cat > "$CASE19/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: bump-owner/bump-action@1919191919191919191919191919191919191919 # v1.0.0
+  - uses: bare-owner/bare-action@abababababababababababababababababababab
+  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717 # v1.2.3
+  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717
+YAML
+
+cat > "$CASE19/fixtures/repos_bump-owner_bump-action_releases.json" <<JSON
+[
+  {"tag_name": "v1.1.0", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+cat > "$CASE19/fixtures/repos_bump-owner_bump-action_git_ref_tags_v1.1.0.json" <<'JSON'
+{"object": {"sha": "2020202020202020202020202020202020202020", "type": "commit"}}
+JSON
+cat > "$CASE19/fixtures/repos_bare-owner_bare-action_releases.json" <<JSON
+[
+  {"tag_name": "v2.1.0", "published_at": "$(iso_days_ago 10)", "draft": false, "prerelease": false}
+]
+JSON
+write_action_yml_fixture "$CASE19/fixtures/repos_bare-owner_bare-action_contents_action.yml_ref_v2.1.0.json" node24
+cat > "$CASE19/fixtures/repos_bare-owner_bare-action_git_ref_tags_v2.1.0.json" <<'JSON'
+{"object": {"sha": "abababababababababababababababababababab", "type": "commit"}}
+JSON
+cat > "$CASE19/fixtures/repos_mixed-owner_mixed-action_releases.json" <<JSON
+[
+  {"tag_name": "v1.2.3", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+
+run_bumper "$CASE19/assets" "$CASE19/fixtures" > "$TMP_ROOT/case19.log" 2>&1
+if grep -qxF '  - uses: bump-owner/bump-action@2020202020202020202020202020202020202020 # v1.1.0' "$CASE19/assets/workflow.yml" \
+  && grep -qxF '  - uses: bare-owner/bare-action@abababababababababababababababababababab # v2.1.0' "$CASE19/assets/workflow.yml" \
+  && [ "$(grep -cxF '  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717 # v1.2.3' "$CASE19/assets/workflow.yml")" -eq 2 ]; then
+  pass "one run bumps one pin and adds comments to two others"
+else
+  fail "expected one SHA bump and two comment-only rewrites in one run"
+  cat "$TMP_ROOT/case19.log"
+  cat "$CASE19/assets/workflow.yml"
+fi
+check_summary "$TMP_ROOT/case19.log" 1 2 "case 19"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-bump-asset-pins: ${failures} case(s) failed." >&2
