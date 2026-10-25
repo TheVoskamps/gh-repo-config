@@ -46,7 +46,7 @@
  * The `protect-main` ruleset convergence step (issue #16) is different:
  * it runs in a SEPARATE pass AFTER the merge pass, because it must not
  * require a status-check context whose producing workflow is not yet on
- * the target's default branch (the #91/#230 phantom-check guard). Per
+ * the target's default branch (the phantom-check guard). Per
  * repo per tick: file render/PR -> merge pass -> the ruleset step runs
  * only once the repo's file convergence has reached the default branch
  * (file convergence was a no-op, or its converger PR merged this tick).
@@ -193,7 +193,7 @@ export interface SweepReport {
    * Repos whose `protect-main` ruleset step was deferred this tick
    * because their file convergence PR had not yet reached the default
    * branch (opened this tick but not merged — checks pending). Per the
-   * #91/#230 ordering gate, the ruleset (which requires the file PR's
+   * ordering gate, the ruleset (which requires the file PR's
    * status-check contexts) must not be asserted until its producing
    * workflows are on the default branch. These repos are also NOT
    * stamped this tick — the next tick retries once the PR merges. Not a
@@ -725,7 +725,7 @@ export async function runSweep(
   }
 
   // The `protect-main` ruleset pass (issue #16) runs AFTER the merge pass
-  // so the #91/#230 ordering gate can observe which repos' file
+  // so the ordering gate can observe which repos' file
   // convergence reached the default branch this tick. For each repo whose
   // per-repo converge steps all succeeded:
   //   - file convergence was a no-op (nothing to merge) OR its converger

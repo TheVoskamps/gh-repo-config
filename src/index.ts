@@ -18,8 +18,8 @@
  * `src/github/code-scanning.ts`), and the `protect-main` ruleset
  * (`src/converge/ruleset.ts`, `src/github/rulesets.ts`) — the latter two
  * pure API mutations, with the ruleset asserted only after the repo's
- * file convergence has reached the default branch (the #91/#230
- * ordering gate in `src/sweep.ts`).
+ * file convergence has reached the default branch (the ordering gate
+ * in `src/sweep.ts`).
  */
 export { CURRENT_VERSION, PACKAGE_NAME } from "./version.js";
 

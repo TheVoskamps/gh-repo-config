@@ -15,7 +15,7 @@
 # status check in `protect-main` (assets/protect-main-ruleset.json),
 # which holds only because this workflow ships on every managed repo: a
 # required check that no workflow runs leaves every PR pending (the
-# issue #91/#230 phantom-check hang).
+# phantom-check hang).
 #
 # Placeholders:
 #   __DEFAULT_BRANCH__   Default branch of the target repo. The guard

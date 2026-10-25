@@ -18,7 +18,7 @@
 # a language is analyzed IFF that language's source is in the tracked
 # tree at that moment. A language that lands AFTER setup is analyzed on
 # the next PR with nothing re-installed; an absent language is not
-# analyzed at all (fails OPEN — no phantom check, issues #91/#230).
+# analyzed at all (fails OPEN — no phantom check).
 #
 # Every mode below shares ONE `present()` predicate (a `git ls-files`
 # check per language, plus the unconditional `actions` floor), defined

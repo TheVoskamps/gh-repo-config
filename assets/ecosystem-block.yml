@@ -4,7 +4,7 @@
 # ecosystem whose manifest is absent, so arming the full set costs only a
 # longer file and covers a new manifest the moment it lands.
 #
-# This is the HARDENED generated baseline (issue #51): cooldown soak,
+# This is the HARDENED generated baseline: cooldown soak,
 # versioning-strategy, recursive directory coverage, semver-major
 # ignore on every ecosystem except github-actions, and per-ecosystem
 # schedules. Several values vary BY ECOSYSTEM CLASS (npm/pip vs docker
@@ -68,13 +68,9 @@
 #   *-security           groups SECURITY updates (applies-to:
 #                        security-updates) so Dependabot opens ONE
 #                        security PR per ecosystem instead of one per
-#                        advisory — issue #222 item 4 (grouped security
-#                        updates), the in-file deterministic half of the
-#                        feature. The settings-level toggle handles
-#                        ecosystems not listed here. Fablegate's source
-#                        config lacks this group; keep it — it is the one
-#                        place this generated baseline is ahead and must
-#                        not regress (issue #51).
+#                        advisory — the in-file deterministic half of
+#                        grouped security updates. The settings-level toggle handles
+#                        ecosystems not listed here.
 #
 # __NAMED_GROUPS_BLOCK__ (issue #36): ONE canonical union of every named
 # lockstep/stack group — codeql-action, aws-cdk, vite-toolchain,
@@ -85,9 +81,7 @@
 # `__DEPENDABOT_ECOSYSTEMS__` itself: repo-identity requires every
 # managed repo to carry byte-identical config, so there is no
 # per-ecosystem group-selection logic. A group whose patterns match no
-# dependency in a given ecosystem is inert there (no PR, no error —
-# confirmed empirically against Fablegate/fablegate_quasar_fastapi's
-# live production config, the source of the exact group definitions).
+# dependency in a given ecosystem is inert there (no PR, no error).
 # It must be listed BEFORE the `*-minor-and-patch` catch-all: Dependabot
 # matches a dependency to the FIRST group whose patterns include it, so
 # listing the named groups first guarantees a dependency that matches

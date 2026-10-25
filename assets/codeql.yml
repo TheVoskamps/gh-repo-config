@@ -15,8 +15,9 @@
 #   - absent           -> NOT analyzed (fails OPEN — no phantom check).
 # This inverts the old install-time-narrowed model: a language that
 # lands AFTER setup (e.g. the repo's first `.ts` file) is analyzed
-# automatically on the next PR, with NOTHING re-installed. See issues #91/#230
-# for the phantom-check hang the runtime-fail-open model avoids.
+# automatically on the next PR, with NOTHING re-installed. Failing open
+# is what keeps a required check from waiting on an analysis that never
+# runs (the phantom-check hang).
 #
 # ONE JOB FOR EVERY UBUNTU LANGUAGE (issue #77). This workflow used to
 # be a `detect` job, an `analyze` matrix with one leg per present
@@ -33,10 +34,8 @@
 #
 # WHY ONE `init` IS SAFE HERE. `github/codeql-action/init` takes a
 # comma-separated language list and `analyze` then runs the queries for
-# each language in turn; GitHub's own `__multi-language-autodetect`
-# integration test in github/codeql-action drives seven languages
-# through a single init+analyze pair exactly this way. Nothing in THIS
-# workflow forced the split either: there is deliberately no build step
+# each language in turn. Nothing in THIS workflow forced the split
+# either: there is deliberately no build step
 # (see the no-autobuild note below), so there is no per-language build
 # divergence that separate jobs would have been isolating. The one real
 # constraint is the RUNNER — `codeql-language-present.sh`'s `runner_for`
@@ -55,19 +54,17 @@
 # would hand the ubuntu job and the swift job below the SAME category
 # on the same commit — precisely the collision `category` exists to
 # prevent. Nothing would flag it, either: the action's own duplicate
-# check (`validateUniqueCategory` in upload-lib) is keyed on a
-# per-JOB env-var sentinel, so it catches two uploads inside one job
-# and cannot see two jobs colliding.
+# check is keyed on a per-JOB env-var sentinel, so it catches two
+# uploads inside one job and cannot see two jobs colliding.
 #
 # Omitting `category:` avoids the collision by construction. The action
 # derives the SARIF `automationDetails.id` from `<workflow file
-# path>:<job id>` (`getAnalysisKey` in the action's api-client) plus any
-# matrix variables, so `codeql-required` and `analyze-swift` get
-# distinct categories automatically, keyed on the job ids below. Within
-# the ubuntu job the per-language SARIF files are merged by the CodeQL
-# CLI into that one analysis, which is what the upstream multi-language
-# test does too. Consequence to expect ONCE, on the first run after this
-# change lands: the old per-language categories
+# path>:<job id>` plus any matrix variables, so `codeql-required` and
+# `analyze-swift` get distinct categories automatically, keyed on the
+# job ids below. Within the ubuntu job the per-language SARIF files are
+# merged by the CodeQL CLI into that one analysis. Consequence to expect
+# ONCE, on the first run after this change lands: the old per-language
+# categories
 # (`/language:javascript-typescript`, ...) stop being written, so their
 # previous analyses go stale in the Security tab until GitHub ages them
 # out. Do NOT "fix" that by reinstating a literal `category:`.
@@ -97,21 +94,21 @@
 # THE JOB NAME IS THE REQUIRED CHECK. GitHub `required_status_checks`
 # is a static list of names and cannot express "require swift only if it
 # runs". `codeql-required` always runs and always concludes, so a
-# required check is never left pending — the #91/#230 phantom-check hang
+# required check is never left pending — the phantom-check hang
 # the previous `if: always()` aggregator existed to prevent cannot
 # return. A language-less repo is impossible in practice (`actions` is
 # an unconditional floor in the detect script, and the converger always
 # installs workflow files), so the ubuntu language list is never empty.
 # Do not list `analyze-swift` as a required check on a repo that may
-# lack Swift — that is exactly the #91/#230 hang.
+# lack Swift — that is exactly the phantom-check hang.
 #
 # Advanced-setup workflow. Committing this workflow AUTOMATICALLY
 # DISABLES GitHub's default CodeQL setup — that is the mechanism that
 # makes "start at Advanced from the first commit" work. The converger
 # also drives default setup to `not-configured` server-side
-# (src/converge/default-setup.ts) so the two cannot coexist. Proven against ExampleProject's example-app-repo workflow.
+# (src/converge/default-setup.ts) so the two cannot coexist.
 #
-# Hardening invariants (do not regress these — see issue #222 item 9):
+# Hardening invariants (do not regress these):
 #   - Every action is SHA-pinned (a floating @v3/@v4 tag is a supply-
 #     chain risk; the trailing comment records the human-readable tag).
 #   - No `autobuild` step: the analyzed languages are extracted from

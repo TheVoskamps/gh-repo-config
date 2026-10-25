@@ -23,8 +23,7 @@
 # Each Node package manager keys off its OWN lockfile (npm ->
 # package-lock.json, pnpm -> pnpm-lock.yaml, yarn -> yarn.lock), so a
 # pnpm/yarn repo is gated by the right tool instead of silently passing
-# an npm-only check (the dead-check / false-assurance bug this rendering
-# fixes, issue #111).
+# an npm-only check that gates nothing.
 #
 # ONE JOB, NOT THREE (issue #77). This workflow used to be a `detect`
 # job, a `gate` matrix with one leg per present PM, and an
@@ -43,7 +42,7 @@
 # Every invariant of the previous three-job shape survives: still
 # runtime-armed per PR, still fails open when no manifest is present,
 # still no phantom check (the job always runs and always concludes, so
-# a required check is never left pending — the #91/#230 hang this
+# a required check is never left pending — the phantom-check hang this
 # shape's `if: always()` aggregator originally fixed cannot return).
 #
 # PER-PM VISIBILITY — the trade-off this collapse makes, and how it is
@@ -77,8 +76,7 @@
 # requirements pin) from auto-merging into the default branch.
 # Dependabot PRs and hand edits can desync a lockfile from its manifest;
 # without a PR-time gate the desync merges and breaks local dev and
-# downstream pipelines. Proven against ExampleProject's
-# example-app-repo workflow.
+# downstream pipelines.
 #
 # Install-integrity ONLY -- there is NO build step (`npm run build`,
 # `cdk synth`, etc.); build coverage is out of scope. The discovery +
@@ -117,7 +115,7 @@
 # CodeArtifact-backed PyPI registry is out of scope -- see
 # docs/codeartifact-auth.md.)
 #
-# Hardening invariants (do not regress these — see issue #222 item 9):
+# Hardening invariants (do not regress these):
 #   - Every action is SHA-pinned (a floating @v4/@v5 tag is a supply-
 #     chain risk; the trailing comment records the human-readable tag).
 #   - Least privilege: `contents: read` workflow-wide, and the ONLY

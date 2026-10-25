@@ -48,7 +48,7 @@
 # Every invariant of the previous three-job shape survives: still
 # runtime-armed per PR, still fails open when no manifest is present,
 # still no phantom check (the job always runs and always concludes, so
-# a required check is never left pending — the #91/#230 hang this
+# a required check is never left pending — the phantom-check hang this
 # shape's `if: always()` aggregator originally fixed cannot return),
 # still nothing re-installed when a repo's first `go.mod` lands.
 #

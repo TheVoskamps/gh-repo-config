@@ -36,9 +36,8 @@
 # then have to converge.
 #
 # WHY `role` IS AN INPUT AND NOT READ FROM `vars`. Composite actions
-# cannot read the `vars` context -- it is a template validation error,
-# and the enabling PR was reverted (community discussions #49689 and
-# #43878). The value therefore arrives as an input, which is why the
+# cannot read the `vars` context -- it is a template validation error.
+# The value therefore arrives as an input, which is why the
 # variable name must be static: set `CODEARTIFACT_ROLE` at ORGANIZATION
 # level for the CodeArtifact repository most repos consume, and at
 # REPOSITORY level on a repo that consumes a different one. GitHub

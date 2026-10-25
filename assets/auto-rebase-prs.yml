@@ -27,7 +27,7 @@
 #   __INSTALL_GATE_WORKFLOW__  name of the dependency-install-gate
 #                        workflow whose failing check signals a
 #                        lockfile desync (e.g. dependency-install-gate).
-#                        Drives the #1218 lockfile-regen pass below. The
+#                        Drives the lockfile-regen pass below. The
 #                        pass always renders, for the same reason as the
 #                        __REQUIRED_CHECK_WORKFLOW__ trigger above.
 #   __INSTALL_GATE_CHECK__  name of the CheckRun within

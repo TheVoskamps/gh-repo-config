@@ -300,11 +300,9 @@ export type NamedDependabotGroups = Readonly<Record<string, readonly string[]>>;
  * lockstep/stack families whose members must move together because they
  * share a runtime compatibility contract (same-repo sub-actions/packages
  * exchanging versioned state, a framework + its plugin family, or an SDK
- * core + pinned transitives). Exact definitions and precedence taken
- * verbatim from `Fablegate/fablegate_quasar_fastapi`'s live production
- * `dependabot.yml`, the repo that incurred the motivating incident
- * (`github/codeql-action/init`/`analyze` version skew broke the
- * required CodeQL check on `main`).
+ * core + pinned transitives). A family split across PRs leaves its
+ * members at different versions between merges: `github/codeql-action/init`
+ * and `analyze` at different versions fail the required CodeQL check.
  *
  * This is org-specific content (issue #88): a different org supplies
  * its own registry through {@link OrgRenderOptions.namedDependabotGroups}
