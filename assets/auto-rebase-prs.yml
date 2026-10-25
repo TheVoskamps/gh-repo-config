@@ -894,13 +894,13 @@ jobs:
       #
       # NOTE on the bypass actor: this pass only achieves an unattended
       # merge of a code-owner-protected PR if the App "__APP_NAME__" is
-      # added as a `pull_request` bypass actor in the repo's
-      # branch-protection ruleset. Adding the bypass actor is a
-      # branch-protection concern owned by /gh-repo-setup-protection,
-      # not this skill. Without the bypass, a green Dependabot PR on an
-      # un-code-owned path still merges (no review required); one on a
-      # code-owned path is left for a human, exactly as a human PR would
-      # be.
+      # a `pull_request` bypass actor in the repo's `protect-main`
+      # ruleset. The converger adds it there when it converges that
+      # ruleset (src/converge/ruleset.ts), and omits it while the App is
+      # not installed in the org. Without the bypass, a green Dependabot
+      # PR on an un-code-owned path still merges (no review required);
+      # one on a code-owned path is left for a human, exactly as a human
+      # PR would be.
       # ---------------------------------------------------------------
       - name: REST-merge green Dependabot PRs
         if: >-

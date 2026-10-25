@@ -133,7 +133,7 @@ test("secret scanning already enabled but push protection not -> PATCHes only pu
   assert.deepEqual(secPatch, { secretScanningPushProtection: true });
 });
 
-test("allow_update_branch is never part of the merge-button patch (deliberate divergence from gh-repo-setup-protection)", async () => {
+test("allow_update_branch is never part of the merge-button patch (left out by issue #15)", async () => {
   const calls = [];
   const client = fakeClient({ current: nothingConverged() }, calls);
   await convergeGhasSettings(client, OWNER, REPO, false);
@@ -174,7 +174,7 @@ test("a 422 on the merge-button PATCH is reported as skipped, not thrown", async
   assert.equal(merge.outcome, "skipped");
 });
 
-test("push-protection-bypass failure (404/422) is reported as skipped, never thrown -- best effort per gh-repo-setup-protection posture", async () => {
+test("push-protection-bypass failure (404/422) is reported as skipped, never thrown -- best effort", async () => {
   const calls = [];
   const client = fakeClient(
     {

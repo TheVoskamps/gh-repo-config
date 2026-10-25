@@ -9,23 +9,22 @@
 # ignore on every ecosystem except github-actions, and per-ecosystem
 # schedules. Several values vary BY ECOSYSTEM CLASS (npm/pip vs docker
 # vs github-actions vs the rest), so the variant parts are placeholders
-# the skill resolves per ecosystem — see SKILL.md
-# "Step 3" for the resolution table, which covers EVERY armed ecosystem
-# class. A wrong variant (e.g. `versioning-strategy` on docker) makes
-# Dependabot reject the whole config, so the per-class resolution must be
-# correct for each ecosystem. Do NOT hard-code one ecosystem's values
-# here; the skill renders the right variant for each ecosystem.
+# that renderEcosystemBlock in src/converge/render.ts resolves per
+# ecosystem, as the Placeholders list below states for EVERY armed
+# ecosystem class. A wrong variant (e.g. `versioning-strategy` on docker)
+# makes Dependabot reject the whole config, so the per-class resolution
+# must be correct for each ecosystem. Do NOT hard-code one ecosystem's
+# values here.
 #
 # Multi-line block placeholders (__DIRECTORY_BLOCK__,
 # __VERSIONING_STRATEGY_BLOCK__, __COOLDOWN_BLOCK__, __IGNORE_BLOCK__)
 # each sit alone on a line at the SAME 4-space indent as the keys around
-# them. The skill substitutes a value whose FIRST line has no leading
-# indent (the template's 4 spaces supply it) and whose CONTINUATION
-# lines carry their own absolute indentation. When a block is empty for
-# an ecosystem (e.g. __VERSIONING_STRATEGY_BLOCK__ on
-# docker/github-actions, __IGNORE_BLOCK__ on github-actions), the
-# skill drops the whole placeholder line so no blank/whitespace-only
-# line remains — see SKILL.md "Step 3 → empty-block collapse".
+# them. renderEcosystemBlock substitutes a value whose FIRST line has no
+# leading indent (the template's 4 spaces supply it) and whose
+# CONTINUATION lines carry their own absolute indentation. When a block
+# is empty for an ecosystem (e.g. __VERSIONING_STRATEGY_BLOCK__ on
+# docker/github-actions, __IGNORE_BLOCK__ on github-actions), it drops
+# the whole placeholder line so no blank/whitespace-only line remains.
 #
 # Placeholders:
 #   __ECOSYSTEM__                Dependabot package-ecosystem value, e.g.

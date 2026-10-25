@@ -1,4 +1,4 @@
-# Dependency-install-gate workflow rendered by /gh-repo-setup-protection.
+# Dependency-install-gate workflow, rendered by the converger.
 #
 # Installed at <repo-root>/.github/workflows/dependency-install-gate.yml
 # (alongside its sibling script at
@@ -18,7 +18,7 @@
 #                          check, no empty-green noise).
 # A PM whose manifest lands AFTER setup (e.g. the repo's first
 # `package-lock.json`) is picked up automatically on the next PR, with
-# NO skill re-run.
+# NOTHING re-installed.
 #
 # Each Node package manager keys off its OWN lockfile (npm ->
 # package-lock.json, pnpm -> pnpm-lock.yaml, yarn -> yarn.lock), so a

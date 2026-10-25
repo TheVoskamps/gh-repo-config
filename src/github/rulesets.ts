@@ -270,7 +270,7 @@ export class RulesetsClient {
  * Whether a 422 response body is attributable to the `code_quality`
  * rule type being unavailable — a purely syntactic match on the message
  * naming `code_quality` / "Code quality" / an unsupported-rule-type
- * phrasing, mirroring the skill's graceful-skip trigger.
+ * phrasing.
  */
 function isCodeQualityRejection(body: string): boolean {
   const lower = body.toLowerCase();

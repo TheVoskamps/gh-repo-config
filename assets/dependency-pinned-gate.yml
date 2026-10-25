@@ -1,4 +1,4 @@
-# Dependency-pinned-gate workflow rendered by /gh-repo-setup-protection.
+# Dependency-pinned-gate workflow, rendered by the converger.
 #
 # Installed at <repo-root>/.github/workflows/dependency-pinned-gate.yml
 # (alongside its sibling script at
@@ -17,10 +17,10 @@
 #   - present + floating spec  -> that ecosystem fails (blocking),
 #   - absent                   -> NOT checked at all (fails OPEN — no
 #                                 phantom check, no empty-green noise).
-# `actions` is effectively an always-present floor because the skill
+# `actions` is effectively an always-present floor because the converger
 # always installs workflow files. An ecosystem whose manifest lands
 # AFTER setup (e.g. the repo's first `go.mod`) is picked up on the next
-# PR, with NO skill re-run.
+# PR, with NOTHING re-installed.
 #
 # ONE JOB, NOT THREE (issue #77). This workflow used to be a `detect`
 # job, a `gate` matrix with one leg per present ecosystem, and an
@@ -50,7 +50,7 @@
 # still no phantom check (the job always runs and always concludes, so
 # a required check is never left pending — the #91/#230 hang this
 # shape's `if: always()` aggregator originally fixed cannot return),
-# still no skill re-run when a repo's first `go.mod` lands.
+# still nothing re-installed when a repo's first `go.mod` lands.
 #
 # PER-ECOSYSTEM VISIBILITY — the trade-off this collapse makes, and how
 # it is paid for. The three-job shape gave each ecosystem its own check

@@ -15,10 +15,9 @@
  *   rendered templates only, never on verbatim scripts (a shell script
  *   may legitimately contain `__`-delimited words).
  * - {@link renderDependabotYml} performs the composite expansion of
- *   `__DEPENDABOT_ECOSYSTEMS__` documented in the `github-setup`
- *   plugin's `gh-repo-setup-protection` SKILL.md "Step 3": one rendered
- *   copy of `ecosystem-block.yml` per armed ecosystem, with the variant
- *   parts resolved per ecosystem *class*.
+ *   `__DEPENDABOT_ECOSYSTEMS__`: one rendered copy of
+ *   `ecosystem-block.yml` per armed ecosystem, with the variant parts
+ *   resolved per ecosystem *class* by {@link renderEcosystemBlock}.
  * - {@link renderPrAutomationTemplate} (issue #25) substitutes the
  *   PR-automation payload's placeholders: the three per-repo tokens
  *   {@link renderTemplate} already handles, {@link PR_AUTOMATION_CONSTANTS}
@@ -275,9 +274,6 @@ export function renderPrAutomationTemplate(
  * on every managed repo. Kept sorted so the rendered blocks are
  * deterministic (a re-run is a byte-for-byte no-op, not a reorder
  * churn). `github-actions` is the always-armed floor.
- *
- * Source of the set: the `gh-repo-setup-protection` SKILL.md Step 2/3
- * supported list.
  */
 export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
   "bundler",

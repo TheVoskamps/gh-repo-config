@@ -1,8 +1,7 @@
-# CodeQL analysis workflow rendered by /gh-repo-setup-protection.
+# CodeQL analysis workflow, rendered by the converger.
 #
-# Installed at <repo-root>/.github/workflows/codeql.yml when CodeQL is
-# enabled for the target repo (opt-in / auto-detected — see SKILL.md
-# "CodeQL is opt-in"; a private repo with no GHAS entitlement stays off).
+# Installed at <repo-root>/.github/workflows/codeql.yml on every managed
+# repo, unconditionally (RENDERED_WORKFLOWS in src/converge/files.ts).
 #
 # ARMED WITH THE FULL SUPPORTED SET — runtime-gated, fails OPEN. This
 # workflow is armed with EVERY CodeQL-supported language at install time,
@@ -16,7 +15,7 @@
 #   - absent           -> NOT analyzed (fails OPEN — no phantom check).
 # This inverts the old install-time-narrowed model: a language that
 # lands AFTER setup (e.g. the repo's first `.ts` file) is analyzed
-# automatically on the next PR, with NO skill re-run. See issues #91/#230
+# automatically on the next PR, with NOTHING re-installed. See issues #91/#230
 # for the phantom-check hang the runtime-fail-open model avoids.
 #
 # ONE JOB FOR EVERY UBUNTU LANGUAGE (issue #77). This workflow used to
@@ -101,16 +100,16 @@
 # required check is never left pending — the #91/#230 phantom-check hang
 # the previous `if: always()` aggregator existed to prevent cannot
 # return. A language-less repo is impossible in practice (`actions` is
-# an unconditional floor in the detect script, and the skill always
+# an unconditional floor in the detect script, and the converger always
 # installs workflow files), so the ubuntu language list is never empty.
 # Do not list `analyze-swift` as a required check on a repo that may
 # lack Swift — that is exactly the #91/#230 hang.
 #
 # Advanced-setup workflow. Committing this workflow AUTOMATICALLY
 # DISABLES GitHub's default CodeQL setup — that is the mechanism that
-# makes "start at Advanced from the first commit" work. The skill also
-# disables default setup server-side (SKILL.md Step 5a) so the two cannot
-# coexist. Proven against ExampleProject's example-app-repo workflow.
+# makes "start at Advanced from the first commit" work. The converger
+# also drives default setup to `not-configured` server-side
+# (src/converge/default-setup.ts) so the two cannot coexist. Proven against ExampleProject's example-app-repo workflow.
 #
 # Hardening invariants (do not regress these — see issue #222 item 9):
 #   - Every action is SHA-pinned (a floating @v3/@v4 tag is a supply-

@@ -1,20 +1,21 @@
-# no-back-merging-guard workflow rendered by /gh-repo-setup-protection.
+# no-back-merging-guard workflow, rendered by the converger.
 #
 # Installed at <repo-root>/.github/workflows/no-back-merging-guard.yml
 # (alongside its sibling script at
 # <repo-root>/.github/scripts/no-back-merging-guard.sh, self-tested by
 # <repo-root>/.github/scripts/test-no-back-merging-guard.sh). Shipped
-# UNCONDITIONALLY — the guard has no ecosystem dependency; it is pure
-# git-history hygiene and is desirable on every repo (see SKILL.md
-# "Step 5d").
+# UNCONDITIONALLY (RENDERED_WORKFLOWS in src/converge/files.ts) — the
+# guard has no ecosystem dependency; it is pure git-history hygiene and
+# is desirable on every repo.
 #
 # Purpose: reject PRs whose head branch contains a back-merge from the
 # default branch (a merge commit whose incoming parent is reachable from
 # `origin/<default>`), forcing feature branches to rebase rather than
-# merge the base in. Its job name `no-back-merging-guard` is registered
-# as a required status check in `protect-main` ONLY when this workflow
-# is installed this run (SKILL.md Step 6c gate — issue #91/#230
-# phantom-check guard).
+# merge the base in. Its job name `no-back-merging-guard` is a required
+# status check in `protect-main` (assets/protect-main-ruleset.json),
+# which holds only because this workflow ships on every managed repo: a
+# required check that no workflow runs leaves every PR pending (the
+# issue #91/#230 phantom-check hang).
 #
 # Placeholders:
 #   __DEFAULT_BRANCH__   Default branch of the target repo. The guard

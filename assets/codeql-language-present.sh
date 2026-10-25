@@ -3,8 +3,9 @@
 # codeql-language-present.sh
 #
 # Installed verbatim (no placeholders) at
-# <repo-root>/.github/scripts/codeql-language-present.sh by
-# /gh-repo-setup-protection, alongside the CodeQL workflow at
+# <repo-root>/.github/scripts/codeql-language-present.sh by the
+# converger (VERBATIM_SCRIPTS in src/converge/files.ts), alongside the
+# CodeQL workflow at
 # <repo-root>/.github/workflows/codeql.yml.
 #
 # Runtime language-presence detection for the CodeQL workflow. The
@@ -16,8 +17,8 @@
 # `analyze-swift` job, which exists only when that set is non-empty. So
 # a language is analyzed IFF that language's source is in the tracked
 # tree at that moment. A language that lands AFTER setup is analyzed on
-# the next PR with no skill re-run; an absent language is not analyzed
-# at all (fails OPEN — no phantom check, issues #91/#230).
+# the next PR with nothing re-installed; an absent language is not
+# analyzed at all (fails OPEN — no phantom check, issues #91/#230).
 #
 # Every mode below shares ONE `present()` predicate (a `git ls-files`
 # check per language, plus the unconditional `actions` floor), defined
@@ -95,8 +96,8 @@ ls_present() {
 }
 
 # present <language> -> exit 0 when the language's source is in the tree.
-# `actions` is the unconditional floor (the skill always installs
-# workflows). Keep these predicates in sync with the SKILL.md heuristics.
+# `actions` is the unconditional floor (the converger always installs
+# workflows).
 present() {
   case "$1" in
     javascript-typescript)

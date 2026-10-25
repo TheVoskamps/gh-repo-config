@@ -209,11 +209,9 @@ export class RepoSettingsClient {
 
   /**
    * Best-effort push-protection bypass lockdown: enable delegated bypass
-   * so nobody may bypass push protection without review. Mirrors the
-   * exact call the `gh-repo-setup-protection` skill makes today. There
-   * is no clean, stable per-repo public REST toggle that sets the
-   * bypass list to "nobody" directly, so this is a best-effort repo-level
-   * enablement — never a hard failure regardless of outcome (a 404/422
+   * so nobody may bypass push protection without review. There is no
+   * clean, stable per-repo public REST toggle that sets the bypass list
+   * to "nobody" directly, so this is a best-effort repo-level enablement — never a hard failure regardless of outcome (a 404/422
    * means the endpoint/feature is unavailable; the residual manual step
    * is surfaced in the sweep report, not treated as an error).
    */
@@ -229,8 +227,8 @@ export class RepoSettingsClient {
    * `PATCH /repos/{o}/{r}` with only the merge-button sub-keys that
    * differ from the current state (merge-commit-only, auto-merge,
    * delete-branch-on-merge). `allow_update_branch` is deliberately not
-   * part of this converger's spec — see issue #15's decision to diverge
-   * from `gh-repo-setup-protection`'s table on that one key.
+   * part of this converger's spec — see issue #15's decision to leave
+   * that one key out.
    */
   async patchMergeButtonSettings(
     owner: string,
