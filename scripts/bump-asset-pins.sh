@@ -132,6 +132,13 @@ if [ "${#scan_targets[@]}" -eq 0 ]; then
   exit 0
 fi
 
+# The Python regex a pin's trailing comment must match to give the pin a
+# current version, passed on argv to discover_pins and to the rewrite in
+# the main loop. Only a full vX.Y.Z matches: a partial one (`# v4`,
+# `# v4.1`) leaves the pin unversioned, so it takes the unversioned path,
+# runtime check included, and gains a full comment.
+FULL_VERSION_RE='#\s*(v[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*)\s*$'
+
 # ---------------------------------------------------------------------
 # Step 1: discover every distinct `owner/repo[/subpath]@<40-hex-sha>`
 # pin across the scan targets, deduped by owner/repo (the SHA and
@@ -145,18 +152,15 @@ fi
 # which file it came from.
 # ---------------------------------------------------------------------
 discover_pins() {
-  python3 - "${scan_targets[@]}" <<'PY'
+  python3 - "$FULL_VERSION_RE" "${scan_targets[@]}" <<'PY'
 import re, sys
 
 USES_RE = re.compile(r'^\s*-?\s*uses:\s*(\S+)')
 SHA_RE = re.compile(r'^[0-9a-fA-F]{40}$')
-# Only a comment that parses as vX.Y.Z is a current version. A partial
-# one (`# v4`, `# v4.1`) leaves the pin unversioned, so it takes the
-# unversioned path, runtime check included, and gains a full comment.
-VER_RE = re.compile(r'#\s*(v[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*)\s*$')
+VER_RE = re.compile(sys.argv[1])
 
 seen = {}
-for path in sys.argv[1:]:
+for path in sys.argv[2:]:
     with open(path) as f:
         for raw in f:
             m = USES_RE.match(raw)
@@ -568,14 +572,13 @@ while IFS=$'\t' read -r owner repo subpath sha version bare; do
 
   for f in "$ASSETS_DIR"/*.yml "$ASSETS_DIR"/*.yaml; do
     [ -f "$f" ] || continue
-    python3 - "$f" "$old_ref" "$sha" "$commit_sha" "$new_tag" "$bare_only" <<'PY'
+    python3 - "$f" "$old_ref" "$sha" "$commit_sha" "$new_tag" "$bare_only" "$FULL_VERSION_RE" <<'PY'
 import re, sys
 
-path, old_ref, old_sha, new_sha, new_tag, bare_only = sys.argv[1:7]
+path, old_ref, old_sha, new_sha, new_tag, bare_only, full_version_re = sys.argv[1:8]
 
 USES_RE = re.compile(r'^(\s*-?\s*uses:\s*)' + re.escape(old_ref) + '@' + re.escape(old_sha) + r'\s*(?:#.*)?$')
-# The same full-version test discover_pins applies.
-VER_RE = re.compile(r'#\s*(v[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*)\s*$')
+VER_RE = re.compile(full_version_re)
 
 with open(path) as fh:
     lines = fh.readlines()

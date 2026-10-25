@@ -43,8 +43,8 @@
 #   17. A bare occurrence of a SHA another occurrence pins with a
 #      `# vX.Y.Z` comment gains that comment when no bump is due, in
 #      either scan order.
-#   18. Such a bare occurrence moves with the versioned one when a bump is
-#      due, in either scan order.
+#   18. Such a bare occurrence, scanned first, moves with the versioned
+#      one when a security bump is due.
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -820,9 +820,11 @@ fi
 
 # ---------------------------------------------------------------------
 # Case 17: a bare occurrence of a SHA another occurrence pins as
-# `# v1.2.3`, already the newest soaked release, keeps its SHA and gains
-# the `# v1.2.3` comment whichever occurrence is scanned first. The
-# versioned occurrence is left as it is.
+# `# v1.2.3`, already the newest release, keeps its SHA and gains the
+# `# v1.2.3` comment whichever occurrence is scanned first. The versioned
+# occurrence is left as it is. v1.2.3 runs on node20, so a bumper that
+# read the pin as unversioned would select no release and leave the bare
+# occurrence bare.
 # ---------------------------------------------------------------------
 for order in versioned-first bare-first; do
   CASE17="$TMP_ROOT/case17-$order"
@@ -844,7 +846,7 @@ for order in versioned-first bare-first; do
 ]
 JSON
   echo '[]' > "$CASE17/fixtures/advisories_ecosystem_actions_affects_mixed-owner_mixed-action.json"
-  write_action_yml_fixture "$CASE17/fixtures/repos_mixed-owner_mixed-action_contents_action.yml_ref_v1.2.3.json" node24
+  write_action_yml_fixture "$CASE17/fixtures/repos_mixed-owner_mixed-action_contents_action.yml_ref_v1.2.3.json" node20
   cat > "$CASE17/fixtures/repos_mixed-owner_mixed-action_git_ref_tags_v1.2.3.json" <<'JSON'
 {"object": {"sha": "1717171717171717171717171717171717171717", "type": "commit"}}
 JSON
@@ -862,44 +864,55 @@ done
 
 # ---------------------------------------------------------------------
 # Case 18: when a bump is due, a bare occurrence of the versioned pin's
-# SHA moves with it, whichever is scanned first.
+# SHA moves with it, even when the bare occurrence is scanned first. The
+# selected release, v1.3.0, is published today and fixes an advisory
+# affecting v1.2.3, so only the security bypass of a versioned pin
+# selects it; a bumper that read the pin as unversioned would leave both
+# occurrences at v1.2.3's SHA. With the versioned occurrence scanned
+# first the pin was never read as unversioned, so that order guards
+# nothing here and is not run.
 # ---------------------------------------------------------------------
-for order in versioned-first bare-first; do
-  CASE18="$TMP_ROOT/case18-$order"
-  mkdir -p "$CASE18/assets" "$CASE18/fixtures"
-  make_fake_gh "$CASE18/fixtures"
+CASE18="$TMP_ROOT/case18"
+mkdir -p "$CASE18/assets" "$CASE18/fixtures"
+make_fake_gh "$CASE18/fixtures"
 
-  versioned_line='  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717 # v1.2.3'
-  bare_line='  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717'
-  if [ "$order" = versioned-first ]; then
-    first="$versioned_line" second="$bare_line"
-  else
-    first="$bare_line" second="$versioned_line"
-  fi
-  printf 'on:\n  pull_request:\nsteps:\n%s\n%s\n' "$first" "$second" > "$CASE18/assets/workflow.yml"
+cat > "$CASE18/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717
+  - uses: mixed-owner/mixed-action@1717171717171717171717171717171717171717 # v1.2.3
+YAML
 
-  cat > "$CASE18/fixtures/repos_mixed-owner_mixed-action_releases.json" <<JSON
+cat > "$CASE18/fixtures/repos_mixed-owner_mixed-action_releases.json" <<JSON
 [
-  {"tag_name": "v1.3.0", "published_at": "$(iso_days_ago 10)", "draft": false, "prerelease": false},
+  {"tag_name": "v1.3.0", "published_at": "$(iso_now)", "draft": false, "prerelease": false},
   {"tag_name": "v1.2.3", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
 ]
 JSON
-  echo '[]' > "$CASE18/fixtures/advisories_ecosystem_actions_affects_mixed-owner_mixed-action.json"
-  write_action_yml_fixture "$CASE18/fixtures/repos_mixed-owner_mixed-action_contents_action.yml_ref_v1.3.0.json" node24
-  cat > "$CASE18/fixtures/repos_mixed-owner_mixed-action_git_ref_tags_v1.3.0.json" <<'JSON'
+cat > "$CASE18/fixtures/advisories_ecosystem_actions_affects_mixed-owner_mixed-action.json" <<'JSON'
+[
+  {"vulnerabilities": [{"first_patched_version": {"identifier": "v1.3.0"}}]}
+]
+JSON
+write_action_yml_fixture "$CASE18/fixtures/repos_mixed-owner_mixed-action_contents_action.yml_ref_v1.3.0.json" node24
+write_action_yml_fixture "$CASE18/fixtures/repos_mixed-owner_mixed-action_contents_action.yml_ref_v1.2.3.json" node24
+cat > "$CASE18/fixtures/repos_mixed-owner_mixed-action_git_ref_tags_v1.3.0.json" <<'JSON'
 {"object": {"sha": "1818181818181818181818181818181818181818", "type": "commit"}}
 JSON
+cat > "$CASE18/fixtures/repos_mixed-owner_mixed-action_git_ref_tags_v1.2.3.json" <<'JSON'
+{"object": {"sha": "1717171717171717171717171717171717171717", "type": "commit"}}
+JSON
 
-  run_bumper "$CASE18/assets" "$CASE18/fixtures" > "$TMP_ROOT/case18-$order.log" 2>&1
-  case18_lines="$(grep -cxF '  - uses: mixed-owner/mixed-action@1818181818181818181818181818181818181818 # v1.3.0' "$CASE18/assets/workflow.yml")"
-  if [ "$case18_lines" -eq 2 ]; then
-    pass "bare occurrence of a versioned pin's SHA moves with it to the selected release ($order)"
-  else
-    fail "expected both occurrences to move to v1.3.0 ($order)"
-    cat "$TMP_ROOT/case18-$order.log"
-    cat "$CASE18/assets/workflow.yml"
-  fi
-done
+run_bumper "$CASE18/assets" "$CASE18/fixtures" > "$TMP_ROOT/case18.log" 2>&1
+case18_lines="$(grep -cxF '  - uses: mixed-owner/mixed-action@1818181818181818181818181818181818181818 # v1.3.0' "$CASE18/assets/workflow.yml")"
+if [ "$case18_lines" -eq 2 ]; then
+  pass "bare occurrence scanned before a versioned pin's SHA moves with it to the selected release"
+else
+  fail "expected both occurrences to move to v1.3.0 with the bare one scanned first"
+  cat "$TMP_ROOT/case18.log"
+  cat "$CASE18/assets/workflow.yml"
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "test-bump-asset-pins: ${failures} case(s) failed." >&2
