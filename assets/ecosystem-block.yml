@@ -58,6 +58,9 @@
 #                                every ecosystem EXCEPT github-actions;
 #                                empty (line dropped) for github-actions.
 #   __DEFAULT_BRANCH__           Default branch of the target repo.
+#   __NAMED_GROUPS_BLOCK__       The org's named lockstep/stack groups,
+#                                identical for every ecosystem — see the
+#                                `groups:` entries below.
 #
 # The `groups:` entries batch PRs per ecosystem:
 #   __NAMED_GROUPS_BLOCK__  the org's canonical registry of lockstep/

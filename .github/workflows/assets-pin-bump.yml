@@ -132,6 +132,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Without pipefail the step takes tee's status, and a failed
+          # bumper run would go on to commit whatever it rewrote.
+          set -o pipefail
           bash scripts/bump-asset-pins.sh | tee "$RUNNER_TEMP/bump.log"
 
           # The script's summary line carries its own per-pin counts:
