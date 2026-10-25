@@ -16,6 +16,7 @@
 # without a full version comment are this script's own:
 #
 #   - A release that fixes a security advisory affecting the current pin
+#     -- the pin's version is inside the advisory's vulnerable range --
 #     is taken IMMEDIATELY, bypassing the soak (Dependabot's own cooldown
 #     applies to version updates only; security updates bypass it).
 #   - Every other release must be at least 7 days old
@@ -75,8 +76,10 @@
 # Requires: gh (authenticated via GITHUB_TOKEN / GH_TOKEN), python3, jq.
 #
 # Exit codes:
-#   0 -- ran to completion (with or without any pin rewritten)
+#   0 -- every pin resolved (with or without any pin rewritten)
 #   1 -- usage / environment error
+#   2 -- reading the pins, or resolving or rewriting at least one pin,
+#        failed; every other pin is still resolved and rewritten
 #
 # bash 3.2 compatible (no `mapfile`) so the script and its self-test run
 # on macOS too.
@@ -207,8 +210,9 @@ PY
 # best eligible tag on stdout. With none (an unversioned pin), emits
 # every release at least 7 days old, newest first, one tag per line, for
 # the main loop to check each one's runtime in turn. Emits nothing when
-# the current pin is already current or no eligible release exists.
-# Every network call in this script goes through `gh api`, so the
+# the current pin is already current or no eligible release exists, and
+# returns non-zero when a lookup fails, so a failure is never read as
+# "no eligible release". Every network call in this script goes through `gh api`, so the
 # self-test can stub `gh` on PATH and exercise the pure decision logic
 # underneath.
 # ---------------------------------------------------------------------
@@ -223,17 +227,22 @@ resolve_bump() {
   # via --slurpfile below instead, which reads each file's own content
   # directly.
   local releases_file advisories_file
-  releases_file="$(mktemp)"
-  advisories_file="$(mktemp)"
+  releases_file="$(mktemp)" || return 1
+  advisories_file="$(mktemp)" || { rm -f "$releases_file"; return 1; }
 
-  if ! gh api "repos/${owner}/${repo}/releases" --paginate >"$releases_file" 2>/dev/null; then
-    echo "  warn: could not list releases for ${owner}/${repo} -- skipping" >&2
+  if ! gh api "repos/${owner}/${repo}/releases" --paginate >"$releases_file"; then
+    echo "  error: could not list releases for ${owner}/${repo}" >&2
     rm -f "$releases_file" "$advisories_file"
-    return 0
+    return 1
   fi
 
-  if ! gh api "advisories?ecosystem=actions&affects=${owner}/${repo}" >"$advisories_file" 2>/dev/null; then
-    printf '[]' > "$advisories_file"
+  # An action with no advisory gets an empty list, not an error, so a
+  # failed lookup is never read as "no advisory": that would put a
+  # vulnerable pin's fix behind the soak.
+  if ! gh api "advisories?ecosystem=actions&affects=${owner}/${repo}" >"$advisories_file"; then
+    echo "  error: could not list advisories for ${owner}/${repo}" >&2
+    rm -f "$releases_file" "$advisories_file"
+    return 1
   fi
 
   # Untrusted input: `releases` and `advisories` are attacker-controlled
@@ -250,9 +259,13 @@ resolve_bump() {
   # is a quoted heredoc (<<'PY'), so no shell expansion happens inside
   # it at all.
   local combined_json_file
-  combined_json_file="$(mktemp)"
-  jq -n --slurpfile releases "$releases_file" --slurpfile advisories "$advisories_file" \
-    '{releases: $releases[0], advisories: $advisories[0]}' > "$combined_json_file"
+  combined_json_file="$(mktemp)" || { rm -f "$releases_file" "$advisories_file"; return 1; }
+  if ! jq -n --slurpfile releases "$releases_file" --slurpfile advisories "$advisories_file" \
+    '{releases: $releases[0], advisories: $advisories[0]}' > "$combined_json_file"; then
+    echo "  error: could not read the releases or advisories of ${owner}/${repo}" >&2
+    rm -f "$releases_file" "$advisories_file" "$combined_json_file"
+    return 1
+  fi
   rm -f "$releases_file" "$advisories_file"
 
   python3 - "$current_version" "$combined_json_file" <<'PY'
@@ -277,6 +290,38 @@ def parse(v):
 
 current = parse(current_version) if current_version else None
 
+# Advisory versions may omit the minor or patch (`< 41`, first patched
+# `41`); a missing component reads as 0.
+ADVISORY_VERSION_RE = re.compile(r'^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?\S*$')
+RANGE_TERM_RE = re.compile(r'^(>=|<=|>|<|=)?\s*(\S+)$')
+
+def parse_advisory_version(v):
+    m = ADVISORY_VERSION_RE.match(v.strip())
+    if not m:
+        return None
+    return tuple(int(x or 0) for x in m.groups())
+
+def in_range(version, spec):
+    # A vulnerable_version_range is comma-separated constraints, all of
+    # which must hold: `>= 2.0.0, < 2.5.0`, `<= 45.0.7`, `= 1.0.0`.
+    for term in spec.split(","):
+        m = RANGE_TERM_RE.match(term.strip())
+        bound = parse_advisory_version(m.group(2)) if m else None
+        if bound is None:
+            raise ValueError(spec)
+        op = m.group(1) or "="
+        holds = {
+            ">=": version >= bound,
+            "<=": version <= bound,
+            ">": version > bound,
+            "<": version < bound,
+            "=": version == bound,
+        }[op]
+        if not holds:
+            return False
+    return True
+
+# Each vulnerability's first patched version, with its vulnerable range.
 first_patched = []
 for adv in advisories:
     for vuln in adv.get("vulnerabilities", []) or []:
@@ -284,19 +329,30 @@ for adv in advisories:
         if isinstance(fp, dict):
             fp = fp.get("identifier")
         if fp:
-            pv = parse(fp)
+            pv = parse_advisory_version(fp)
             if pv:
-                first_patched.append(pv)
+                first_patched.append((pv, vuln.get("vulnerable_version_range") or ""))
 
 # Security-eligibility is relative to the PIN IN HAND: an advisory only
-# makes a candidate release security-eligible when the CURRENTLY
-# PINNED version is itself affected by that same advisory (current <
-# first_patched_version). Without this guard, any action that has ever
-# had ANY historical advisory would have every later release --
-# forever -- treated as a security fix, permanently defeating the
-# 7-day soak for that action.
+# makes a candidate release security-eligible when the CURRENTLY PINNED
+# version is inside that advisory's vulnerable_version_range, or, for an
+# advisory that states no range, below its first_patched_version.
+# Without this guard, any action that has ever had ANY advisory would
+# have every later release treated as a security fix, defeating the
+# 7-day soak for that action -- a pin below an advisory's range included.
 if current is not None:
-    applicable_first_patched = [fp for fp in first_patched if current < fp]
+    applicable_first_patched = []
+    for fp, vulnerable_range in first_patched:
+        if vulnerable_range:
+            try:
+                affected = in_range(current, vulnerable_range)
+            except ValueError:
+                print(f"  error: cannot read the vulnerable_version_range {vulnerable_range!r}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            affected = current < fp
+        if affected:
+            applicable_first_patched.append(fp)
 else:
     # No version comment to compare against, so no advisory can be shown
     # to affect the pin: every release competes on its 7-day soak alone,
@@ -385,10 +441,7 @@ resolve_tag_ref() {
   local owner="$1" repo="$2" tag="$3"
 
   local ref_json
-  ref_json="$(gh api "repos/${owner}/${repo}/git/ref/tags/${tag}" 2>/dev/null)" || {
-    echo "  warn: could not resolve tag ${tag} for ${owner}/${repo}" >&2
-    return 0
-  }
+  ref_json="$(gh api "repos/${owner}/${repo}/git/ref/tags/${tag}")" || return 1
 
   python3 -c "
 import json, sys
@@ -402,7 +455,7 @@ print(obj.get('type', ''))
 resolve_annotated_tag_commit() {
   local owner="$1" repo="$2" tag_sha="$3"
   local tag_json
-  tag_json="$(gh api "repos/${owner}/${repo}/git/tags/${tag_sha}" 2>/dev/null)" || return 1
+  tag_json="$(gh api "repos/${owner}/${repo}/git/tags/${tag_sha}")" || return 1
   python3 -c "
 import json, sys
 t = json.loads(sys.argv[1])
@@ -416,20 +469,28 @@ print(t.get('object', {}).get('sha', ''))
 # later in `runs.using`, or a runtime that is not `node*` (composite,
 # docker). Exit 1 when it declares a `node*` runtime older than node24
 # or with no numeric suffix, or when neither file yields a `runs.using`
-# value, so a release is never selected on an unknown runtime.
+# value, so a release is never selected on an unknown runtime. Exit 2
+# when fetching either file fails for any reason but its absence (HTTP
+# 404), since that says nothing about the runtime.
 # ---------------------------------------------------------------------
 action_runtime_is_current() {
   local owner="$1" repo="$2" subpath="$3" tag="$4"
-  local dir="" name using="" contents_file
+  local dir="" name using="" contents_file err_file
   [ -n "$subpath" ] && dir="${subpath}/"
-  contents_file="$(mktemp)"
+  contents_file="$(mktemp)" || return 2
+  err_file="$(mktemp)" || { rm -f "$contents_file"; return 2; }
   for name in action.yml action.yaml; do
-    if gh api "repos/${owner}/${repo}/contents/${dir}${name}?ref=${tag}" >"$contents_file" 2>/dev/null; then
+    if gh api "repos/${owner}/${repo}/contents/${dir}${name}?ref=${tag}" >"$contents_file" 2>"$err_file"; then
       using="$(read_runs_using "$contents_file")"
       [ -n "$using" ] && break
+    elif ! grep -q '(HTTP 404)' "$err_file"; then
+      cat "$err_file" >&2
+      echo "  error: could not fetch ${dir}${name} for ${owner}/${repo}@${tag}" >&2
+      rm -f "$contents_file" "$err_file"
+      return 2
     fi
   done
-  rm -f "$contents_file"
+  rm -f "$contents_file" "$err_file"
 
   case "$using" in
     "")
@@ -487,6 +548,15 @@ PY
 bumped=0
 annotated=0
 pins_seen=0
+# failed counts pins whose resolution or rewrite failed. Each failure is
+# logged and the loop moves on to the next pin, so one run reports every
+# failing pin, and the script exits 2 at the end.
+failed=0
+
+if ! pins="$(discover_pins)"; then
+  echo "bump-asset-pins: could not read the pins under ${ASSETS_DIR}" >&2
+  exit 2
+fi
 
 while IFS=$'\t' read -r owner repo subpath sha version bare; do
   [ -z "$owner" ] && continue
@@ -502,14 +572,29 @@ while IFS=$'\t' read -r owner repo subpath sha version bare; do
   # A versioned pin gets one candidate. An unversioned pin gets every
   # soaked release, newest first, and takes the first whose runtime is
   # current.
+  if ! candidates="$(resolve_bump "$owner" "$repo" "$subpath" "$version")"; then
+    echo "  error: could not resolve a release for ${owner}/${repo}" >&2
+    failed=$((failed + 1))
+    continue
+  fi
   bump_tag=""
+  runtime_failed=""
   while IFS= read -r candidate; do
     [ -z "$candidate" ] && continue
-    if [ -n "$version" ] || action_runtime_is_current "$owner" "$repo" "$subpath" "$candidate"; then
+    if [ -n "$version" ]; then
       bump_tag="$candidate"
       break
     fi
-  done <<<"$(resolve_bump "$owner" "$repo" "$subpath" "$version")"
+    action_runtime_is_current "$owner" "$repo" "$subpath" "$candidate"
+    case $? in
+      0) bump_tag="$candidate"; break ;;
+      2) runtime_failed=1; break ;;
+    esac
+  done <<<"$candidates"
+  if [ -n "$runtime_failed" ]; then
+    failed=$((failed + 1))
+    continue
+  fi
   # The SHA and tag every occurrence is rewritten to. When no bump is due,
   # a pin with both versioned and bare occurrences still has its bare
   # ones rewritten, keeping its SHA and gaining the versioned ones'
@@ -518,21 +603,25 @@ while IFS=$'\t' read -r owner repo subpath sha version bare; do
   new_tag=""
   rewrite_kind=""
   if [ -n "$bump_tag" ]; then
-    ref_info="$(resolve_tag_ref "$owner" "$repo" "$bump_tag")"
+    ref_info="$(resolve_tag_ref "$owner" "$repo" "$bump_tag")" || ref_info=""
     ref_sha="$(echo "$ref_info" | sed -n '1p')"
     ref_type="$(echo "$ref_info" | sed -n '2p')"
     if [ -z "$ref_sha" ]; then
-      echo "  warn: could not resolve commit SHA for ${owner}/${repo}@${bump_tag} -- skipping" >&2
+      echo "  error: could not resolve commit SHA for ${owner}/${repo}@${bump_tag}" >&2
+      failed=$((failed + 1))
       continue
     fi
 
     commit_sha="$ref_sha"
     # Dereference an annotated tag object to the commit it points at.
     if [ "$ref_type" = "tag" ]; then
-      deref_sha="$(resolve_annotated_tag_commit "$owner" "$repo" "$ref_sha")"
-      if [ -n "$deref_sha" ]; then
-        commit_sha="$deref_sha"
+      deref_sha="$(resolve_annotated_tag_commit "$owner" "$repo" "$ref_sha")" || deref_sha=""
+      if [ -z "$deref_sha" ]; then
+        echo "  error: could not dereference tag ${bump_tag} of ${owner}/${repo} to its commit" >&2
+        failed=$((failed + 1))
+        continue
       fi
+      commit_sha="$deref_sha"
     fi
 
     # An unversioned pin already at the selected release's commit is
@@ -579,9 +668,10 @@ while IFS=$'\t' read -r owner repo subpath sha version bare; do
     old_ref="${old_ref}/${subpath}"
   fi
 
+  rewrite_failed=""
   for f in "$ASSETS_DIR"/*.yml "$ASSETS_DIR"/*.yaml; do
     [ -f "$f" ] || continue
-    python3 - "$f" "$old_ref" "$sha" "$commit_sha" "$new_tag" "$bare_only" "$FULL_VERSION_RE" <<'PY'
+    if ! python3 - "$f" "$old_ref" "$sha" "$commit_sha" "$new_tag" "$bare_only" "$FULL_VERSION_RE" <<'PY'
 import re, sys
 
 path, old_ref, old_sha, new_sha, new_tag, bare_only, full_version_re = sys.argv[1:8]
@@ -611,15 +701,25 @@ if changed:
         fh.writelines(out)
     print("REWRITTEN")
 PY
+    then
+      rewrite_failed=1
+    fi
   done
 
-  if [ "$rewrite_kind" = bumped ]; then
+  if [ -n "$rewrite_failed" ]; then
+    echo "  error: could not rewrite every occurrence of ${old_ref}@${sha}" >&2
+    failed=$((failed + 1))
+  elif [ "$rewrite_kind" = bumped ]; then
     bumped=$((bumped + 1))
   else
     annotated=$((annotated + 1))
   fi
-done < <(discover_pins)
+done <<<"$pins"
 
 echo ""
 echo "bump-asset-pins: checked ${pins_seen} distinct pin(s), ${bumped} bumped, ${annotated} annotated."
+if [ "$failed" -ne 0 ]; then
+  echo "bump-asset-pins: ${failed} pin(s) failed to resolve or rewrite; see the errors above." >&2
+  exit 2
+fi
 exit 0

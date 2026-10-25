@@ -48,6 +48,12 @@
 #   19. The closing summary counts SHA bumps and comment-only rewrites
 #      separately, as `M bumped, K annotated`, each count agreeing with
 #      the per-pin lines; cases 1, 2, 14, 17 and 18 check it too.
+#   20. An advisory bypasses the soak only for a pin inside its
+#       vulnerable_version_range, not for one below it.
+#   21. A failure anywhere in resolving a pin exits 2, never reporting
+#       the pin up to date, and the other pins are still bumped.
+#   22. An absent action.yml (HTTP 404) is not a failure: action.yaml is
+#       read instead.
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -94,7 +100,9 @@ print((datetime.now(timezone.utc) - timedelta(days=int(sys.argv[1]))).strftime('
 # <fixtures-dir>/bin that serves canned JSON based on the requested
 # `gh api <endpoint>` argument. Fixtures are looked up by turning the
 # WHOLE endpoint (path + query string) into a filename, replacing each
-# of `/`, `?`, `&`, `=` with `_`; a missing fixture serves `[]`.
+# of `/`, `?`, `&`, `=` with `_`; a missing fixture serves `[]`. A
+# `<name>.status` file holding an HTTP status makes the call fail as gh
+# does, printing `gh: ... (HTTP <status>)` on stderr and exiting 1.
 make_fake_gh() {
   local bin_dir="$1/bin"
   mkdir -p "$bin_dir"
@@ -111,7 +119,16 @@ endpoint="$2"
 # entirely and collide every advisories query into the same fixture.
 safe="$(echo "$endpoint" | tr '/?&=' '____')"
 fixture="${FAKE_GH_FIXTURES}/${safe}.json"
-if [ -f "$fixture" ]; then
+status_file="${FAKE_GH_FIXTURES}/${safe}.status"
+if [ -f "$status_file" ]; then
+  status="$(cat "$status_file")"
+  if [ "$status" = 404 ]; then
+    echo "gh: Not Found (HTTP 404)" >&2
+  else
+    echo "gh: Server Error (HTTP ${status})" >&2
+  fi
+  exit 1
+elif [ -f "$fixture" ]; then
   cat "$fixture"
 else
   echo "[]"
@@ -846,9 +863,11 @@ fi
 # Case 17: a bare occurrence of a SHA another occurrence pins as
 # `# v1.2.3`, already the newest release, keeps its SHA and gains the
 # `# v1.2.3` comment whichever occurrence is scanned first. The versioned
-# occurrence is left as it is. v1.2.3 runs on node20, so a bumper that
-# read the pin as unversioned would select no release and leave the bare
-# occurrence bare.
+# occurrence is left as it is. v1.2.3 runs on node20, so in the
+# bare-first order a bumper that read the pin as unversioned would reject
+# it and select no release; in the versioned-first order no release is
+# newer than the pin. In both orders the bare occurrence gains its
+# comment only from the rewrite of bare occurrences.
 # ---------------------------------------------------------------------
 for order in versioned-first bare-first; do
   CASE17="$TMP_ROOT/case17-$order"
@@ -995,6 +1014,168 @@ else
   cat "$CASE19/assets/workflow.yml"
 fi
 check_summary "$TMP_ROOT/case19.log" 1 2 "case 19"
+
+# ---------------------------------------------------------------------
+# Case 20: an advisory applies only to a pin inside its
+# vulnerable_version_range. v2.5.0, published today, is the first
+# patched version of an advisory for `>= 2.0.0, < 2.5.0`. A v1.4.0 pin,
+# below that range, is not affected, so v2.5.0 still soaks; a v2.1.0
+# pin, inside it, takes v2.5.0 at once.
+# ---------------------------------------------------------------------
+for pinned in v1.4.0 v2.1.0; do
+  CASE20="$TMP_ROOT/case20-$pinned"
+  mkdir -p "$CASE20/assets" "$CASE20/fixtures"
+  make_fake_gh "$CASE20/fixtures"
+
+  printf 'on:\n  pull_request:\nsteps:\n  - uses: range-owner/range-action@2121212121212121212121212121212121212121 # %s\n' \
+    "$pinned" > "$CASE20/assets/workflow.yml"
+
+  cat > "$CASE20/fixtures/repos_range-owner_range-action_releases.json" <<JSON
+[
+  {"tag_name": "v2.5.0", "published_at": "$(iso_now)", "draft": false, "prerelease": false}
+]
+JSON
+  cat > "$CASE20/fixtures/advisories_ecosystem_actions_affects_range-owner_range-action.json" <<'JSON'
+[
+  {"vulnerabilities": [{"vulnerable_version_range": ">= 2.0.0, < 2.5.0", "first_patched_version": "2.5.0"}]}
+]
+JSON
+  cat > "$CASE20/fixtures/repos_range-owner_range-action_git_ref_tags_v2.5.0.json" <<'JSON'
+{"object": {"sha": "2525252525252525252525252525252525252525", "type": "commit"}}
+JSON
+
+  run_bumper "$CASE20/assets" "$CASE20/fixtures" > "$TMP_ROOT/case20-$pinned.log" 2>&1
+  case20_status=$?
+  if [ "$pinned" = v1.4.0 ]; then
+    want_line="  - uses: range-owner/range-action@2121212121212121212121212121212121212121 # v1.4.0"
+    label="a pin below an advisory's vulnerable range does not bypass the soak"
+  else
+    want_line="  - uses: range-owner/range-action@2525252525252525252525252525252525252525 # v2.5.0"
+    label="a pin inside an advisory's vulnerable range takes its fix at once"
+  fi
+  if [ "$case20_status" -eq 0 ] && grep -qxF "$want_line" "$CASE20/assets/workflow.yml"; then
+    pass "$label ($pinned)"
+  else
+    fail "expected exit 0 and '${want_line}' ($pinned)"
+    cat "$TMP_ROOT/case20-$pinned.log"
+    cat "$CASE20/assets/workflow.yml"
+  fi
+done
+
+# ---------------------------------------------------------------------
+# Case 21: a failure anywhere in resolving a pin makes the bumper exit 2
+# rather than report the pin up to date. Each run fails one lookup:
+#   releases     -- listing the releases
+#   advisories   -- listing the advisories
+#   range        -- an advisory's vulnerable_version_range is unreadable
+#   tag-ref      -- resolving the selected tag
+#   tag-object   -- dereferencing the selected annotated tag
+#   contents     -- reading an unversioned pin's action.yml (HTTP 500)
+# Every run also carries a pin that resolves, which is still bumped.
+# ---------------------------------------------------------------------
+for failing in releases advisories range tag-ref tag-object contents; do
+  CASE21="$TMP_ROOT/case21-$failing"
+  mkdir -p "$CASE21/assets" "$CASE21/fixtures"
+  make_fake_gh "$CASE21/fixtures"
+  fx="$CASE21/fixtures"
+
+  if [ "$failing" = contents ]; then
+    fail_line='  - uses: fail-owner/fail-action@2222222222222222222222222222222222222222'
+  else
+    fail_line='  - uses: fail-owner/fail-action@2222222222222222222222222222222222222222 # v1.0.0'
+  fi
+  printf 'on:\n  pull_request:\nsteps:\n%s\n%s\n' "$fail_line" \
+    '  - uses: ok-owner/ok-action@3030303030303030303030303030303030303030 # v1.0.0' > "$CASE21/assets/workflow.yml"
+
+  cat > "$fx/repos_fail-owner_fail-action_releases.json" <<JSON
+[
+  {"tag_name": "v1.1.0", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+  write_action_yml_fixture "$fx/repos_fail-owner_fail-action_contents_action.yml_ref_v1.1.0.json" node24
+  cat > "$fx/repos_fail-owner_fail-action_git_ref_tags_v1.1.0.json" <<'JSON'
+{"object": {"sha": "2323232323232323232323232323232323232323", "type": "commit"}}
+JSON
+  cat > "$fx/repos_ok-owner_ok-action_releases.json" <<JSON
+[
+  {"tag_name": "v1.1.0", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+  cat > "$fx/repos_ok-owner_ok-action_git_ref_tags_v1.1.0.json" <<'JSON'
+{"object": {"sha": "3131313131313131313131313131313131313131", "type": "commit"}}
+JSON
+
+  case "$failing" in
+    releases) echo 500 > "$fx/repos_fail-owner_fail-action_releases.status" ;;
+    advisories) echo 500 > "$fx/advisories_ecosystem_actions_affects_fail-owner_fail-action.status" ;;
+    range)
+      cat > "$fx/advisories_ecosystem_actions_affects_fail-owner_fail-action.json" <<'JSON'
+[
+  {"vulnerabilities": [{"vulnerable_version_range": "~> 1.0", "first_patched_version": "1.1.0"}]}
+]
+JSON
+      ;;
+    tag-ref) echo 500 > "$fx/repos_fail-owner_fail-action_git_ref_tags_v1.1.0.status" ;;
+    tag-object)
+      cat > "$fx/repos_fail-owner_fail-action_git_ref_tags_v1.1.0.json" <<'JSON'
+{"object": {"sha": "2424242424242424242424242424242424242424", "type": "tag"}}
+JSON
+      echo 500 > "$fx/repos_fail-owner_fail-action_git_tags_2424242424242424242424242424242424242424.status"
+      ;;
+    contents) echo 500 > "$fx/repos_fail-owner_fail-action_contents_action.yml_ref_v1.1.0.status" ;;
+  esac
+
+  run_bumper "$CASE21/assets" "$CASE21/fixtures" > "$TMP_ROOT/case21-$failing.log" 2>&1
+  case21_status=$?
+  if [ "$case21_status" -eq 2 ] \
+    && grep -q '^  error: ' "$TMP_ROOT/case21-$failing.log" \
+    && ! grep -q 'up to date' "$TMP_ROOT/case21-$failing.log" \
+    && grep -qxF "$fail_line" "$CASE21/assets/workflow.yml" \
+    && grep -qxF '  - uses: ok-owner/ok-action@3131313131313131313131313131313131313131 # v1.1.0' "$CASE21/assets/workflow.yml"; then
+    pass "a failed ${failing} lookup exits 2, leaves that pin alone, and still bumps the other pin"
+  else
+    fail "expected exit 2 and an error for the failed ${failing} lookup, got exit ${case21_status}"
+    cat "$TMP_ROOT/case21-$failing.log"
+    cat "$CASE21/assets/workflow.yml"
+  fi
+done
+
+# ---------------------------------------------------------------------
+# Case 22: an action.yml that is absent (HTTP 404) is not a failure: the
+# runtime is read from action.yaml instead, and the unversioned pin moves.
+# ---------------------------------------------------------------------
+CASE22="$TMP_ROOT/case22"
+mkdir -p "$CASE22/assets" "$CASE22/fixtures"
+make_fake_gh "$CASE22/fixtures"
+
+cat > "$CASE22/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: yaml-owner/yaml-action@eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+YAML
+
+cat > "$CASE22/fixtures/repos_yaml-owner_yaml-action_releases.json" <<JSON
+[
+  {"tag_name": "v1.1.0", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+echo 404 > "$CASE22/fixtures/repos_yaml-owner_yaml-action_contents_action.yml_ref_v1.1.0.status"
+write_action_yml_fixture "$CASE22/fixtures/repos_yaml-owner_yaml-action_contents_action.yaml_ref_v1.1.0.json" node24
+cat > "$CASE22/fixtures/repos_yaml-owner_yaml-action_git_ref_tags_v1.1.0.json" <<'JSON'
+{"object": {"sha": "2626262626262626262626262626262626262626", "type": "commit"}}
+JSON
+
+run_bumper "$CASE22/assets" "$CASE22/fixtures" > "$TMP_ROOT/case22.log" 2>&1
+case22_status=$?
+if [ "$case22_status" -eq 0 ] \
+  && grep -qxF '  - uses: yaml-owner/yaml-action@2626262626262626262626262626262626262626 # v1.1.0' "$CASE22/assets/workflow.yml"; then
+  pass "an absent action.yml is not a failure; action.yaml's runtime is read instead"
+else
+  fail "expected exit 0 and a move to v1.1.0 read from action.yaml, got exit ${case22_status}"
+  cat "$TMP_ROOT/case22.log"
+  cat "$CASE22/assets/workflow.yml"
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "test-bump-asset-pins: ${failures} case(s) failed." >&2
