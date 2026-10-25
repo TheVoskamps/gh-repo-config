@@ -13,13 +13,21 @@
 # this workflow is what keeps them current instead. See the "Problem"
 # section of issue #60.
 #
-# All of the update-policy DECISION logic (security-bypass, 7-day soak
-# for every other release, semver-major included) lives in
-# scripts/bump-asset-pins.sh, which only rewrites files -- it never
-# touches git or opens a PR. This workflow owns that plumbing: it runs
-# the script, and only if it actually changed something
-# (`git status --porcelain` is non-empty) does it commit, push a branch,
-# and open a PR. No eligible bumps -> no diff -> no branch, no PR.
+# All of the update-policy DECISION logic lives in
+# scripts/bump-asset-pins.sh: security-bypass, 7-day soak for every
+# other release, semver-major included; a pin with no full `# vX.Y.Z`
+# comment skips the security bypass and moves to the newest soaked
+# release whose action.yml declares node24 or later or a runtime that is
+# not Node.js, gaining that release's comment; a bare occurrence of a
+# versioned pin's SHA follows that pin, gaining its comment. A run can
+# therefore move SHAs, only add comments to pins whose SHA stays, or
+# both. The script only rewrites files -- it never touches git or opens
+# a PR. This workflow owns that plumbing: it runs the script, and only
+# if it actually changed something (`git status --porcelain` is
+# non-empty) does it commit, push a branch, and open a PR whose title,
+# commit message, and body say which of the two kinds of change the run
+# made. No SHA to move and no comment to add -> no diff -> no branch, no
+# PR.
 #
 # Auth: this workflow MUST mint a short-lived GitHub App installation
 # token (from the AUTOMERGE_APP_CLIENT_ID / AUTOMERGE_APP_PRIVATE_KEY
@@ -128,11 +136,35 @@ jobs:
       - name: Check for changes
         id: diff
         run: |
-          if git status --porcelain assets/ | grep -q .; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
+          if ! git status --porcelain assets/ | grep -q .; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No eligible pin bumps found -- nothing to do."
+            echo "No pin SHA to move and no version comment to add -- nothing to do."
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+          # Classify the rewritten `uses:` lines with their trailing
+          # comments stripped: a removed line that some added line
+          # matches kept its SHA and only changed its comment; one that
+          # no added line matches moved its SHA.
+          export LC_ALL=C
+          git diff -U0 -- assets/ > "$RUNNER_TEMP/pins.diff"
+          { grep -E '^-[[:space:]]*-?[[:space:]]*uses:' "$RUNNER_TEMP/pins.diff" || true; } \
+            | sed -E 's/^-//; s/[[:space:]]*(#.*)?$//' | sort > "$RUNNER_TEMP/pins.removed"
+          { grep -E '^\+[[:space:]]*-?[[:space:]]*uses:' "$RUNNER_TEMP/pins.diff" || true; } \
+            | sed -E 's/^\+//; s/[[:space:]]*(#.*)?$//' | sort > "$RUNNER_TEMP/pins.added"
+          sha_moved="$(comm -23 "$RUNNER_TEMP/pins.removed" "$RUNNER_TEMP/pins.added" | wc -l)"
+          comment_only="$(comm -12 "$RUNNER_TEMP/pins.removed" "$RUNNER_TEMP/pins.added" | wc -l)"
+          echo "Pin lines with a moved SHA: ${sha_moved}; with only a comment added: ${comment_only}."
+          if [ "$sha_moved" -gt 0 ]; then
+            echo "sha_moved=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha_moved=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$comment_only" -gt 0 ]; then
+            echo "comment_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "comment_only=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Configure git identity
@@ -145,12 +177,27 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SHA_MOVED: ${{ steps.diff.outputs.sha_moved }}
+          COMMENT_ONLY: ${{ steps.diff.outputs.comment_only }}
         run: |
           set -euo pipefail
 
+          # The title, commit message, and body say what this run did:
+          # "bump" only when a SHA moved, never for a run that only added
+          # version comments.
+          if [ "$SHA_MOVED" = true ] && [ "$COMMENT_ONLY" = true ]; then
+            TITLE="Bump assets/ action pins and add missing version comments"
+          elif [ "$SHA_MOVED" = true ]; then
+            TITLE="Bump assets/ action pins to current eligible releases"
+          elif [ "$COMMENT_ONLY" = true ]; then
+            TITLE="Add missing version comments to assets/ action pins"
+          else
+            TITLE="Rewrite assets/ action pins"
+          fi
+
           # Fixed branch (mirrors src/converge/writer.ts's CONVERGE_BRANCH
           # contract): every run force-resets this SAME branch onto the
-          # current main plus today's eligible bumps, rather than opening
+          # current main plus today's pin rewrites, rather than opening
           # a new timestamped branch/PR each time. A prior run's
           # still-open PR is updated in place (the push below force-
           # updates its head), never duplicated.
@@ -241,7 +288,7 @@ jobs:
 
           git checkout -b "$BRANCH"
           git add assets/
-          git commit -m "Bump assets/ action pins to current eligible releases"
+          git commit -m "$TITLE"
 
           # --force-with-lease=<ref>:<expected> narrows the race between
           # the authorship check above and this push (e.g. a push landing
@@ -276,18 +323,6 @@ jobs:
           # already been pushed.
           CHANGED_FILES="$(git diff --name-only "$BASE_SHA".."$BRANCH" -- assets/ | sed 's/^/- `/; s/$/`/')"
 
-          # Open-or-update: skip gh pr create entirely when a bumper PR
-          # is already open on this branch -- the force-push above
-          # already carried today's rewrite into it. Creating a second
-          # PR on the same head branch would fail anyway, but checking
-          # first keeps the intent explicit and avoids depending on that
-          # failure mode.
-          EXISTING_PR="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
-          if [ -n "$EXISTING_PR" ]; then
-            echo "Bumper PR #${EXISTING_PR} is already open on ${BRANCH} -- updated in place, not opening a new one."
-            exit 0
-          fi
-
           # Build the PR body with printf (one call per line) rather
           # than a heredoc: a heredoc's closing delimiter must start at
           # column 0 for a plain `<<WORD` form, but a column-0 line here
@@ -304,11 +339,32 @@ jobs:
           {
             printf '%s\n' '## Summary'
             printf '\n'
-            printf '%s\n' 'Scheduled bump of `uses:` action pins in `assets/*.yml` (the'
-            printf '%s\n' "fan-out's authoritative payload templates) to the current eligible"
-            printf '%s\n' 'upstream release, per the policy in `scripts/bump-asset-pins.sh`:'
-            printf '%s\n' 'security fixes are taken immediately, and everything else, semver-major'
-            printf '%s\n' 'releases included, soaks 7 days.'
+            printf '%s\n' "Scheduled update of the \`uses:\` action pins in \`assets/*.yml\`, the"
+            printf '%s\n' "fan-out's authoritative payload templates. This run:"
+            printf '\n'
+            if [ "$SHA_MOVED" = true ]; then
+              printf '%s\n' '- moves pins to the commit of their eligible upstream release, with'
+              printf '%s\n' "  that release's \`# vX.Y.Z\` comment."
+            fi
+            if [ "$COMMENT_ONLY" = true ]; then
+              printf '%s\n' '- adds a full `# vX.Y.Z` version comment to pins whose SHA does not'
+              printf '%s\n' '  move.'
+            fi
+            printf '\n'
+            printf '%s\n' 'Policy, as `scripts/bump-asset-pins.sh` applies it:'
+            printf '\n'
+            printf '%s\n' '- A release that fixes a security advisory affecting the pinned version'
+            printf '%s\n' '  is taken immediately.'
+            printf '%s\n' '- Every other release, semver-major releases included, soaks 7 days.'
+            printf '%s\n' '- A pin with no full `# vX.Y.Z` comment has no version an advisory can'
+            printf '%s\n' '  be shown to affect, so it skips the security bypass. It moves to the'
+            printf '%s\n' '  newest release at least 7 days old whose `action.yml` declares node24'
+            printf '%s\n' '  or later, or a runtime that is not Node.js, skipping a release on an'
+            printf '%s\n' "  older Node.js runtime, and gains that release's comment. When that"
+            printf '%s\n' '  release is the commit already pinned, only the comment changes.'
+            printf '%s\n' '- A bare occurrence of a SHA that another occurrence pins with a'
+            printf '%s\n' '  `# vX.Y.Z` comment follows that pin: it moves with it, or, when the'
+            printf '%s\n' "  pin does not move, keeps its SHA and gains the pin's comment."
             printf '\n'
             printf '%s\n' 'Files changed:'
             printf '%s\n' "${CHANGED_FILES}"
@@ -316,8 +372,21 @@ jobs:
             printf '%s\n' 'Generated by `.github/workflows/assets-pin-bump.yml`.'
           } > "$PR_BODY_FILE"
 
+          # Open-or-update: when a bumper PR is already open on this
+          # branch, the force-push above already carried today's rewrite
+          # into it, so its title and body are replaced to describe this
+          # run instead of opening a second PR on the same head branch.
+          EXISTING_PR="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Bumper PR #${EXISTING_PR} is already open on ${BRANCH} -- updated in place, not opening a new one."
+            gh pr edit "$EXISTING_PR" \
+              --title "$TITLE" \
+              --body-file "$PR_BODY_FILE"
+            exit 0
+          fi
+
           gh pr create \
             --base main \
             --head "$BRANCH" \
-            --title "Bump assets/ action pins to current eligible releases" \
+            --title "$TITLE" \
             --body-file "$PR_BODY_FILE"
