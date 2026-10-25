@@ -746,11 +746,11 @@ test("under off, a draft converger PR left by manual is marked ready for review 
 });
 
 test("under off, a tick with nothing to commit leaves the draft standing (issue #92)", async () => {
-  // The release rides on the commit that resets the work branch, and
-  // under `off` that reset is what drops the anchor from the branch.
-  // With nothing to commit the branch still carries the anchor, so
-  // marking the PR ready would offer exactly the file the org switched
-  // off to an unattended merge.
+  // The release rides on the tree the tick converges the work branch to,
+  // and under `off` that tree is what drops the anchor from the branch.
+  // With no diff against the default branch no such tree is built and
+  // the branch still carries the anchor, so marking the PR ready would
+  // offer exactly the file the org switched off to an unattended merge.
   const options = { ...SWEEPER_OPTIONS, sweeperUpdatePolicy: "off" };
   const desired = buildDesiredFiles(CTX, {
     ...options,

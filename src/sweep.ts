@@ -481,9 +481,8 @@ export interface SweepOptions {
    * written, under `dryRun`); when it does, `runSweep` carries it into
    * {@link SweepReport.convergeResults} so the report can surface which
    * converger PR was opened, updated, or left unchanged per repo. A stub
-   * that returns
-   * nothing (the common case in tests that don't care about file
-   * convergence) simply contributes no `convergeResults` entry.
+   * that returns nothing (the common case in tests that don't care about
+   * file convergence) simply contributes no `convergeResults` entry.
    */
   readonly converge?: (
     repo: string,

@@ -188,10 +188,10 @@ export async function convergeRepoFiles(
   }
 
   // Create a blob per changed file, then one tree overlaying them on the
-  // default-branch head's tree, then — unless the work branch already
-  // holds that tree — a commit, then point the work branch at it. The
-  // git-data flow lets each tree entry carry an explicit mode, so scripts
-  // land 100755.
+  // default-branch head's tree, then — unless an open PR's branch already
+  // holds that tree on that base — a commit, then point the work branch
+  // at it. The git-data flow lets each tree entry carry an explicit mode,
+  // so scripts land 100755.
   const entries: { path: string; mode: string; sha: string }[] = [];
   for (const file of changed) {
     const sha = await client.createBlob(owner, repo, file.content);
