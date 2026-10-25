@@ -228,8 +228,8 @@ export class RepoSettingsClient {
    * `PATCH /repos/{o}/{r}` with only the merge-button sub-keys that
    * differ from the current state (merge-commit-only, auto-merge,
    * delete-branch-on-merge). `allow_update_branch` is deliberately not
-   * part of this converger's spec — see issue #15's decision to leave
-   * that one key out.
+   * part of this converger's spec: the patch never carries it, so each
+   * repo keeps whatever value it already has.
    */
   async patchMergeButtonSettings(
     owner: string,

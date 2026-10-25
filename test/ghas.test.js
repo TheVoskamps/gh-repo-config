@@ -133,7 +133,7 @@ test("secret scanning already enabled but push protection not -> PATCHes only pu
   assert.deepEqual(secPatch, { secretScanningPushProtection: true });
 });
 
-test("allow_update_branch is never part of the merge-button patch (left out by issue #15)", async () => {
+test("allow_update_branch is never part of the merge-button patch, so each repo keeps its own value", async () => {
   const calls = [];
   const client = fakeClient({ current: nothingConverged() }, calls);
   await convergeGhasSettings(client, OWNER, REPO, false);
