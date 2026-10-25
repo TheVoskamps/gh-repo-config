@@ -11,7 +11,10 @@ function client(routes) {
     if (!route) throw new Error(`unexpected fetch: ${method} ${url}`);
     return route;
   };
-  return { calls, client: new RulesetsClient({ token: "t", apiBase: "https://api", fetch: doFetch }) };
+  return {
+    calls,
+    client: new RulesetsClient({ token: "t", apiBase: "https://api", fetch: doFetch }),
+  };
 }
 
 function jsonResp(status, body, ok = status >= 200 && status < 300) {

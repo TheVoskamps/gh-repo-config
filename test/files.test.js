@@ -102,8 +102,7 @@ test("buildDesiredFiles emits dependabot + codeql + pr-automation workflow/confi
 });
 
 test("buildDesiredFiles with no options renders the default named groups; an org registry replaces them in dependabot.yml only (issue #88)", () => {
-  const dependabotOf = (files) =>
-    files.find((f) => f.path === ".github/dependabot.yml").content;
+  const dependabotOf = (files) => files.find((f) => f.path === ".github/dependabot.yml").content;
   const bare = buildDesiredFiles(CTX);
   const empty = buildDesiredFiles(CTX, {});
   assert.deepEqual(empty, bare);
@@ -192,12 +191,8 @@ test("every rendered .yml file has zero unresolved tokens", () => {
 
 test("PR-automation workflows reference the AUTOMERGE secrets, and the REST-merge pass sits on the workflow_run side", () => {
   const files = buildDesiredFiles(CTX);
-  const automerge = files.find(
-    (f) => f.path === ".github/workflows/auto-enable-automerge.yml",
-  );
-  const rebase = files.find(
-    (f) => f.path === ".github/workflows/auto-rebase-prs.yml",
-  );
+  const automerge = files.find((f) => f.path === ".github/workflows/auto-enable-automerge.yml");
+  const rebase = files.find((f) => f.path === ".github/workflows/auto-rebase-prs.yml");
   assert.ok(automerge, "auto-enable-automerge.yml present");
   assert.ok(rebase, "auto-rebase-prs.yml present");
 
@@ -275,11 +270,7 @@ test("every fanned-out workflow renders exactly the jobs the collapse left it", 
     "every rendered workflow has an entry in EXPECTED_JOBS",
   );
   for (const wf of workflows) {
-    assert.deepEqual(
-      workflowJobIds(wf.content),
-      EXPECTED_JOBS[wf.path],
-      `${wf.path} job set`,
-    );
+    assert.deepEqual(workflowJobIds(wf.content), EXPECTED_JOBS[wf.path], `${wf.path} job set`);
   }
 });
 
@@ -310,9 +301,7 @@ test("workflowJobIds counts jobs, not same-indent trigger or comment keys", () =
 
 test("gate/guard workflows carry the per-repo default branch", () => {
   const files = buildDesiredFiles({ org: "O", repo: "r", defaultBranch: "trunk" });
-  const workflows = files.filter((f) =>
-    f.path.startsWith(".github/workflows/"),
-  );
+  const workflows = files.filter((f) => f.path.startsWith(".github/workflows/"));
   for (const wf of workflows) {
     assert.match(wf.content, /branches: \[trunk\]/, `${wf.path}`);
   }
@@ -335,24 +324,18 @@ test("the codeartifact-auth action ships verbatim, non-executable, at the path i
 test("the codeartifact-auth action carries no per-repo tokens to render", () => {
   const a = buildDesiredFiles({ org: "O", repo: "r", defaultBranch: "trunk" });
   const b = buildDesiredFiles({ org: "P", repo: "s", defaultBranch: "main" });
-  const pick = (files) =>
-    files.find((f) => f.path === CODEARTIFACT_ACTION_PATH).content;
+  const pick = (files) => files.find((f) => f.path === CODEARTIFACT_ACTION_PATH).content;
   assert.equal(pick(a), pick(b));
 });
 
 test("the install gate calls the codeartifact-auth action at the path it ships to", () => {
   const files = buildDesiredFiles(CTX);
-  const gate = files.find(
-    (f) => f.path === ".github/workflows/dependency-install-gate.yml",
-  );
+  const gate = files.find((f) => f.path === ".github/workflows/dependency-install-gate.yml");
   assert.ok(gate, "dependency-install-gate.yml present");
   // The `uses:` path and the action's own target path must stay
   // consistent — a local composite action resolves by directory.
   assert.match(gate.content, /uses: \.\/\.github\/actions\/codeartifact-auth/);
-  assert.equal(
-    CODEARTIFACT_ACTION_PATH,
-    ".github/actions/codeartifact-auth/action.yml",
-  );
+  assert.equal(CODEARTIFACT_ACTION_PATH, ".github/actions/codeartifact-auth/action.yml");
   assert.ok(files.some((f) => f.path === CODEARTIFACT_ACTION_PATH));
   // The variable name is static because a composite action cannot read
   // the `vars` context; the value must therefore be passed in.
@@ -381,9 +364,7 @@ test("the install gate calls the codeartifact-auth action at the path it ships t
 
 test("the install gate grants id-token: write on its single job only", () => {
   const files = buildDesiredFiles(CTX);
-  const gate = files.find(
-    (f) => f.path === ".github/workflows/dependency-install-gate.yml",
-  );
+  const gate = files.find((f) => f.path === ".github/workflows/dependency-install-gate.yml");
   const idTokenGrants = gate.content.match(/^\s*id-token: write$/gm) ?? [];
   assert.equal(idTokenGrants.length, 1, "exactly one id-token: write grant");
 
@@ -452,7 +433,10 @@ test("the sweeper workflow is the ONLY payload difference between a sweeper repo
   // And `gh-repo-config.json` is org-owned content, never a payload —
   // under any policy, on the sweeper repo or off it.
   for (const files of [sweeper, plain]) {
-    assert.equal(files.some((f) => f.path.endsWith("gh-repo-config.json")), false);
+    assert.equal(
+      files.some((f) => f.path.endsWith("gh-repo-config.json")),
+      false,
+    );
   }
 });
 
@@ -467,9 +451,7 @@ test("the rendered sweeper workflow ships verbatim, non-executable, converge-and
   // It carries no per-repo placeholder today, so the render is the
   // identity — and it must still pass the token assertion.
   assert.equal(sweep.content, readAssetText("sweeper-sweep.yml"));
-  assert.doesNotThrow(() =>
-    assertNoUnresolvedTokens(sweep.content, SWEEPER_WORKFLOW_PATH),
-  );
+  assert.doesNotThrow(() => assertNoUnresolvedTokens(sweep.content, SWEEPER_WORKFLOW_PATH));
 });
 
 test("the sweeper workflow mints with client-id, SHA-pins its actions, and verifies before it unpacks (issue #92)", () => {
@@ -536,7 +518,11 @@ test("community files ship the org's own content byte-for-byte at repo root, non
   const community = files.filter((f) => COMMUNITY_PATHS.includes(f.path));
   assert.equal(community.length, COMMUNITY_PATHS.length);
   for (const f of community) {
-    assert.equal(f.content, COMMUNITY_CONTENT[f.path], `${f.path} must be the org's content verbatim`);
+    assert.equal(
+      f.content,
+      COMMUNITY_CONTENT[f.path],
+      `${f.path} must be the org's content verbatim`,
+    );
     assert.equal(f.executable, false, `${f.path} should not be executable`);
     assert.ok(
       Array.isArray(f.honoredLocations) && f.honoredLocations.length > 0,
@@ -546,14 +532,18 @@ test("community files ship the org's own content byte-for-byte at repo root, non
 });
 
 test("a community file the org does not carry produces no payload entry — no error, no empty file (issue #90)", () => {
-  const { LICENSE, ...withoutLicense } = COMMUNITY_CONTENT;
+  const { LICENSE: _license, ...withoutLicense } = COMMUNITY_CONTENT;
   const files = buildDesiredFiles(CTX, { communityFiles: withoutLicense });
   const paths = files.map((f) => f.path);
   assert.equal(paths.includes("LICENSE"), false);
   for (const path of ["CONTRIBUTORS", "PATENTS", "PRIOR_ART.md"]) {
     assert.ok(paths.includes(path), `${path} still seeded`);
   }
-  assert.equal(files.some((f) => f.content === ""), false, "no empty file emitted");
+  assert.equal(
+    files.some((f) => f.content === ""),
+    false,
+    "no empty file emitted",
+  );
 });
 
 test("no community content (org without a .github repo) or no options at all: no community payload, everything else unchanged (issue #90)", () => {
@@ -564,7 +554,10 @@ test("no community content (org without a .github repo) or no options at all: no
     buildDesiredFiles(CTX, {}),
     buildDesiredFiles(CTX),
   ]) {
-    assert.equal(files.some((f) => COMMUNITY_PATHS.includes(f.path)), false);
+    assert.equal(
+      files.some((f) => COMMUNITY_PATHS.includes(f.path)),
+      false,
+    );
     assert.deepEqual(files, nonCommunity(withAll));
   }
 });
@@ -573,7 +566,10 @@ test("only the known community paths are consulted; extra keys in the org's map 
   const files = buildDesiredFiles(CTX, {
     communityFiles: { ...COMMUNITY_CONTENT, "SECURITY.md": "# Security\n" },
   });
-  assert.equal(files.some((f) => f.path === "SECURITY.md"), false);
+  assert.equal(
+    files.some((f) => f.path === "SECURITY.md"),
+    false,
+  );
 });
 
 test("community files honor .github/ and docs/ as alternate locations", () => {
@@ -588,10 +584,6 @@ test("every other (non-community) DesiredFile carries no honoredLocations", () =
   const files = buildDesiredFiles(CTX, { communityFiles: COMMUNITY_CONTENT });
   for (const f of files) {
     if (COMMUNITY_PATHS.includes(f.path)) continue;
-    assert.equal(
-      f.honoredLocations,
-      undefined,
-      `${f.path} should not be seed-if-absent`,
-    );
+    assert.equal(f.honoredLocations, undefined, `${f.path} should not be seed-if-absent`);
   }
 });

@@ -14,6 +14,6 @@
     // this repo's prose. `.claude/agent-memory/` is deliberately NOT
     // ignored — MD041 stays live there.
     ".claude/tmp",
-    ".claude/worktrees"
-  ]
+    ".claude/worktrees",
+  ],
 }

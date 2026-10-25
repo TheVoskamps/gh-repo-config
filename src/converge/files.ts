@@ -58,10 +58,7 @@
  *   no-external-source-of-truth contract, confined to this payload kind.
  */
 import { readAssetText } from "./assets.js";
-import {
-  DEFAULT_SWEEPER_UPDATE_POLICY,
-  type SweeperUpdatePolicy,
-} from "../config/org-config.js";
+import { DEFAULT_SWEEPER_UPDATE_POLICY, type SweeperUpdatePolicy } from "../config/org-config.js";
 import {
   assertNoUnresolvedTokens,
   renderDependabotYml,
@@ -258,9 +255,7 @@ const COMMUNITY_FILES: readonly {
  * set `community.ts` looks up in the org's `.github` repo and the only
  * keys {@link DesiredFilesOptions.communityFiles} is consulted for.
  */
-export const COMMUNITY_FILE_PATHS: readonly string[] = COMMUNITY_FILES.map(
-  (f) => f.path,
-);
+export const COMMUNITY_FILE_PATHS: readonly string[] = COMMUNITY_FILES.map((f) => f.path);
 
 /**
  * Community-file seed content by target path (issue #90): the org's own
@@ -299,9 +294,7 @@ export interface SweeperOptions {
   readonly sweeperUpdatePolicy?: SweeperUpdatePolicy;
 }
 
-export interface DesiredFilesOptions
-  extends OrgRenderOptions,
-    SweeperOptions {
+export interface DesiredFilesOptions extends OrgRenderOptions, SweeperOptions {
   /**
    * The org's community-file content by path (issue #90). Only the
    * paths in {@link COMMUNITY_FILE_PATHS} are consulted; a path absent
@@ -319,10 +312,7 @@ export interface DesiredFilesOptions
  * is deliberately absent from every payload under every policy — this
  * decides the workflow only.
  */
-function shipsSweeperWorkflow(
-  ctx: RepoContext,
-  options: DesiredFilesOptions,
-): boolean {
+function shipsSweeperWorkflow(ctx: RepoContext, options: DesiredFilesOptions): boolean {
   const policy = options.sweeperUpdatePolicy ?? DEFAULT_SWEEPER_UPDATE_POLICY;
   if (policy === "off") {
     return false;
@@ -469,11 +459,7 @@ export function buildDesiredFiles(
   // extra fixed-constant + per-org App-identity substitution via
   // renderPrAutomationTemplate, not the plain three-token render.
   for (const name of RENDERED_PR_AUTOMATION_WORKFLOWS) {
-    const rendered = renderPrAutomationTemplate(
-      readAssetText(name),
-      ctx,
-      options,
-    );
+    const rendered = renderPrAutomationTemplate(readAssetText(name), ctx, options);
     assertNoUnresolvedTokens(rendered, `.github/workflows/${name}`);
     files.push({
       path: `.github/workflows/${name}`,
@@ -485,10 +471,7 @@ export function buildDesiredFiles(
   // The sweeper workflow (issue #92): a payload for the org's sweeper
   // repo only, and only when the policy is `manual` or `auto`.
   if (shipsSweeperWorkflow(ctx, options)) {
-    const rendered = renderTemplate(
-      readAssetText(SWEEPER_WORKFLOW_ASSET),
-      ctx,
-    );
+    const rendered = renderTemplate(readAssetText(SWEEPER_WORKFLOW_ASSET), ctx);
     assertNoUnresolvedTokens(rendered, SWEEPER_WORKFLOW_PATH);
     files.push({
       path: SWEEPER_WORKFLOW_PATH,

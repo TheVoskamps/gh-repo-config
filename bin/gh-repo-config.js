@@ -45,9 +45,7 @@ switch (command) {
       // open, and a held one waits for a person rather than for a check
       // (issue #92) — so the summary counts the two apart instead of
       // calling them all "awaiting checks".
-      const held = report.awaitingChecks.filter(
-        (a) => a.outcome === "awaiting-human",
-      );
+      const held = report.awaitingChecks.filter((a) => a.outcome === "awaiting-human");
       console.log(
         `Sweep complete: ${report.stamped.length} stamped, ` +
           `${report.skippedCurrent} up-to-date, ` +
@@ -75,9 +73,7 @@ switch (command) {
               `(${result.pullRequest.url})`,
           );
         } else {
-          console.log(
-            `  ${repo}: ${result.changed.length} file(s) would change (dry-run, no PR)`,
-          );
+          console.log(`  ${repo}: ${result.changed.length} file(s) would change (dry-run, no PR)`);
         }
       }
       // GHAS / merge-button settings-convergence outcome (issue #15) —
@@ -98,7 +94,9 @@ switch (command) {
       // CodeQL default-setup convergence outcome (issue #16).
       for (const { repo, result } of report.defaultSetupResults) {
         if (result.outcome === "already-converged") continue;
-        console.log(`  ${repo}: default-setup ${result.outcome}${result.reason ? ` — ${result.reason}` : ""}`);
+        console.log(
+          `  ${repo}: default-setup ${result.outcome}${result.reason ? ` — ${result.reason}` : ""}`,
+        );
       }
       // protect-main ruleset convergence outcome (issue #16).
       for (const { repo, result } of report.rulesetResults) {
@@ -116,7 +114,9 @@ switch (command) {
         );
       }
       for (const repo of report.rulesetDeferred) {
-        console.log(`  ${repo}: protect-main ruleset deferred — file PR not yet merged (retry next tick)`);
+        console.log(
+          `  ${repo}: protect-main ruleset deferred — file PR not yet merged (retry next tick)`,
+        );
       }
       // The sweep ran its full tick either way — every repo decided,
       // converged, and stamped as usual. An unprovisioned selection

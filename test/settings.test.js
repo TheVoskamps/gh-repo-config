@@ -121,9 +121,7 @@ test("enableVulnerabilityAlerts issues a bare PUT and returns the raw response",
 });
 
 test("enableVulnerabilityAlerts surfaces a 422 as a non-ok response rather than throwing", async () => {
-  const fetch = fakeFetch([
-    { match: "/vulnerability-alerts", method: "PUT", status: 422 },
-  ]);
+  const fetch = fakeFetch([{ match: "/vulnerability-alerts", method: "PUT", status: 422 }]);
   const client = new RepoSettingsClient({ token: "t", fetch });
   const res = await client.enableVulnerabilityAlerts(OWNER, REPO);
   assert.equal(res.ok, false);
@@ -131,9 +129,7 @@ test("enableVulnerabilityAlerts surfaces a 422 as a non-ok response rather than 
 });
 
 test("patchSecurityAndAnalysis PATCHes only the requested sub-keys", async () => {
-  const fetch = fakeFetch([
-    { match: `/repos/${OWNER}/${REPO}`, method: "PATCH", status: 200 },
-  ]);
+  const fetch = fakeFetch([{ match: `/repos/${OWNER}/${REPO}`, method: "PATCH", status: 200 }]);
   const client = new RepoSettingsClient({ token: "t", fetch });
   await client.patchSecurityAndAnalysis(OWNER, REPO, { secretScanning: true });
   const call = fetch.calls.find((c) => c.method === "PATCH");
@@ -143,9 +139,7 @@ test("patchSecurityAndAnalysis PATCHes only the requested sub-keys", async () =>
 });
 
 test("enableSecretScanningDelegatedBypass PATCHes the delegated-bypass sub-key", async () => {
-  const fetch = fakeFetch([
-    { match: `/repos/${OWNER}/${REPO}`, method: "PATCH", status: 200 },
-  ]);
+  const fetch = fakeFetch([{ match: `/repos/${OWNER}/${REPO}`, method: "PATCH", status: 200 }]);
   const client = new RepoSettingsClient({ token: "t", fetch });
   const res = await client.enableSecretScanningDelegatedBypass(OWNER, REPO);
   assert.equal(res.ok, true);
@@ -156,9 +150,7 @@ test("enableSecretScanningDelegatedBypass PATCHes the delegated-bypass sub-key",
 });
 
 test("patchMergeButtonSettings PATCHes only the requested keys", async () => {
-  const fetch = fakeFetch([
-    { match: `/repos/${OWNER}/${REPO}`, method: "PATCH", status: 200 },
-  ]);
+  const fetch = fakeFetch([{ match: `/repos/${OWNER}/${REPO}`, method: "PATCH", status: 200 }]);
   const client = new RepoSettingsClient({ token: "t", fetch });
   await client.patchMergeButtonSettings(OWNER, REPO, {
     allowMergeCommit: true,

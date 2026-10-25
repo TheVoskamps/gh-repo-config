@@ -74,10 +74,7 @@ export function decideRepo(
   const managed = resolveManaged(mode, defaultMode);
 
   if (!managed) {
-    const why =
-      mode === "opt-out"
-        ? "mode=opt-out"
-        : `mode=unset, default=${defaultMode}`;
+    const why = mode === "opt-out" ? "mode=opt-out" : `mode=unset, default=${defaultMode}`;
     return { action: "skip-unmanaged", reason: `not managed (${why})` };
   }
 

@@ -21,8 +21,7 @@ function fakeClient({ defaultMode, defaultModeRead, repos, stampVersionImpl }) {
   const stamped = [];
   return {
     stamped,
-    readDefaultMode: async () =>
-      defaultModeRead ?? { provenance: "set", raw: defaultMode },
+    readDefaultMode: async () => defaultModeRead ?? { provenance: "set", raw: defaultMode },
     readAllRepoValues: async () => repos,
     stampVersion:
       stampVersionImpl ??
@@ -67,9 +66,7 @@ test("sweep converges behind managed repos, skips others, and stamps them", asyn
   assert.equal(report.skippedUnmanaged, 2); // opt-out + unset(default opt-out)
   assert.equal(report.skippedCurrent, 1); // fixture-current
   assert.equal(report.defaultMode, "opt-out");
-  assert.deepEqual(client.stamped, [
-    { names: ["fixture-opt-in"], version: V },
-  ]);
+  assert.deepEqual(client.stamped, [{ names: ["fixture-opt-in"], version: V }]);
   // The default no-op converge/convergeGhas stubs return nothing, so no
   // convergeResults/ghasResults entries are contributed.
   assert.deepEqual(report.convergeResults, []);
@@ -130,14 +127,14 @@ test("a converge step's returned ConvergeResult is surfaced in the sweep report,
     },
   });
 
-  assert.deepEqual(
-    report.convergeResults.map((c) => c.repo).sort(),
-    ["fixture-noop", "fixture-opened", "fixture-unchanged", "fixture-updated"],
-  );
+  assert.deepEqual(report.convergeResults.map((c) => c.repo).sort(), [
+    "fixture-noop",
+    "fixture-opened",
+    "fixture-unchanged",
+    "fixture-updated",
+  ]);
 
-  const byRepo = Object.fromEntries(
-    report.convergeResults.map((c) => [c.repo, c.result]),
-  );
+  const byRepo = Object.fromEntries(report.convergeResults.map((c) => [c.repo, c.result]));
   assert.equal(byRepo["fixture-opened"].pullRequest.number, 12);
   assert.equal(byRepo["fixture-opened"].pullRequest.updated, false);
   assert.equal(byRepo["fixture-updated"].pullRequest.number, 13);
@@ -182,10 +179,10 @@ test("a convergeGhas step's returned GhasConvergeResult is surfaced in the sweep
     },
   });
 
-  assert.deepEqual(
-    report.ghasResults.map((r) => r.repo).sort(),
-    ["fixture-changed", "fixture-noop"],
-  );
+  assert.deepEqual(report.ghasResults.map((r) => r.repo).sort(), [
+    "fixture-changed",
+    "fixture-noop",
+  ]);
   const byRepo = Object.fromEntries(report.ghasResults.map((r) => [r.repo, r.result]));
   assert.equal(byRepo["fixture-changed"].noop, false);
   assert.equal(byRepo["fixture-noop"].noop, true);
@@ -333,9 +330,7 @@ test("a mid-batch stampVersion failure reports partial progress instead of losin
   // The repos whose stamp write didn't land are reported as failed, not
   // silently treated as converged/current.
   assert.deepEqual(report.failed, ["fixture-b", "fixture-c"]);
-  const actions = Object.fromEntries(
-    report.results.map((r) => [r.repo, r.action]),
-  );
+  const actions = Object.fromEntries(report.results.map((r) => [r.repo, r.action]));
   assert.equal(actions["fixture-a"], "converge");
   assert.equal(actions["fixture-b"], "failed");
   assert.equal(actions["fixture-c"], "failed");
@@ -457,7 +452,12 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
       };
     }
     if (url.includes("/code-scanning/default-setup") && method === "PATCH") {
-      return { ok: true, status: 200, statusText: "OK", json: async () => ({ state: "not-configured" }) };
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ state: "not-configured" }),
+      };
     }
     // Org installations: resolve both the converger and AUTOMERGE App
     // slugs to app_ids for the ruleset bypass actors, with the
@@ -485,7 +485,12 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
       return { ok: true, status: 200, statusText: "OK", json: async () => [] };
     }
     if (url.includes("/rulesets") && method === "POST") {
-      return { ok: true, status: 201, statusText: "Created", json: async () => ({ id: 42, name: "protect-main" }) };
+      return {
+        ok: true,
+        status: 201,
+        statusText: "Created",
+        json: async () => ({ id: 42, name: "protect-main" }),
+      };
     }
     // The real GHAS/merge-button settings-convergence step (issue #15)
     // also runs for the `converge`-decision repo. Serve its read-then-
@@ -500,7 +505,12 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
       return { ok: true, status: 204, statusText: "No Content", json: async () => ({}) };
     }
     if (url.includes("/automated-security-fixes") && method === "GET") {
-      return { ok: true, status: 200, statusText: "OK", json: async () => ({ enabled: false, paused: false }) };
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ enabled: false, paused: false }),
+      };
     }
     if (url.includes("/automated-security-fixes") && method === "PUT") {
       return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
@@ -520,25 +530,55 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
       return { ok: false, status: 404, statusText: "Not Found", json: async () => ({}) };
     }
     if (url.endsWith("/repos/TheVoskamps/fixture-behind") && method === "GET") {
-      return { ok: true, status: 200, statusText: "OK", json: async () => ({ default_branch: "main" }) };
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ default_branch: "main" }),
+      };
     }
     if (url.endsWith("/repos/TheVoskamps/fixture-behind") && method === "PATCH") {
       return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
     }
     if (url.includes("/git/ref/heads/main")) {
-      return { ok: true, status: 200, statusText: "OK", json: async () => ({ object: { sha: "basecommit" } }) };
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ object: { sha: "basecommit" } }),
+      };
     }
     if (url.includes("/git/trees/basecommit")) {
-      return { ok: true, status: 200, statusText: "OK", json: async () => ({ tree: [], truncated: false }) };
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ tree: [], truncated: false }),
+      };
     }
     if (url.includes("/git/blobs") && method === "POST") {
-      return { ok: true, status: 201, statusText: "Created", json: async () => ({ sha: "newblob" }) };
+      return {
+        ok: true,
+        status: 201,
+        statusText: "Created",
+        json: async () => ({ sha: "newblob" }),
+      };
     }
     if (url.includes("/git/trees") && method === "POST") {
-      return { ok: true, status: 201, statusText: "Created", json: async () => ({ sha: "newtree" }) };
+      return {
+        ok: true,
+        status: 201,
+        statusText: "Created",
+        json: async () => ({ sha: "newtree" }),
+      };
     }
     if (url.includes("/git/commits") && method === "POST") {
-      return { ok: true, status: 201, statusText: "Created", json: async () => ({ sha: "newcommit" }) };
+      return {
+        ok: true,
+        status: 201,
+        statusText: "Created",
+        json: async () => ({ sha: "newcommit" }),
+      };
     }
     if (url.includes("/git/refs") && (method === "POST" || method === "PATCH")) {
       return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
@@ -548,7 +588,11 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
         ok: true,
         status: 201,
         statusText: "Created",
-        json: async () => ({ number: 1, html_url: "https://example/pr/1", head: { ref: "gh-repo-config/converge" } }),
+        json: async () => ({
+          number: 1,
+          html_url: "https://example/pr/1",
+          head: { ref: "gh-repo-config/converge" },
+        }),
       };
     }
     throw new Error(`unexpected fetch: ${method} ${url}`);
@@ -669,7 +713,10 @@ test("the PR-automation preflight fails the sweep before any repo is read or con
   ]);
   assert.ok(error, "the sweep must throw");
   assert.match(error.message, /issues: none \(need write\)/);
-  assert.match(error.message, new RegExp(`${DEFAULT_PR_AUTOMATION_IDENTITY.appName} on TheVoskamps`));
+  assert.match(
+    error.message,
+    new RegExp(`${DEFAULT_PR_AUTOMATION_IDENTITY.appName} on TheVoskamps`),
+  );
   assert.deepEqual(
     calls.map((c) => c.url.replace(/\?.*/, "")),
     ["https://api.github.com/orgs/TheVoskamps/installations"],
@@ -727,7 +774,7 @@ test("the merge pass runs over every managed repo independent of the version-ski
         },
       ];
     },
-    evaluateAndMerge: async (org, repo, pr, dryRun) => ({
+    evaluateAndMerge: async (org, repo, pr) => ({
       pr,
       outcome: "merged",
       checks: [{ context: "ci", state: "green" }],
@@ -761,7 +808,7 @@ test("the merge pass never probes an unmanaged (skip-unmanaged) repo", async () 
 
   const mergeCalls = [];
   const mergeClient = {
-    listOwnOpenPullRequests: async (org, repo, appSlug) => {
+    listOwnOpenPullRequests: async (org, repo) => {
       mergeCalls.push(repo);
       return [];
     },
@@ -928,10 +975,7 @@ test("an unexpected merge-pass error on one repo is isolated: it's recorded as f
   assert.deepEqual(listCalls, ["fixture-a", "fixture-b", "fixture-c"]);
 
   // fixture-a and fixture-c still got their merge pass and are merged.
-  assert.deepEqual(
-    report.merged.map((m) => m.pr.number).sort(),
-    [1, 3],
-  );
+  assert.deepEqual(report.merged.map((m) => m.pr.number).sort(), [1, 3]);
   assert.deepEqual(report.awaitingChecks, []);
 
   // fixture-b is recorded as failed, not silently dropped.
@@ -942,14 +986,8 @@ test("an unexpected merge-pass error on one repo is isolated: it's recorded as f
   assert.match(fixtureBResult.reason, /simulated 500 from list-PRs/);
 
   // fixture-a and fixture-c are not marked failed.
-  assert.equal(
-    report.results.find((r) => r.repo === "fixture-a").action,
-    "skip-current",
-  );
-  assert.equal(
-    report.results.find((r) => r.repo === "fixture-c").action,
-    "skip-current",
-  );
+  assert.equal(report.results.find((r) => r.repo === "fixture-a").action, "skip-current");
+  assert.equal(report.results.find((r) => r.repo === "fixture-c").action, "skip-current");
 
   assert.ok(logs.some((l) => l.includes("fixture-b: merge pass failed")));
 });
@@ -1095,11 +1133,7 @@ test("both no-value provenances produce the CLI's non-zero-exit line", async () 
       assert.match(failure, /gh-repo-config-mode/);
       assert.match(failure, /TheVoskamps/);
     } else {
-      assert.equal(
-        failure,
-        undefined,
-        `${testCase.name} should exit zero absent other failures`,
-      );
+      assert.equal(failure, undefined, `${testCase.name} should exit zero absent other failures`);
     }
     // The full tick still ran in every case — the fix is reporting and
     // exit status, not semantics.

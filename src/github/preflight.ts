@@ -36,9 +36,7 @@ export interface ConvergerPermission {
  * Every permission an endpoint called from `src/github/*.ts` requires,
  * at the highest level any of those endpoints requires it.
  */
-export const CONVERGER_REQUIRED_PERMISSIONS: Readonly<
-  Record<string, ConvergerPermission>
-> = {
+export const CONVERGER_REQUIRED_PERMISSIONS: Readonly<Record<string, ConvergerPermission>> = {
   // GET /repos/{o}/{r}, GET …/rules/branches/{b}, GET …/rulesets.
   metadata: { level: "read", name: "Metadata", scope: "repository" },
   // The git-data writes (blobs, trees, commits, refs) and PUT …/pulls/{n}/merge.

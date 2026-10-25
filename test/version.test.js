@@ -5,10 +5,7 @@ import { fileURLToPath } from "node:url";
 import { CURRENT_VERSION, PACKAGE_NAME } from "../dist/index.js";
 
 const pkg = JSON.parse(
-  readFileSync(
-    fileURLToPath(new URL("../package.json", import.meta.url)),
-    "utf8",
-  ),
+  readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),
 );
 
 test("CURRENT_VERSION matches package.json version", () => {

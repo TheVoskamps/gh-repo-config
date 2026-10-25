@@ -1,10 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  resolveManaged,
-  normalizeMode,
-  normalizeDefaultMode,
-} from "../dist/index.js";
+import { resolveManaged, normalizeMode, normalizeDefaultMode } from "../dist/index.js";
 
 // The truth table in docs/repo-selection.md, one test per row group.
 

@@ -55,7 +55,12 @@ test("ordering gate: a repo whose file PR merged this tick has its ruleset run a
     },
     mergeClient: {
       listOwnOpenPullRequests: async () => [openPr(3, "merged-repo")],
-      evaluateAndMerge: async (o, r, pr) => ({ pr, outcome: "merged", checks: [], reason: "merged" }),
+      evaluateAndMerge: async (o, r, pr) => ({
+        pr,
+        outcome: "merged",
+        checks: [],
+        reason: "merged",
+      }),
     },
     appSlug: "conv",
   });
@@ -69,7 +74,9 @@ test("ordering gate: a repo whose file PR merged this tick has its ruleset run a
 });
 
 test("ordering gate: a repo whose file PR did NOT merge this tick is deferred and NOT stamped", async () => {
-  const client = fakeClient({ repos: [{ repo: "pending-repo", mode: "opt-in", version: "0.1.0" }] });
+  const client = fakeClient({
+    repos: [{ repo: "pending-repo", mode: "opt-in", version: "0.1.0" }],
+  });
   const rulesetCalls = [];
   const report = await runSweep(client, "O", V, {
     log: () => {},

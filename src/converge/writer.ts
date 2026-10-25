@@ -151,8 +151,7 @@ export async function convergeRepoFiles(
 ): Promise<ConvergeResult> {
   const defaultBranch = await client.getDefaultBranch(owner, repo);
   const ctx: RepoContext = { org: owner, repo, defaultBranch };
-  const communityFiles =
-    options.communityFiles ?? (await readOrgCommunityFiles(client, owner));
+  const communityFiles = options.communityFiles ?? (await readOrgCommunityFiles(client, owner));
   const desired = buildDesiredFiles(ctx, { ...options, communityFiles });
 
   const baseSha = await client.getBranchHeadSha(owner, repo, defaultBranch);
@@ -171,9 +170,7 @@ export async function convergeRepoFiles(
       continue;
     }
     const existing = existingTree.get(file.path);
-    const existingContent = existing
-      ? await client.readBlob(owner, repo, existing.sha)
-      : undefined;
+    const existingContent = existing ? await client.readBlob(owner, repo, existing.sha) : undefined;
     if (fileDiffers(file, existing, existingContent)) {
       changed.push(file);
     }
@@ -220,14 +217,9 @@ export async function convergeRepoFiles(
   // already open for that branch (in which case the branch update
   // already carries the new files into the existing PR). An open PR's
   // branch that already holds this tree on this base is left untouched.
-  const existingPr = await client.findOpenPullRequest(
-    owner,
-    repo,
-    CONVERGE_BRANCH,
-  );
+  const existingPr = await client.findOpenPullRequest(owner, repo, CONVERGE_BRANCH);
   const unchanged =
-    existingPr !== undefined &&
-    (await branchHoldsTree(client, owner, repo, treeSha, baseSha));
+    existingPr !== undefined && (await branchHoldsTree(client, owner, repo, treeSha, baseSha));
   if (!unchanged) {
     const commitSha = await client.createCommit(
       owner,
@@ -236,13 +228,7 @@ export async function convergeRepoFiles(
       treeSha,
       baseSha,
     );
-    await client.setBranchRef(
-      owner,
-      repo,
-      CONVERGE_BRANCH,
-      commitSha,
-      existingPr !== undefined,
-    );
+    await client.setBranchRef(owner, repo, CONVERGE_BRANCH, commitSha, existingPr !== undefined);
   }
 
   if (existingPr) {
@@ -253,23 +239,12 @@ export async function convergeRepoFiles(
     // once the branch holds this tick's tree — by the reset above, or
     // because it already did — because under `off` that tree is what
     // drops the anchor from the branch.
-    const releaseHold =
-      existingPr.draft && sweeperPolicyReleasesHold(owner, repo, options);
+    const releaseHold = existingPr.draft && sweeperPolicyReleasesHold(owner, repo, options);
     if (holdForHuman && !existingPr.draft) {
-      await client.convertPullRequestToDraft(
-        owner,
-        repo,
-        existingPr.number,
-        existingPr.nodeId,
-      );
+      await client.convertPullRequestToDraft(owner, repo, existingPr.number, existingPr.nodeId);
     }
     if (releaseHold) {
-      await client.markPullRequestReadyForReview(
-        owner,
-        repo,
-        existingPr.number,
-        existingPr.nodeId,
-      );
+      await client.markPullRequestReadyForReview(owner, repo, existingPr.number, existingPr.nodeId);
     }
     return {
       changed: changedPaths,
@@ -320,20 +295,12 @@ async function branchHoldsTree(
 ): Promise<boolean> {
   const headSha = await client.getBranchHeadSha(owner, repo, CONVERGE_BRANCH);
   const head = await client.getCommit(owner, repo, headSha);
-  return (
-    head.treeSha === treeSha &&
-    head.parentShas.length === 1 &&
-    head.parentShas[0] === baseSha
-  );
+  return head.treeSha === treeSha && head.parentShas.length === 1 && head.parentShas[0] === baseSha;
 }
 
 /** The commit message for a converge commit, listing the changed paths. */
 function commitMessage(paths: readonly string[]): string {
-  return (
-    "Converge repo configuration\n\n" +
-    paths.map((p) => `- ${p}`).join("\n") +
-    "\n"
-  );
+  return "Converge repo configuration\n\n" + paths.map((p) => `- ${p}`).join("\n") + "\n";
 }
 
 /**
@@ -349,10 +316,7 @@ function commitMessage(paths: readonly string[]): string {
  *   explanation, which covers the mid-life conversion too, is
  *   `assets/sweeper-sweep.yml`'s own header on the sweeper repo.
  */
-function pullRequestBody(
-  paths: readonly string[],
-  heldForHuman: boolean,
-): string {
+function pullRequestBody(paths: readonly string[], heldForHuman: boolean): string {
   const body =
     "Automated repo-configuration convergence by the gh-repo-config sweep.\n\n" +
     "Changed files:\n\n" +

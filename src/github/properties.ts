@@ -253,10 +253,7 @@ export class OrgPropertiesClient {
    * @param repoNames repo names (without owner) to stamp.
    * @param version   the value to write to `gh-repo-config-version`.
    */
-  async stampVersion(
-    repoNames: readonly string[],
-    version: string,
-  ): Promise<void> {
+  async stampVersion(repoNames: readonly string[], version: string): Promise<void> {
     const stamped: string[] = [];
     for (let i = 0; i < repoNames.length; i += MAX_REPOS_PER_BATCH) {
       const chunk = repoNames.slice(i, i + MAX_REPOS_PER_BATCH);
@@ -266,9 +263,7 @@ export class OrgPropertiesClient {
         headers: { ...this.headers(), "content-type": "application/json" },
         body: JSON.stringify({
           repository_names: chunk,
-          properties: [
-            { property_name: PROPERTY_NAMES.version, value: version },
-          ],
+          properties: [{ property_name: PROPERTY_NAMES.version, value: version }],
         }),
       });
       if (!res.ok) {

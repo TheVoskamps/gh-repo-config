@@ -1,0 +1,16 @@
+{
+  "ignorePatterns": [
+    "**/*.md",
+    "assets/dependabot.yml",
+    "assets/ecosystem-block.yml",
+    ".github/actions/codeartifact-auth/action.yml",
+    ".github/codeql/codeql-config.yml",
+    ".github/dependabot.yml",
+    ".github/workflows/auto-enable-automerge.yml",
+    ".github/workflows/auto-rebase-prs.yml",
+    ".github/workflows/codeql.yml",
+    ".github/workflows/dependency-install-gate.yml",
+    ".github/workflows/dependency-pinned-gate.yml",
+    ".github/workflows/no-back-merging-guard.yml"
+  ]
+}

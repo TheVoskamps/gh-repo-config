@@ -75,15 +75,10 @@ function parseCore(version: string | undefined | null): SemverCore | undefined {
  *   is a converger-side bug, not a target-repo condition, and must fail
  *   loudly rather than silently skipping every repo.
  */
-export function isBehind(
-  stamp: string | undefined | null,
-  current: string,
-): boolean {
+export function isBehind(stamp: string | undefined | null, current: string): boolean {
   const currentCore = parseCore(current);
   if (!currentCore) {
-    throw new Error(
-      `Converger CURRENT_VERSION is not a parseable X.Y.Z version: ${current}`,
-    );
+    throw new Error(`Converger CURRENT_VERSION is not a parseable X.Y.Z version: ${current}`);
   }
   const stampCore = parseCore(stamp);
   if (!stampCore) {

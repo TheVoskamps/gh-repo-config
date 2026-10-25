@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  RulesetsClient,
   convergeProtectMainRuleset,
   buildDesiredRuleset,
   unionBypassActors,
@@ -90,7 +89,13 @@ test("unionBypassActors is idempotent when the desired actor already exists", ()
 test("orgRulesetGoverns: an active Organization-sourced branch ruleset governs", () => {
   assert.equal(
     orgRulesetGoverns([
-      { id: 1, name: "org-wide", source_type: "Organization", target: "branch", enforcement: "active" },
+      {
+        id: 1,
+        name: "org-wide",
+        source_type: "Organization",
+        target: "branch",
+        enforcement: "active",
+      },
     ]),
     true,
   );
@@ -99,7 +104,13 @@ test("orgRulesetGoverns: an active Organization-sourced branch ruleset governs",
 test("orgRulesetGoverns: a repo-sourced ruleset does not count", () => {
   assert.equal(
     orgRulesetGoverns([
-      { id: 1, name: "protect-main", source_type: "Repository", target: "branch", enforcement: "active" },
+      {
+        id: 1,
+        name: "protect-main",
+        source_type: "Repository",
+        target: "branch",
+        enforcement: "active",
+      },
     ]),
     false,
   );
@@ -108,7 +119,13 @@ test("orgRulesetGoverns: a repo-sourced ruleset does not count", () => {
 test("orgRulesetGoverns: a disabled org ruleset does not govern", () => {
   assert.equal(
     orgRulesetGoverns([
-      { id: 1, name: "org-wide", source_type: "Organization", target: "branch", enforcement: "disabled" },
+      {
+        id: 1,
+        name: "org-wide",
+        source_type: "Organization",
+        target: "branch",
+        enforcement: "disabled",
+      },
     ]),
     false,
   );
@@ -124,7 +141,13 @@ test("orgRulesetGoverns: an org ruleset with no enforcement field does not gover
 test("orgRulesetGoverns: an active org TAG ruleset does not govern the default branch", () => {
   assert.equal(
     orgRulesetGoverns([
-      { id: 1, name: "org-tags", source_type: "Organization", target: "tag", enforcement: "active" },
+      {
+        id: 1,
+        name: "org-tags",
+        source_type: "Organization",
+        target: "tag",
+        enforcement: "active",
+      },
     ]),
     false,
   );
@@ -133,7 +156,13 @@ test("orgRulesetGoverns: an active org TAG ruleset does not govern the default b
 test("orgRulesetGoverns: an active org PUSH ruleset does not govern the default branch", () => {
   assert.equal(
     orgRulesetGoverns([
-      { id: 1, name: "org-push", source_type: "Organization", target: "push", enforcement: "active" },
+      {
+        id: 1,
+        name: "org-push",
+        source_type: "Organization",
+        target: "push",
+        enforcement: "active",
+      },
     ]),
     false,
   );
@@ -141,7 +170,9 @@ test("orgRulesetGoverns: an active org PUSH ruleset does not govern the default 
 
 test("orgRulesetGoverns: a ruleset with no target field does not govern (defensive — live summaries always carry target)", () => {
   assert.equal(
-    orgRulesetGoverns([{ id: 1, name: "org-wide", source_type: "Organization", enforcement: "active" }]),
+    orgRulesetGoverns([
+      { id: 1, name: "org-wide", source_type: "Organization", enforcement: "active" },
+    ]),
     false,
   );
 });
@@ -220,7 +251,10 @@ test("rulesetSemanticDiff: bypass containment — existing superset is converged
   const desired = buildDesiredRuleset([CONVERGER, AUTOMERGE]);
   // Existing has all desired actors plus an operator team → converged.
   const superset = existingFrom(desired, {
-    bypass_actors: [...desired.bypass_actors, { actor_id: 99, actor_type: "Team", bypass_mode: "pull_request" }],
+    bypass_actors: [
+      ...desired.bypass_actors,
+      { actor_id: 99, actor_type: "Team", bypass_mode: "pull_request" },
+    ],
   });
   assert.deepEqual(diffChanged(desired, superset, "main"), []);
 
@@ -279,9 +313,7 @@ test("rulesetSemanticDiff: pull_request parameter drift (allowed_merge_methods w
   const existing = existingFrom(
     withRuleParam(desired, "pull_request", "allowed_merge_methods", ["merge", "squash"]),
   );
-  assert.deepEqual(diffChanged(desired, existing, "main"), [
-    "pull_request.allowed_merge_methods",
-  ]);
+  assert.deepEqual(diffChanged(desired, existing, "main"), ["pull_request.allowed_merge_methods"]);
 });
 
 test("rulesetSemanticDiff: required_status_checks parameter drift (strict_required_status_checks_policy off) is reported", () => {
@@ -327,9 +359,7 @@ test("rulesetSemanticDiff: code_scanning parameter drift (code_scanning_tools th
       { tool: "CodeQL", security_alerts_threshold: "critical", alerts_threshold: "errors" },
     ]),
   );
-  assert.deepEqual(diffChanged(desired, existing, "main"), [
-    "code_scanning.code_scanning_tools",
-  ]);
+  assert.deepEqual(diffChanged(desired, existing, "main"), ["code_scanning.code_scanning_tools"]);
 });
 
 test("rulesetSemanticDiff: code_quality parameter drift (severity changed) is reported", () => {
@@ -356,9 +386,7 @@ test("rulesetSemanticDiff: a non-empty ref_name.exclude is drift", () => {
       ref_name: { include: desired.conditions.ref_name.include, exclude: ["refs/heads/release/*"] },
     },
   });
-  assert.deepEqual(diffChanged(desired, existing, "main"), [
-    "conditions.ref_name.exclude",
-  ]);
+  assert.deepEqual(diffChanged(desired, existing, "main"), ["conditions.ref_name.exclude"]);
 });
 
 // ---------------------------------------------------------------------
@@ -498,9 +526,7 @@ test("rulesetSemanticDiff: a RULE newly added to the asset has its parameters co
   );
   // Both sides carry the rule type, so the rule-types set compare is
   // silent — only the parameter compare can catch this.
-  assert.deepEqual(diffChanged(desired, existing, "main"), [
-    "future_canonical_rule.some_setting",
-  ]);
+  assert.deepEqual(diffChanged(desired, existing, "main"), ["future_canonical_rule.some_setting"]);
 });
 
 test("rulesetSemanticDiff: a parameterless canonical rule (deletion, non_fast_forward) is harmless under the compare", () => {
@@ -605,7 +631,13 @@ test("converge: existing repo copy that differs -> updated with the changed fiel
 test("converge: an org branch ruleset governs -> repo copy deleted and deferred (org-governed)", async () => {
   const { client, calls } = fakeClient({
     listRulesets: async () => [
-      { id: 9, name: "org-wide", source_type: "Organization", target: "branch", enforcement: "active" },
+      {
+        id: 9,
+        name: "org-wide",
+        source_type: "Organization",
+        target: "branch",
+        enforcement: "active",
+      },
       { id: 7, name: RULESET_NAME, source_type: "Repository", target: "branch" },
     ],
   });
@@ -621,7 +653,13 @@ test("converge: an org branch ruleset governs -> repo copy deleted and deferred 
 test("converge: org governs and there is no repo copy -> deferred, nothing deleted", async () => {
   const { client, calls } = fakeClient({
     listRulesets: async () => [
-      { id: 9, name: "org-wide", source_type: "Organization", target: "branch", enforcement: "active" },
+      {
+        id: 9,
+        name: "org-wide",
+        source_type: "Organization",
+        target: "branch",
+        enforcement: "active",
+      },
     ],
   });
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
@@ -632,7 +670,13 @@ test("converge: org governs and there is no repo copy -> deferred, nothing delet
 test("converge: an org TAG ruleset present does NOT defer — repo-level branch ruleset still converges", async () => {
   const { client, calls } = fakeClient({
     listRulesets: async () => [
-      { id: 9, name: "org-tags", source_type: "Organization", target: "tag", enforcement: "active" },
+      {
+        id: 9,
+        name: "org-tags",
+        source_type: "Organization",
+        target: "tag",
+        enforcement: "active",
+      },
     ],
   });
   const result = await convergeProtectMainRuleset(client, "O", "r", "main", APPS, false);
@@ -657,7 +701,10 @@ test("converge: a code_quality 422 -> retried without the rule, reported as skip
     createRuleset: async (o, r, body) => {
       attempt++;
       if (attempt === 1) {
-        assert.ok(body.rules.some((x) => x.type === "code_quality"), "first attempt has code_quality");
+        assert.ok(
+          body.rules.some((x) => x.type === "code_quality"),
+          "first attempt has code_quality",
+        );
         return { kind: "code-quality-422" };
       }
       assert.ok(!body.rules.some((x) => x.type === "code_quality"), "retry drops code_quality");
@@ -793,5 +840,3 @@ test("converge: integration_id inside required_status_checks entries is never dr
   assert.equal(result.outcome, "unchanged");
   assert.equal(calls.length, 0);
 });
-
-

@@ -25,9 +25,6 @@ import type {
 /** The ruleset name this converger owns. */
 export const RULESET_NAME = "protect-main";
 
-/** The built-in Repository-admin role id (documented GitHub value). */
-const ADMIN_ACTOR_ID = 5;
-
 /** GitHub's symbolic ref for a repo's default branch. */
 const DEFAULT_BRANCH_SYMBOLIC = "~DEFAULT_BRANCH";
 
@@ -143,9 +140,7 @@ export function orgRulesetGoverns(rulesets: readonly RulesetSummary[]): boolean 
 function requiredContexts(body: RulesetBody): Set<string> {
   const rule = body.rules.find((r) => r.type === "required_status_checks");
   const checks =
-    (rule?.parameters?.required_status_checks as
-      | readonly { context: string }[]
-      | undefined) ?? [];
+    (rule?.parameters?.required_status_checks as readonly { context: string }[] | undefined) ?? [];
   return new Set(checks.map((c) => c.context));
 }
 

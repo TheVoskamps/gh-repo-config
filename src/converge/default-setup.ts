@@ -60,9 +60,7 @@ export async function convergeDefaultSetup(
   }
 
   const priorReason = `was ${read.status.state}${
-    read.status.languages.length > 0
-      ? ` (languages: ${read.status.languages.join(", ")})`
-      : ""
+    read.status.languages.length > 0 ? ` (languages: ${read.status.languages.join(", ")})` : ""
   } → not-configured`;
 
   if (dryRun) {

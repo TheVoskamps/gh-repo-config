@@ -56,10 +56,7 @@
  * is gated on the file/GHAS/default-setup converge steps alone, exactly
  * as before issue #16.
  */
-import {
-  normalizeDefaultMode,
-  type DefaultMode,
-} from "./config/selection.js";
+import { normalizeDefaultMode, type DefaultMode } from "./config/selection.js";
 import { decideRepo, type RepoAction } from "./stamp/decide.js";
 import {
   OrgPropertiesClient,
@@ -70,48 +67,23 @@ import {
   type OrgPropertiesClientOptions,
   type RepoPropertyValues,
 } from "./github/properties.js";
-import {
-  MergeClient,
-  type MergeAttemptResult,
-  type MergeClientOptions,
-} from "./github/merge.js";
-import {
-  ContentsClient,
-  type ContentsClientOptions,
-} from "./github/contents.js";
+import { MergeClient, type MergeAttemptResult, type MergeClientOptions } from "./github/merge.js";
+import { ContentsClient, type ContentsClientOptions } from "./github/contents.js";
 import { convergeRepoFiles, type ConvergeResult } from "./converge/writer.js";
 import { readOrgCommunityFiles } from "./converge/community.js";
-import {
-  sweeperHumanApprovalPaths,
-  type CommunityFileContent,
-} from "./converge/files.js";
-import {
-  RepoSettingsClient,
-  type RepoSettingsClientOptions,
-} from "./github/settings.js";
+import { sweeperHumanApprovalPaths, type CommunityFileContent } from "./converge/files.js";
+import { RepoSettingsClient, type RepoSettingsClientOptions } from "./github/settings.js";
 import { convergeGhasSettings, type GhasConvergeResult } from "./converge/ghas.js";
-import {
-  CodeScanningClient,
-  type CodeScanningClientOptions,
-} from "./github/code-scanning.js";
-import {
-  convergeDefaultSetup,
-  type DefaultSetupConvergeResult,
-} from "./converge/default-setup.js";
-import {
-  RulesetsClient,
-  type RulesetsClientOptions,
-} from "./github/rulesets.js";
+import { CodeScanningClient, type CodeScanningClientOptions } from "./github/code-scanning.js";
+import { convergeDefaultSetup, type DefaultSetupConvergeResult } from "./converge/default-setup.js";
+import { RulesetsClient, type RulesetsClientOptions } from "./github/rulesets.js";
 import {
   convergeProtectMainRuleset,
   type AppBypass,
   type RulesetConvergeResult,
 } from "./converge/ruleset.js";
 import { assertPrAutomationPermissions } from "./converge/app-permissions.js";
-import {
-  DEFAULT_PR_AUTOMATION_IDENTITY,
-  type OrgRenderOptions,
-} from "./converge/render.js";
+import { DEFAULT_PR_AUTOMATION_IDENTITY, type OrgRenderOptions } from "./converge/render.js";
 import {
   DEFAULT_ORG_CONFIG,
   assertVersionPinSatisfied,
@@ -310,11 +282,7 @@ export interface SweepReport {
  * @param repo the repo name to mark failed.
  * @param reason the human-readable failure reason for this repo.
  */
-function markFailed(
-  results: SweepRepoResult[],
-  repo: string,
-  reason: string,
-): void {
+function markFailed(results: SweepRepoResult[], repo: string, reason: string): void {
   const idx = results.findIndex((r) => r.repo === repo);
   if (idx !== -1 && results[idx].action !== "failed") {
     results[idx] = { repo, action: "failed", reason };
@@ -349,15 +317,11 @@ function describeGhasResult(result: GhasConvergeResult): string {
     return "settings already converged";
   }
   const changed = result.results.filter((r) => r.outcome === "changed").length;
-  const alreadyConverged = result.results.filter(
-    (r) => r.outcome === "already-converged",
-  ).length;
+  const alreadyConverged = result.results.filter((r) => r.outcome === "already-converged").length;
   const skipped = result.results.filter((r) => r.outcome === "skipped");
   const parts = [`${changed} changed`, `${alreadyConverged} already converged`];
   if (skipped.length > 0) {
-    parts.push(
-      `${skipped.length} skipped (${skipped.map((s) => s.setting).join(", ")})`,
-    );
+    parts.push(`${skipped.length} skipped (${skipped.map((s) => s.setting).join(", ")})`);
   }
   return parts.join(", ");
 }
@@ -438,9 +402,7 @@ function describeDefaultModeRead(read: DefaultModeRead): string {
  * in the CLI so it is unit-testable without spawning a process against
  * the live API.
  */
-export function describeDefaultModeProvenanceFailure(
-  report: SweepReport,
-): string | undefined {
+export function describeDefaultModeProvenanceFailure(report: SweepReport): string | undefined {
   if (report.defaultModeProvenance === "set") {
     return undefined;
   }
@@ -484,9 +446,7 @@ export interface SweepOptions {
    * that returns nothing (the common case in tests that don't care about
    * file convergence) simply contributes no `convergeResults` entry.
    */
-  readonly converge?: (
-    repo: string,
-  ) => Promise<ConvergeResult | void> | ConvergeResult | void;
+  readonly converge?: (repo: string) => Promise<ConvergeResult | void> | ConvergeResult | void;
   /**
    * Injectable GHAS/merge-button settings-convergence step (issue #15).
    * Like {@link converge}, stays convergence-agnostic here — tests
@@ -625,11 +585,7 @@ export async function runSweep(
   const managedRepos: RepoPropertyValues[] = [];
 
   for (const repo of repos) {
-    const decision = decideRepo(
-      { mode: repo.mode, version: repo.version },
-      defaultMode,
-      version,
-    );
+    const decision = decideRepo({ mode: repo.mode, version: repo.version }, defaultMode, version);
     results.push({ repo: repo.repo, action: decision.action, reason: decision.reason });
     log(`  ${repo.repo}: ${decision.action} — ${decision.reason}`);
 
@@ -733,11 +689,7 @@ export async function runSweep(
     // genuinely unexpected failures.
     for (const repo of managedRepos) {
       try {
-        const prs = await mergeClient.listOwnOpenPullRequests(
-          org,
-          repo.repo,
-          appSlug,
-        );
+        const prs = await mergeClient.listOwnOpenPullRequests(org, repo.repo, appSlug);
         // Under `sweeper-update-policy: manual` the sweeper repo's own
         // trust-anchor workflow is reserved for a human: a PR of this
         // repo's that touches it is left open, however green it is. The
@@ -745,22 +697,12 @@ export async function runSweep(
         // sweeper repo's PRs that do not touch the anchor — merge as
         // usual. Empty on every repo but the sweeper, which is what
         // keeps the extra file-listing request off the common path.
-        const humanApprovalPaths = sweeperHumanApprovalPaths(
-          org,
-          repo.repo,
-          options,
-        );
+        const humanApprovalPaths = sweeperHumanApprovalPaths(org, repo.repo, options);
         for (const pr of prs) {
-          const attempt = await mergeClient.evaluateAndMerge(
-            org,
-            repo.repo,
-            pr,
-            dryRun,
-            { humanApprovalPaths },
-          );
-          log(
-            `  ${repo.repo}#${pr.number}: ${attempt.outcome} — ${attempt.reason}`,
-          );
+          const attempt = await mergeClient.evaluateAndMerge(org, repo.repo, pr, dryRun, {
+            humanApprovalPaths,
+          });
+          log(`  ${repo.repo}#${pr.number}: ${attempt.outcome} — ${attempt.reason}`);
           if (attempt.outcome === "merged") {
             merged.push(attempt);
             mergedThisTick.add(repo.repo);
@@ -796,8 +738,7 @@ export async function runSweep(
   const toStamp: string[] = [];
   if (convergeRulesetStep) {
     for (const repo of convergedOk) {
-      const fileLandedOnDefault =
-        (fileConvergeNoop.get(repo) ?? true) || mergedThisTick.has(repo);
+      const fileLandedOnDefault = (fileConvergeNoop.get(repo) ?? true) || mergedThisTick.has(repo);
       if (!fileLandedOnDefault) {
         // Ordering gate: file PR not on the default branch yet. Defer the
         // ruleset and do not stamp — the next tick retries once it merges.
@@ -843,11 +784,7 @@ export async function runSweep(
         // but the stamp write never landed, so a re-sweep must retry
         // them rather than the report silently claiming success.
         for (const repoName of notStamped) {
-          markFailed(
-            results,
-            repoName,
-            `converged but stamp write failed: ${err.message}`,
-          );
+          markFailed(results, repoName, `converged but stamp write failed: ${err.message}`);
         }
       } else {
         throw err;
@@ -882,9 +819,7 @@ export async function runSweep(
     skippedCurrent: results.filter((r) => r.action === "skip-current").length,
     merged,
     awaitingChecks,
-    ...(options.sweeperRepo !== undefined
-      ? { sweeperRepo: options.sweeperRepo }
-      : {}),
+    ...(options.sweeperRepo !== undefined ? { sweeperRepo: options.sweeperRepo } : {}),
     ...(options.sweeperUpdatePolicy !== undefined
       ? { sweeperUpdatePolicy: options.sweeperUpdatePolicy }
       : {}),
@@ -922,9 +857,7 @@ export async function runSweep(
  *   means no repo is the sweeper this tick; malformed is a hard error.
  * - `GITHUB_API_URL` — API base (GitHub Actions sets this).
  */
-export async function runSweepFromEnv(
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<SweepReport> {
+export async function runSweepFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<SweepReport> {
   const org = env.GH_REPO_CONFIG_ORG;
   const token = env.GH_REPO_CONFIG_TOKEN;
   const appSlug = env.GH_REPO_CONFIG_APP_SLUG;
@@ -943,9 +876,7 @@ export async function runSweepFromEnv(
   // made: a pin or a policy that was silently ignored is worse than a
   // tick that failed loudly.
   const configFile = env.GH_REPO_CONFIG_FILE;
-  const config = configFile
-    ? await readOrgConfig(configFile)
-    : DEFAULT_ORG_CONFIG;
+  const config = configFile ? await readOrgConfig(configFile) : DEFAULT_ORG_CONFIG;
   assertVersionPinSatisfied(config.versionPin, CURRENT_VERSION);
   const sweeperRepo = parseSweeperRepo(env.GH_REPO_CONFIG_SWEEPER_REPO);
 
@@ -957,9 +888,7 @@ export async function runSweepFromEnv(
     ...(config.namedDependabotGroups
       ? { namedDependabotGroups: config.namedDependabotGroups }
       : {}),
-    ...(config.prAutomationIdentity
-      ? { prAutomationIdentity: config.prAutomationIdentity }
-      : {}),
+    ...(config.prAutomationIdentity ? { prAutomationIdentity: config.prAutomationIdentity } : {}),
   };
 
   const apiBase = env.GITHUB_API_URL;
@@ -1007,9 +936,7 @@ export async function runSweepFromEnv(
   // identity's `appName` (issue #91), not a baked constant: an org that
   // supplies its own PR-automation App must get that App as the bypass
   // actor, since it has not installed the default's.
-  const prAutomationSlug = (
-    config.prAutomationIdentity ?? DEFAULT_PR_AUTOMATION_IDENTITY
-  ).appName;
+  const prAutomationSlug = (config.prAutomationIdentity ?? DEFAULT_PR_AUTOMATION_IDENTITY).appName;
 
   // The org's installations are read once for the whole sweep (the
   // installation set is org-wide, not per-repo), before any repo is
@@ -1067,8 +994,7 @@ export async function runSweepFromEnv(
     // (non-422) write failure, which `runSweep` records as that repo's
     // `failed` outcome. Its per-setting result flows back into
     // `SweepReport.ghasResults`.
-    convergeGhas: (repo: string) =>
-      convergeGhasSettings(settingsClient, org, repo, dryRun),
+    convergeGhas: (repo: string) => convergeGhasSettings(settingsClient, org, repo, dryRun),
     // The real CodeQL default-setup convergence step (issue #16): drive
     // server-side default setup to `not-configured` (mutually exclusive
     // with the advanced workflow). Read-then-write, report-and-skip on a

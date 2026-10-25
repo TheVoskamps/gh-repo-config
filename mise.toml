@@ -22,6 +22,6 @@
 # the globs and ignores, and `.markdownlint.jsonc` owns the rules.
 
 [tools]
-actionlint = "latest"          # .github/workflows/*.yml
-shellcheck = "latest"          # assets/*.sh, scripts/*.sh
-markdownlint-cli2 = "latest"   # **/*.md
+actionlint = "latest" # .github/workflows/*.yml
+shellcheck = "latest" # assets/*.sh, scripts/*.sh
+markdownlint-cli2 = "latest" # **/*.md

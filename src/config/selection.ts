@@ -48,10 +48,7 @@ export type DefaultMode = "opt-in" | "opt-out";
  * @returns `true` when the repo is managed (a convergence candidate),
  *   `false` when it is excluded from the sweep.
  */
-export function resolveManaged(
-  mode: SelectionMode,
-  defaultMode: DefaultMode,
-): boolean {
+export function resolveManaged(mode: SelectionMode, defaultMode: DefaultMode): boolean {
   switch (mode) {
     case "opt-in":
       return true;
@@ -87,8 +84,6 @@ export function normalizeMode(raw: string | undefined | null): SelectionMode {
  * in the org, so the fallback is "manage nothing unless explicitly
  * flagged".
  */
-export function normalizeDefaultMode(
-  raw: string | undefined | null,
-): DefaultMode {
+export function normalizeDefaultMode(raw: string | undefined | null): DefaultMode {
   return raw === "opt-in" ? "opt-in" : "opt-out";
 }

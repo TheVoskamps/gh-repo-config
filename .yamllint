@@ -1,0 +1,35 @@
+extends: default
+
+# The gitignored paths are not this repo's YAML, and the templated payloads carry `__TOKEN__` placeholders that are not
+# valid YAML until rendered. The rendered copies under `.github/` are sweep output, never hand-edited, and lag their
+# `assets/` source until the next sweep.
+ignore: |
+  node_modules/
+  dist/
+  .release/
+  .claude/tmp/
+  .claude/worktrees/
+  assets/dependabot.yml
+  assets/ecosystem-block.yml
+  .github/actions/codeartifact-auth/action.yml
+  .github/codeql/codeql-config.yml
+  .github/dependabot.yml
+  .github/workflows/auto-enable-automerge.yml
+  .github/workflows/auto-rebase-prs.yml
+  .github/workflows/codeql.yml
+  .github/workflows/dependency-install-gate.yml
+  .github/workflows/dependency-pinned-gate.yml
+  .github/workflows/no-back-merging-guard.yml
+
+rules:
+  # A `run:` block and a long `if:` expression cannot be rewrapped without changing what they run.
+  line-length: disable
+  # No YAML file here is a multi-document stream, so a `---` marker separates nothing.
+  document-start: disable
+  # A workflow's top-level `on:` key is GitHub Actions syntax, not a boolean.
+  truthy:
+    check-keys: false
+  # The one-space `@<sha> # v<ver>` pin comment is a contract: `test/files.test.js` matches exactly that shape and
+  # `scripts/bump-asset-pins.sh` writes it.
+  comments:
+    min-spaces-from-content: 1

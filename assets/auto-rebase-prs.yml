@@ -93,9 +93,9 @@ on:
     # on the local weekday itself (Mon-Fri = 1-5), the 00:00-02:00 hours
     # fall on the following UTC day (Tue-Sat = 2-6). Under PDT the
     # window runs 08:00-19:00 local; under PST, 07:00-18:00 local.
-    - cron: '0 15-23 * * 1-5'  # weekday window, local-day hours
-    - cron: '0 0-2 * * 2-6'    # same window, past the UTC date line
-    - cron: '0 15 * * 0,6'     # weekend, Sun (0) + Sat (6)
+    - cron: "0 15-23 * * 1-5" # weekday window, local-day hours
+    - cron: "0 0-2 * * 2-6" # same window, past the UTC date line
+    - cron: "0 15 * * 0,6" # weekend, Sun (0) + Sat (6)
   issue_comment:
     types: [created]
 

@@ -186,17 +186,12 @@ export function renderTemplate(template: string, ctx: RepoContext): string {
  * @param rendered the post-substitution template content.
  * @param label a human-readable name for the template, for the error.
  */
-export function assertNoUnresolvedTokens(
-  rendered: string,
-  label: string,
-): void {
+export function assertNoUnresolvedTokens(rendered: string, label: string): void {
   const matches = rendered.match(/__[A-Z0-9_]+__/g);
   if (matches && matches.length > 0) {
     const unique = [...new Set(matches)];
     throw new Error(
-      `Template ${label} has unresolved placeholder(s) after render: ${unique.join(
-        ", ",
-      )}`,
+      `Template ${label} has unresolved placeholder(s) after render: ${unique.join(", ")}`,
     );
   }
 }
@@ -304,9 +299,7 @@ export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
  * order the groups are rendered (first-match-wins, see
  * {@link DEFAULT_NAMED_DEPENDABOT_GROUPS}).
  */
-export type NamedDependabotGroups = Readonly<
-  Record<string, readonly string[]>
->;
+export type NamedDependabotGroups = Readonly<Record<string, readonly string[]>>;
 
 /**
  * The default registry of named Dependabot groups (issue #36):
@@ -366,13 +359,7 @@ export const DEFAULT_NAMED_DEPENDABOT_GROUPS: NamedDependabotGroups = {
     "psycopg2",
     "psycopg2-binary",
   ],
-  "auth-stack": [
-    "authlib",
-    "python-jose",
-    "python-jose[*]",
-    "pyjwt",
-    "cryptography",
-  ],
+  "auth-stack": ["authlib", "python-jose", "python-jose[*]", "pyjwt", "cryptography"],
   "aws-sdk": ["boto3", "botocore", "aiobotocore", "s3transfer"],
   "test-stack": ["pytest", "pytest-*"],
 };
@@ -402,9 +389,7 @@ export function renderNamedGroupsBlock(groups: NamedDependabotGroups): string {
     .filter(([, patterns]) => patterns.length === 0)
     .map(([name]) => name);
   if (empty.length > 0) {
-    throw new Error(
-      `Named Dependabot group(s) with an empty pattern list: ${empty.join(", ")}`,
-    );
+    throw new Error(`Named Dependabot group(s) with an empty pattern list: ${empty.join(", ")}`);
   }
   return Object.entries(groups)
     .map(([name, patterns], i) => {
@@ -501,14 +486,11 @@ function renderEcosystemBlock(
   // __DIRECTORY_BLOCK__: github-actions uses a singular fixed directory;
   // every other ecosystem uses a recursing root globstar.
   const directoryBlock =
-    cls === "github-actions"
-      ? 'directory: "/"'
-      : 'directories:\n      - "**/*"';
+    cls === "github-actions" ? 'directory: "/"' : 'directories:\n      - "**/*"';
 
   // __VERSIONING_STRATEGY_BLOCK__: npm/pip only; empty (line dropped)
   // elsewhere.
-  const versioningBlock =
-    cls === "npm-pip" ? "versioning-strategy: increase" : null;
+  const versioningBlock = cls === "npm-pip" ? "versioning-strategy: increase" : null;
 
   // __COOLDOWN_BLOCK__: npm/pip get per-semver tiers; every other
   // ecosystem gets default-days only (semver tiers are rejected there).
@@ -570,9 +552,7 @@ function substituteBlockLine(placeholderLine: string, value: string): string {
     placeholderLine.length - placeholderLine.trimStart().length,
   );
   const valueLines = value.split("\n");
-  return valueLines
-    .map((vl, i) => (i === 0 ? indent + vl : vl))
-    .join("\n");
+  return valueLines.map((vl, i) => (i === 0 ? indent + vl : vl)).join("\n");
 }
 
 /**
@@ -607,9 +587,7 @@ export function renderDependabotYml(
   const ecosystems = renderedBlocks.join("\n");
 
   const outerBody = stripLeadingComments(outerTemplate);
-  const withEcosystems = outerBody
-    .split("__DEPENDABOT_ECOSYSTEMS__")
-    .join(ecosystems);
+  const withEcosystems = outerBody.split("__DEPENDABOT_ECOSYSTEMS__").join(ecosystems);
   // The outer template may also carry the plain per-repo tokens.
   const rendered = renderTemplate(withEcosystems, ctx);
   // Guarantee a single trailing newline.
