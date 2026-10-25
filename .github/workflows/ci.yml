@@ -102,19 +102,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: actionlint
-        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
-        with:
-          files: ".github/workflows/*.yml"
-          # shellcheck already runs as its own dedicated step below over
-          # assets/*.sh; disable actionlint's bundled shellcheck pass
-          # over embedded `run:` blocks to avoid double-reporting the
-          # same class of issue under two different tools.
-          shellcheck: false
+      # Installs every tool mise.toml declares and puts it on PATH.
+      - name: Install lint tools
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
 
-      # Preinstalled on ubuntu-latest — no install step needed.
       - name: shellcheck
         run: shellcheck assets/*.sh scripts/*.sh template/scripts/*.sh
+
+      - name: bash -n
+        run: |
+          set -euo pipefail
+          for f in assets/*.sh scripts/*.sh template/scripts/*.sh; do
+            bash -n "${f}"
+          done
+
+      - name: actionlint
+        run: grep -l --null '^on:' assets/*.yml | xargs -0 actionlint -shellcheck= .github/workflows/*.yml
+
+      - name: oxlint
+        run: oxlint --deny-warnings
+
+      - name: oxfmt
+        run: oxfmt --check
+
+      - name: yamllint
+        run: yamllint .
+
+      - name: jsonlint
+        run: git ls-files -z '*.json' | xargs -0 jsonlint --quiet
+
+      - name: tombi
+        run: tombi lint
 
       - name: markdownlint-cli2
         run: npm run lint:md

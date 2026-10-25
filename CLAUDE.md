@@ -13,8 +13,6 @@ npm ci                      # install from the lockfile
 npm run build               # TypeScript -> dist/
 npm run build && npm test   # tests import dist/, so build first
 npm run lint:md
-mise exec -- shellcheck assets/*.sh scripts/*.sh template/scripts/*.sh
-mise exec -- actionlint -shellcheck= .github/workflows/*.yml
 ```
 
 `npm run lint:md` takes no arguments: `.markdownlint-cli2.jsonc` owns
@@ -22,15 +20,6 @@ the linted set, so a caller passing its own globs lints a different set
 than CI does. That set includes `.claude/agent-memory/**/*.md`, so an
 agent-memory entry file needs a `# H1` as its first line after the
 front matter.
-
-`actionlint`'s `-shellcheck=` matches CI, which turns off actionlint's
-own shellcheck pass over `run:` blocks. A bare `actionlint` picks up
-`shellcheck` from `PATH` and fails on `SC2016` findings CI never
-reports.
-
-`shellcheck` and `actionlint` come from `mise.toml` here and from the
-runner image on CI. When one cannot run locally, report the PR's
-`gh pr checks <N>` state for it, never the local absence.
 
 The Bash tool runs zsh, which aborts the whole call before any part of
 it runs on an unquoted glob or leading `=` in a word: `--include=*.md`
