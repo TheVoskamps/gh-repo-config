@@ -745,7 +745,7 @@ test("under off, a draft converger PR left by manual is marked ready for review 
   assert.deepEqual(mutations[0].body.variables, { id: "PR_7" });
 });
 
-test("under off, a tick with nothing to commit leaves the draft standing (issue #92)", async () => {
+test("under off, a tick with no diff against the default branch leaves the draft standing (issue #92)", async () => {
   // The release rides on the tree the tick converges the work branch to,
   // and under `off` that tree is what drops the anchor from the branch.
   // With no diff against the default branch no such tree is built and

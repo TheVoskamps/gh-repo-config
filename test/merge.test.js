@@ -403,7 +403,7 @@ test("evaluateAndMerge: a 405/409 from the merge call itself is reported as awai
 // The green routes below are the same ones the "all green -> merges" case
 // uses, so in each test that follows the ONLY thing separating a merge
 // from the outcome it asserts is the one input that test varies: the
-// merge call's own status, or issue #92's reserved path or draft flag.
+// merge call's own status, a reserved path, or the draft flag.
 const GREEN_ROUTES = [
   {
     match: "/rules/branches/main",
