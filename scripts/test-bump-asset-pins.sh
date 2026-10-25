@@ -54,6 +54,11 @@
 #       the pin up to date, and the other pins are still bumped.
 #   22. An absent action.yml (HTTP 404) is not a failure: action.yaml is
 #       read instead.
+#   23. Every page of a paginated releases list is read: an unversioned
+#       pin passes over a node20 release on the first page to a node24
+#       one on the second.
+#   24. Every page of a paginated advisories list is read: an advisory on
+#       the second page still makes its fix bypass the soak.
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -1175,6 +1180,91 @@ else
   fail "expected exit 0 and a move to v1.1.0 read from action.yaml, got exit ${case22_status}"
   cat "$TMP_ROOT/case22.log"
   cat "$CASE22/assets/workflow.yml"
+fi
+
+# ---------------------------------------------------------------------
+# Case 23: `gh api --paginate` writes one JSON array per page. The first
+# page holds only v3.0.0, soaked but on node20; the second holds v2.0.0,
+# on node24. A bumper that read the first page alone would select nothing.
+# ---------------------------------------------------------------------
+CASE23="$TMP_ROOT/case23"
+mkdir -p "$CASE23/assets" "$CASE23/fixtures"
+make_fake_gh "$CASE23/fixtures"
+
+cat > "$CASE23/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: paged-owner/paged-action@eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+YAML
+
+cat > "$CASE23/fixtures/repos_paged-owner_paged-action_releases.json" <<JSON
+[
+  {"tag_name": "v3.0.0", "published_at": "$(iso_days_ago 10)", "draft": false, "prerelease": false}
+]
+[
+  {"tag_name": "v2.0.0", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
+]
+JSON
+write_action_yml_fixture "$CASE23/fixtures/repos_paged-owner_paged-action_contents_action.yml_ref_v3.0.0.json" node20
+write_action_yml_fixture "$CASE23/fixtures/repos_paged-owner_paged-action_contents_action.yml_ref_v2.0.0.json" node24
+cat > "$CASE23/fixtures/repos_paged-owner_paged-action_git_ref_tags_v2.0.0.json" <<'JSON'
+{"object": {"sha": "2727272727272727272727272727272727272727", "type": "commit"}}
+JSON
+
+run_bumper "$CASE23/assets" "$CASE23/fixtures" > "$TMP_ROOT/case23.log" 2>&1
+case23_status=$?
+if [ "$case23_status" -eq 0 ] \
+  && grep -qxF '  - uses: paged-owner/paged-action@2727272727272727272727272727272727272727 # v2.0.0' "$CASE23/assets/workflow.yml"; then
+  pass "a release on the second page of the releases list is selected"
+else
+  fail "expected exit 0 and a move to v2.0.0 from the second releases page, got exit ${case23_status}"
+  cat "$TMP_ROOT/case23.log"
+  cat "$CASE23/assets/workflow.yml"
+fi
+
+# ---------------------------------------------------------------------
+# Case 24: the advisory affecting the v1.0.0 pin sits on the second page
+# of the advisories list, so v1.1.0, published today, is taken at once.
+# A bumper that read the first page alone would leave it soaking.
+# ---------------------------------------------------------------------
+CASE24="$TMP_ROOT/case24"
+mkdir -p "$CASE24/assets" "$CASE24/fixtures"
+make_fake_gh "$CASE24/fixtures"
+
+cat > "$CASE24/assets/workflow.yml" <<'YAML'
+on:
+  pull_request:
+steps:
+  - uses: paged-owner/paged-action@2828282828282828282828282828282828282828 # v1.0.0
+YAML
+
+cat > "$CASE24/fixtures/repos_paged-owner_paged-action_releases.json" <<JSON
+[
+  {"tag_name": "v1.1.0", "published_at": "$(iso_now)", "draft": false, "prerelease": false}
+]
+JSON
+cat > "$CASE24/fixtures/advisories_ecosystem_actions_affects_paged-owner_paged-action.json" <<'JSON'
+[
+  {"vulnerabilities": [{"vulnerable_version_range": "< 0.5.0", "first_patched_version": "0.5.0"}]}
+]
+[
+  {"vulnerabilities": [{"vulnerable_version_range": "< 1.1.0", "first_patched_version": "1.1.0"}]}
+]
+JSON
+cat > "$CASE24/fixtures/repos_paged-owner_paged-action_git_ref_tags_v1.1.0.json" <<'JSON'
+{"object": {"sha": "2929292929292929292929292929292929292929", "type": "commit"}}
+JSON
+
+run_bumper "$CASE24/assets" "$CASE24/fixtures" > "$TMP_ROOT/case24.log" 2>&1
+case24_status=$?
+if [ "$case24_status" -eq 0 ] \
+  && grep -qxF '  - uses: paged-owner/paged-action@2929292929292929292929292929292929292929 # v1.1.0' "$CASE24/assets/workflow.yml"; then
+  pass "an advisory on the second page of the advisories list bypasses the soak"
+else
+  fail "expected exit 0 and a move to v1.1.0 from an advisory on the second page, got exit ${case24_status}"
+  cat "$TMP_ROOT/case24.log"
+  cat "$CASE24/assets/workflow.yml"
 fi
 
 if [ "$failures" -ne 0 ]; then

@@ -239,7 +239,7 @@ resolve_bump() {
   # An action with no advisory gets an empty list, not an error, so a
   # failed lookup is never read as "no advisory": that would put a
   # vulnerable pin's fix behind the soak.
-  if ! gh api "advisories?ecosystem=actions&affects=${owner}/${repo}" >"$advisories_file"; then
+  if ! gh api "advisories?ecosystem=actions&affects=${owner}/${repo}" --paginate >"$advisories_file"; then
     echo "  error: could not list advisories for ${owner}/${repo}" >&2
     rm -f "$releases_file" "$advisories_file"
     return 1
@@ -258,10 +258,14 @@ resolve_bump() {
   # value and still arrives via argv directly. The Python source itself
   # is a quoted heredoc (<<'PY'), so no shell expansion happens inside
   # it at all.
+  #
+  # `--paginate` writes one JSON array per page, one after another, and
+  # --slurpfile reads them as an array of those pages, so each list is
+  # every page's entries concatenated, never the first page alone.
   local combined_json_file
   combined_json_file="$(mktemp)" || { rm -f "$releases_file" "$advisories_file"; return 1; }
   if ! jq -n --slurpfile releases "$releases_file" --slurpfile advisories "$advisories_file" \
-    '{releases: $releases[0], advisories: $advisories[0]}' > "$combined_json_file"; then
+    '{releases: [$releases[][]], advisories: [$advisories[][]]}' > "$combined_json_file"; then
     echo "  error: could not read the releases or advisories of ${owner}/${repo}" >&2
     rm -f "$releases_file" "$advisories_file" "$combined_json_file"
     return 1
