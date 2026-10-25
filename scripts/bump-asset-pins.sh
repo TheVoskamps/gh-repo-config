@@ -141,15 +141,14 @@ FULL_VERSION_RE='#\s*(v[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*)\s*$'
 
 # ---------------------------------------------------------------------
 # Step 1: discover every distinct `owner/repo[/subpath]@<40-hex-sha>`
-# pin across the scan targets, deduped by owner/repo (the SHA and
-# subpath vary; the upstream release train is per owner/repo). Prints
+# pin across the scan targets, deduped by owner/repo/subpath/sha. Prints
 # one `owner<TAB>repo<TAB>subpath-or-empty<TAB>sha<TAB>version<TAB>bare`
 # line per distinct pin. `version` is the first `# vX.Y.Z` comment any
 # occurrence of the pin carries, so a versioned occurrence seeds the
 # comparison wherever it sits in the scan order; `bare` is `1` when some
 # occurrence carries no such comment. Every occurrence of the same
-# owner/repo/subpath/sha is rewritten together in step 3 regardless of
-# which file it came from.
+# owner/repo/subpath/sha is rewritten together in the main loop
+# regardless of which file it came from.
 # ---------------------------------------------------------------------
 discover_pins() {
   python3 - "$FULL_VERSION_RE" "${scan_targets[@]}" <<'PY'
