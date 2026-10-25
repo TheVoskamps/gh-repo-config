@@ -35,9 +35,9 @@
 # WHY ONE `init` IS SAFE HERE. `github/codeql-action/init` takes a
 # comma-separated language list and `analyze` then runs the queries for
 # each language in turn. Nothing in THIS workflow forced the split
-# either: there is deliberately no build step
-# (see the no-autobuild note below), so there is no per-language build
-# divergence that separate jobs would have been isolating. The one real
+# either: there is deliberately no build step (see the no-autobuild
+# note below), so there is no per-language build divergence that
+# separate jobs would have been isolating. The one real
 # constraint is the RUNNER — `codeql-language-present.sh`'s `runner_for`
 # gives swift `macos-latest` and every other language `ubuntu-latest`,
 # and one job has one `runs-on`. That is why the split that remains is

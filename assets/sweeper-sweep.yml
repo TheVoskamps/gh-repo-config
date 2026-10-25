@@ -9,8 +9,9 @@
 #
 # WHY THIS FILE IS A CONVERGER PAYLOAD. A sweeper repo's operator
 # scripts and example config arrive by git merge and carry no workflow,
-# so this file never travels with them: the converger's whole job is "render files, open a PR, merge when
-# green", so the sweeper's own workflow ships through that same channel,
+# so this file never travels with them: the converger's whole job is
+# "render files, open a PR, merge when green", so the sweeper's own
+# workflow ships through that same channel,
 # from attested release tarballs. The copy consumer-init.sh places from
 # a release gets the org running; from then on the sweep keeps this file
 # current from `assets/`, PR-reviewed in the org like any other

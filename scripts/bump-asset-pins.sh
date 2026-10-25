@@ -78,8 +78,9 @@
 # Exit codes:
 #   0 -- every pin resolved (with or without any pin rewritten)
 #   1 -- usage / environment error
-#   2 -- reading the pins, or resolving or rewriting at least one pin,
-#        failed; every other pin is still resolved and rewritten
+#   2 -- reading the pins failed, and nothing was resolved; or resolving
+#        or rewriting at least one pin failed, and every other pin was
+#        still resolved and rewritten
 #
 # bash 3.2 compatible (no `mapfile`) so the script and its self-test run
 # on macOS too.
@@ -212,9 +213,9 @@ PY
 # the main loop to check each one's runtime in turn. Emits nothing when
 # the current pin is already current or no eligible release exists, and
 # returns non-zero when a lookup fails, so a failure is never read as
-# "no eligible release". Every network call in this script goes through `gh api`, so the
-# self-test can stub `gh` on PATH and exercise the pure decision logic
-# underneath.
+# "no eligible release". Every network call in this script goes through
+# `gh api`, so the self-test can stub `gh` on PATH and exercise the pure
+# decision logic underneath.
 # ---------------------------------------------------------------------
 resolve_bump() {
   local owner="$1" repo="$2" subpath="$3" current_version="$4"
@@ -439,7 +440,7 @@ PY
 # Step 3: resolve the tag's commit SHA. Emits TWO lines: the ref
 # object's own sha, then its type (`commit` for a lightweight tag,
 # `tag` for an annotated tag object that must be dereferenced one more
-# hop). One API call, not two.
+# hop). One API call, not two. Returns non-zero when the lookup fails.
 # ---------------------------------------------------------------------
 resolve_tag_ref() {
   local owner="$1" repo="$2" tag="$3"
@@ -456,6 +457,9 @@ print(obj.get('type', ''))
 " "$ref_json"
 }
 
+# resolve_annotated_tag_commit <owner> <repo> <tag-object-sha>: print the
+# commit SHA an annotated tag object points at. Returns non-zero when the
+# lookup fails.
 resolve_annotated_tag_commit() {
   local owner="$1" repo="$2" tag_sha="$3"
   local tag_json
