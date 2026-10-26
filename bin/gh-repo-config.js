@@ -65,7 +65,13 @@ switch (command) {
         } else if (result.pullRequest) {
           console.log(
             `  ${repo}: PR #${result.pullRequest.number} ` +
-              `${result.pullRequest.updated ? "updated" : "opened"} ` +
+              `${
+                result.pullRequest.unchanged
+                  ? "unchanged"
+                  : result.pullRequest.updated
+                    ? "updated"
+                    : "opened"
+              } ` +
               `(${result.pullRequest.url})`,
           );
         } else {

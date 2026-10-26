@@ -82,6 +82,7 @@ test("a converge step's returned ConvergeResult is surfaced in the sweep report,
     repos: [
       { repo: "fixture-opened", mode: "opt-in", version: "0.1.0" },
       { repo: "fixture-updated", mode: "opt-in", version: "0.1.0" },
+      { repo: "fixture-unchanged", mode: "opt-in", version: "0.1.0" },
       { repo: "fixture-noop", mode: "opt-in", version: "0.1.0" },
     ],
   });
@@ -112,6 +113,18 @@ test("a converge step's returned ConvergeResult is surfaced in the sweep report,
           noop: false,
         };
       }
+      if (repo === "fixture-unchanged") {
+        return {
+          changed: [".github/dependabot.yml"],
+          pullRequest: {
+            number: 14,
+            url: "https://example/pr/14",
+            updated: false,
+            unchanged: true,
+          },
+          noop: false,
+        };
+      }
       // fixture-noop: no diff, no PR.
       return { changed: [], noop: true };
     },
@@ -119,7 +132,7 @@ test("a converge step's returned ConvergeResult is surfaced in the sweep report,
 
   assert.deepEqual(
     report.convergeResults.map((c) => c.repo).sort(),
-    ["fixture-noop", "fixture-opened", "fixture-updated"],
+    ["fixture-noop", "fixture-opened", "fixture-unchanged", "fixture-updated"],
   );
 
   const byRepo = Object.fromEntries(
@@ -134,8 +147,9 @@ test("a converge step's returned ConvergeResult is surfaced in the sweep report,
 
   // The per-repo outcome is also logged, so a sweep run's console output
   // shows what convergence actually did per repo.
-  assert.ok(logs.some((l) => l.includes("fixture-opened") && l.includes("PR #12") && l.includes("opened")));
-  assert.ok(logs.some((l) => l.includes("fixture-updated") && l.includes("PR #13") && l.includes("updated")));
+  assert.ok(logs.includes("  fixture-opened: PR #12 opened (https://example/pr/12)"));
+  assert.ok(logs.includes("  fixture-updated: PR #13 updated (https://example/pr/13)"));
+  assert.ok(logs.includes("  fixture-unchanged: PR #14 unchanged (https://example/pr/14)"));
   assert.ok(logs.some((l) => l.includes("fixture-noop") && l.includes("no diff, no PR")));
 });
 

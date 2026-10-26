@@ -100,9 +100,23 @@ function readRoutes({ treeEntries = {}, blobs = {}, community = {} }) {
 }
 
 // Write routes: blob/tree/commit creation, ref set, PR list/create, and
-// the draft-state GraphQL mutations (issue #92).
-function writeRoutes({ openPr = [] } = {}) {
+// the draft-state GraphQL mutations (issue #92). `branchHead` is the
+// work branch's head commit an open PR reports; its default differs from
+// the tree and parent this converge writes, so the branch is reset.
+function writeRoutes({
+  openPr = [],
+  branchHead = { tree: "oldtree", parents: ["oldbase"] },
+} = {}) {
   return [
+    { match: `/git/ref/heads/${CONVERGE_BRANCH}`, body: { object: { sha: "branchhead" } } },
+    {
+      match: "/git/commits/branchhead",
+      body: {
+        sha: "branchhead",
+        tree: { sha: branchHead.tree },
+        parents: branchHead.parents.map((sha) => ({ sha })),
+      },
+    },
     { match: "/git/blobs", method: "POST", body: { sha: "newblob" } },
     { match: "/git/trees", method: "POST", body: { sha: "newtree" } },
     { match: "/git/commits", method: "POST", body: { sha: "newcommit" } },
@@ -156,6 +170,7 @@ test("empty target → all files changed, blobs+tree+commit+ref+PR created", asy
     number: 42,
     url: "https://example/pr/42",
     updated: false,
+    unchanged: false,
     draft: false,
   });
 
@@ -240,6 +255,7 @@ test("existing open converger PR → branch is force-updated, no second PR", asy
     number: 7,
     url: "https://example/pr/7",
     updated: true,
+    unchanged: false,
     draft: false,
   });
   // The ref was PATCHed (force-updated), and no new PR was POSTed.
@@ -251,6 +267,79 @@ test("existing open converger PR → branch is force-updated, no second PR", asy
     fetch.calls.some((c) => c.method === "POST" && c.url.endsWith("/pulls")),
     false,
   );
+});
+
+// An open, non-draft converger PR on the work branch.
+const OPEN_PR_7 = { number: 7, node_id: "PR_7", html_url: "https://example/pr/7", draft: false, head: { ref: CONVERGE_BRANCH } };
+
+// The tree and parent this converge would commit: `writeRoutes`' tree
+// POST answers `newtree`, and `readRoutes`' default head is `basecommit`.
+const CONVERGED_HEAD = { tree: "newtree", parents: ["basecommit"] };
+
+function commitPosts(fetch) {
+  return fetch.calls.filter((c) => c.method === "POST" && c.url.endsWith("/git/commits"));
+}
+
+function refWrites(fetch) {
+  return fetch.calls.filter(
+    (c) => (c.method === "PATCH" || c.method === "POST") && c.url.includes("/git/refs"),
+  );
+}
+
+test("an open converger PR whose branch already holds this tree on this base is left untouched", async () => {
+  const fetch = fakeFetch([
+    ...readRoutes({ treeEntries: {}, blobs: {} }),
+    ...writeRoutes({ openPr: [OPEN_PR_7], branchHead: CONVERGED_HEAD }),
+  ]);
+  const client = new ContentsClient({ token: "t", fetch });
+  const result = await convergeRepoFiles(client, OWNER, REPO, false);
+
+  assert.equal(result.noop, false);
+  assert.deepEqual(result.pullRequest, {
+    number: 7,
+    url: "https://example/pr/7",
+    updated: false,
+    unchanged: true,
+    draft: false,
+  });
+  assert.deepEqual(commitPosts(fetch), []);
+  assert.deepEqual(refWrites(fetch), []);
+  assert.equal(
+    fetch.calls.some((c) => c.method === "POST" && c.url.endsWith("/pulls")),
+    false,
+  );
+});
+
+test("an open converger PR is still reset when the default branch moved or the tree differs", async () => {
+  for (const branchHead of [
+    // Same tree, but parented on a default-branch head that has moved on.
+    { tree: "newtree", parents: ["oldbase"] },
+    // Right parent, different tree.
+    { tree: "oldtree", parents: ["basecommit"] },
+    // Right tree, but not exactly `[baseSha]` as its parent list.
+    { tree: "newtree", parents: ["basecommit", "other"] },
+  ]) {
+    const fetch = fakeFetch([
+      ...readRoutes({ treeEntries: {}, blobs: {} }),
+      ...writeRoutes({ openPr: [OPEN_PR_7], branchHead }),
+    ]);
+    const client = new ContentsClient({ token: "t", fetch });
+    const result = await convergeRepoFiles(client, OWNER, REPO, false);
+
+    const label = JSON.stringify(branchHead);
+    assert.equal(result.pullRequest.updated, true, label);
+    assert.equal(result.pullRequest.unchanged, false, label);
+    assert.deepEqual(
+      commitPosts(fetch).map((c) => [c.body.tree, c.body.parents]),
+      [["newtree", ["basecommit"]]],
+      label,
+    );
+    assert.deepEqual(
+      refWrites(fetch).map((c) => [c.method, c.body]),
+      [["PATCH", { sha: "newcommit", force: true }]],
+      label,
+    );
+  }
 });
 
 test("dryRun → diffs computed, nothing written", async () => {
@@ -435,7 +524,7 @@ test("an org with no .github repo at all seeds no community file, and the conver
     result.changed.length,
     buildDesiredFiles(CTX, { communityFiles: {} }).length,
   );
-  assert.deepEqual(result.pullRequest, { number: 42, url: "https://example/pr/42", updated: false, draft: false });
+  assert.deepEqual(result.pullRequest, { number: 42, url: "https://example/pr/42", updated: false, unchanged: false, draft: false });
 });
 
 test("caller-supplied communityFiles are used as-is and the org's .github repo is not read (issue #90)", async () => {
@@ -631,10 +720,10 @@ test("under off, a draft converger PR left by manual is marked ready for review 
   // The manual→off transition: `off` withdraws the reservation that
   // justified the draft, so the leftover draft is litter the sweep left
   // behind and the sweep clears it — otherwise this repo's file
-  // convergence stalls behind a PR no tick can ever lift. The commit
-  // this tick writes carries no anchor (`off` drops it from the payload)
-  // and resets the branch, so the PR that goes ready no longer offers
-  // the anchor for an unattended merge.
+  // convergence stalls behind a PR no tick can ever lift. The release
+  // rides on the work branch holding this tick's tree, which carries no
+  // anchor (`off` drops it from the payload), so the PR that goes ready
+  // no longer offers the anchor for an unattended merge.
   const openPr = [
     { number: 7, node_id: "PR_7", html_url: "https://example/pr/7", draft: true, head: { ref: CONVERGE_BRANCH } },
   ];
@@ -656,12 +745,12 @@ test("under off, a draft converger PR left by manual is marked ready for review 
   assert.deepEqual(mutations[0].body.variables, { id: "PR_7" });
 });
 
-test("under off, a tick with nothing to commit leaves the draft standing (issue #92)", async () => {
-  // The release rides on the commit that resets the work branch, and
-  // under `off` that reset is what drops the anchor from the branch.
-  // With nothing to commit the branch still carries the anchor, so
-  // marking the PR ready would offer exactly the file the org switched
-  // off to an unattended merge.
+test("under off, a tick with no diff against the default branch leaves the draft standing (issue #92)", async () => {
+  // The release rides on the tree the tick converges the work branch to,
+  // and under `off` that tree is what drops the anchor from the branch.
+  // With no diff against the default branch no such tree is built and
+  // the branch still carries the anchor, so marking the PR ready would
+  // offer exactly the file the org switched off to an unattended merge.
   const options = { ...SWEEPER_OPTIONS, sweeperUpdatePolicy: "off" };
   const desired = buildDesiredFiles(CTX, {
     ...options,
@@ -750,6 +839,37 @@ test("a GraphQL error on the draft conversion throws rather than reporting a hol
     () => convergeRepoFiles(client, OWNER, REPO, false, SWEEPER_OPTIONS),
     /Failed to convert TheVoskamps\/example#7 to a draft: Resource not accessible by integration/,
   );
+});
+
+test("an unchanged converger PR still gets the draft hold and the hold release (issue #92)", async () => {
+  // The branch already holds this tick's tree, so no commit is written,
+  // yet a maintainer who marked the held PR ready is still drafted again,
+  // and a hold the policy withdrew is still lifted.
+  const cases = [
+    { pr: { ...OPEN_PR_7, draft: false }, policy: "manual", mutation: /convertPullRequestToDraft/, draft: true },
+    { pr: { ...OPEN_PR_7, draft: true }, policy: "auto", mutation: /markPullRequestReadyForReview/, draft: false },
+  ];
+  for (const { pr, policy, mutation, draft } of cases) {
+    const fetch = fakeFetch([
+      ...readRoutes({ treeEntries: {}, blobs: {} }),
+      ...writeRoutes({ openPr: [pr], branchHead: CONVERGED_HEAD }),
+    ]);
+    const client = new ContentsClient({ token: "t", fetch });
+    const result = await convergeRepoFiles(client, OWNER, REPO, false, {
+      ...SWEEPER_OPTIONS,
+      sweeperUpdatePolicy: policy,
+    });
+
+    assert.ok(result.changed.includes(SWEEPER_WORKFLOW_PATH), policy);
+    assert.equal(result.pullRequest.unchanged, true, policy);
+    assert.equal(result.pullRequest.draft, draft, policy);
+    assert.deepEqual(commitPosts(fetch), [], policy);
+    assert.deepEqual(refWrites(fetch), [], policy);
+    const mutations = graphqlCalls(fetch);
+    assert.equal(mutations.length, 1, policy);
+    assert.match(mutations[0].body.query, mutation);
+    assert.deepEqual(mutations[0].body.variables, { id: "PR_7" });
+  }
 });
 
 test("readFileIfPresent: 404 → undefined, a directory listing → undefined, a file → decoded content", async () => {

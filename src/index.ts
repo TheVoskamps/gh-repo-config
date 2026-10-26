@@ -95,6 +95,7 @@ export {
   type ContentsClientOptions,
   type TreeFile,
   type ExistingBlob,
+  type CommitInfo,
   type PullRequestResult,
   type OpenPullRequestRef,
 } from "./github/contents.js";
