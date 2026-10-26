@@ -32,8 +32,9 @@
  * - **A PR touching a human-approval path is a draft (issue #92).** On
  *   the sweeper repo under `sweeper-update-policy: manual`, a PR that
  *   changes the org's trust-anchor workflow is opened as a draft, and an
- *   already-open non-draft PR is converted to one when such a change
- *   lands on it. Draft state is the hold itself: nothing merges a draft
+ *   already-open non-draft PR is converted to one on any tick whose
+ *   changed paths include that workflow, whether or not the tick lands a
+ *   commit on its branch. Draft state is the hold itself: nothing merges a draft
  *   PR, so the reservation does not rest on a ruleset that a first-tick
  *   sweeper repo does not have yet, nor on any workflow's cooperation.
  *   The hold is re-asserted on every tick with a diff, so marking such
