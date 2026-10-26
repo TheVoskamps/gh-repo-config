@@ -720,10 +720,10 @@ test("under off, a draft converger PR left by manual is marked ready for review 
   // The manual→off transition: `off` withdraws the reservation that
   // justified the draft, so the leftover draft is litter the sweep left
   // behind and the sweep clears it — otherwise this repo's file
-  // convergence stalls behind a PR no tick can ever lift. The commit
-  // this tick writes carries no anchor (`off` drops it from the payload)
-  // and resets the branch, so the PR that goes ready no longer offers
-  // the anchor for an unattended merge.
+  // convergence stalls behind a PR no tick can ever lift. The release
+  // rides on the work branch holding this tick's tree, which carries no
+  // anchor (`off` drops it from the payload), so the PR that goes ready
+  // no longer offers the anchor for an unattended merge.
   const openPr = [
     { number: 7, node_id: "PR_7", html_url: "https://example/pr/7", draft: true, head: { ref: CONVERGE_BRANCH } },
   ];
