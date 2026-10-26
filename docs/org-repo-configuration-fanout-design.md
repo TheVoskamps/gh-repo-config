@@ -207,10 +207,10 @@ copy-on-adoption UI action) and are **not** used for the fan-out.
 ### Dependabot config stays per repo
 
 The org `.github` repo does **not** inherit `dependabot.yml`. Each repo
-needs its own file. The converger continues to render and converge a
-per-repo `dependabot.yml` exactly as the protection skill does today. The
-only org-level Dependabot lever is alert / security-update *enablement* (a
-GHAS toggle), which is orthogonal to the config file.
+needs its own file. The converger renders and converges a per-repo
+`dependabot.yml`. The only org-level Dependabot lever is alert /
+security-update *enablement* (a GHAS toggle), which is orthogonal to the
+config file.
 
 ### PR automation is in the fan-out — and runs as a second App
 

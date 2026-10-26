@@ -6,9 +6,7 @@ A short-lived installation token is minted per workflow run from the
 Client ID and private key stored in secrets; there is no long-lived
 token to rotate manually.
 
-This document is the checked-in record of that App. It is maintained
-by the `/gh-create-app` skill — re-run the skill to verify or update
-it.
+This document is the checked-in record of that App.
 
 ## Identity
 
@@ -229,7 +227,7 @@ every run:
     steps:
       - name: Mint App installation token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@<sha> # vX.Y.Z
         with:
           client-id: ${{ secrets.CONVERGER_APP_CLIENT_ID }}
           private-key: ${{ secrets.CONVERGER_APP_PRIVATE_KEY }}

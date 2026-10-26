@@ -3,27 +3,9 @@
 Status: proposed issue breakdown. Authored 2026-07-13. Companion to
 `org-repo-configuration-fanout-design.md` (the design). This document
 resolves every open design decision to a concrete instruction, pins the
-extraction boundary, records concrete source pointers, and proposes the
-issue tree. **No item below is left as an open decision** — an issue is
-only fileable once its body is an instruction, not a question.
-
-## Ground-truth source pointers
-
-The two skills the converger is extracted from are **single-file
-skills** — their payloads (`*.sh`, `*.yml`) are embedded inline in the
-SKILL.md as heredoc/fenced blocks, not separate files on disk. An
-implementer must read the SKILL.md to recover them.
-
-- Plugin: `github-setup`, in the **`claude-plugins-marketplace`** repo
-  under this org.
-- On this machine (marketplace checkout / plugin cache):
-  `~/.claude/plugins/marketplaces/thevoskamps/plugins/github-setup/skills/`
-- `gh-repo-setup-protection/SKILL.md` — ~130 KB, Steps 0–7.
-- `gh-repo-setup-pr-automation/SKILL.md` — ~47 KB, Steps 0–8.
-- Shared helpers: `github-setup/skills/lib/`.
-
-Consuming/target repo (this repo): `TheVoskamps/gh-repo-config`
-(private today; design calls for public before first relied-on release).
+extraction boundary, and proposes the issue tree. **No item below is
+left as an open decision** — an issue is only fileable once its body is
+an instruction, not a question.
 
 ## Resolved decisions (the load-bearing five + follow-ons)
 
@@ -106,16 +88,16 @@ CONTRIBUTING/SECURITY text. Settled behavior:
 - **Missing/empty `.github`** — skip-and-report; converge everything
   else (same posture as the entitlement-422 handling).
 - **Prerequisite** — seeding `<org>/.github` itself is a documented
-  manual step (swipe from `macos-setup` / `claude-config` /
-  `claude-plugins-marketplace`, which should all match). The converger
-  App needs **Contents: read** on `.github` and must be installed there.
+  manual step. The converger App needs **Contents: read** on `.github`
+  and must be installed there.
 
 ## Converger App — permission set (concrete, for the org-ruleset skill + CI fan-out)
 
-Derived from the actual REST/CLI calls the two skills make (protection
-Steps 4/6, plus stamping and branch/PR write; pr-automation makes no
-`orgs/`/`repos/` REST calls and its `gh secret` step is **skipped** in
-fan-out mode since the App identity is already an org secret).
+Derived from the REST/CLI calls the converger makes: the GHAS toggles
+and the `protect-main` ruleset, plus stamping and branch/PR write. The
+pr-automation payload makes no `orgs/`/`repos/` REST calls, and setting
+the App-identity secrets is **skipped** in fan-out mode since the App
+identity is already an org secret.
 
 | Call surface | App permission |
 | --- | --- |
@@ -171,9 +153,8 @@ This gives both operating modes from **one org-level setting**:
 
 ## Extraction boundary
 
-Verified against the actual SKILL.md section structure. Steps split into
-a **deterministic core** (moves to TS) and an **interactive shell**
-(stays in the skill, calls the core). Decisions 2 and 3 remove the two
+Steps split into a **deterministic core** (moves to TS) and an
+**interactive shell** (stays in the skill, calls the core). Decisions 2 and 3 remove the two
 biggest shell surfaces (Step 2b and CodeQL opt-in), so the shell is now
 thin.
 
@@ -253,7 +234,7 @@ Idempotency + error behavior (decided, not deferred): every step is
 read-then-write-if-differs; a failed step reports and continues to the
 next independent concern rather than aborting (partial convergence is
 re-runnable). Entitlement 422s (GHAS on unentitled private repos) are
-report-and-skip, as the skills do today.
+report-and-skip.
 
 ## Stamp granularity
 
