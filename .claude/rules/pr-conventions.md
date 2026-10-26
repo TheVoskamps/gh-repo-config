@@ -3,10 +3,18 @@
 ## Every PR advances the `version` core
 
 Every PR bumps `version` in the root `package.json` past main's
-`MAJOR.MINOR.PATCH` core. The sweep builds from `main`'s source tree,
-never a release tarball, and skips every repo already stamped at that
-version, so a change merged without a bump reaches no repo a prior
-sweep stamped. The version compare reads only the core, so a
+`MAJOR.MINOR.PATCH` core. The sweep runs a release tarball, never
+`main`'s source tree: the release the org's `version-pin` names, else
+the latest. A release is cut by pushing a `vX.Y.Z` tag that
+`release.yml` requires to equal `package.json`'s `version`, and the
+sweep skips every repo already stamped at the version it runs. A tag is
+pushed independently of any PR, so no PR can count on `main`'s current
+version being unreleased; the bump keeps `main` above every release cut
+from a `main` commit before the merge, so a tag at any later `main`
+commit ships a version every stamped repo is behind. That holds only
+for tags on `main`: `release.yml` checks a tag against its own commit's
+`package.json` alone, so a tag pushed on any other commit can ship a
+version `main` has not passed. The version compare reads only the core, so a
 prerelease or build identifier delivers nothing and fails `pnpm test`.
 Re-check the bump after a rebase, since a concurrent merge may have
 taken the value you picked. Semver picks the component; the move to
@@ -27,6 +35,5 @@ export — grep the retired term across the whole repo
 (`--exclude-dir=node_modules --exclude-dir=dist`) rather than
 re-reading the diff's own files, since the falsified prose mostly sits
 in files the diff never touched. Historical narration stays, a
-present-tense claim is a defect, and a `docs/` file whose first lines
-carry a `Status:` line is never a hit. Fixing an out-of-diff one-line
+present-tense claim is a defect. Fixing an out-of-diff one-line
 comment is in scope; a refactor is not.

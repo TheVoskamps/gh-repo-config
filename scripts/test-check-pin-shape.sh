@@ -92,7 +92,7 @@ cat > "$CASE3/workflow.yml" <<'YAML'
 on:
   pull_request:
 steps:
-  - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+  - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v6.0.3
 YAML
 assert_exit "exact 40-hex SHA pin is well-formed" 0 "$CASE3"
 
@@ -105,7 +105,7 @@ on:
   pull_request:
 steps:
   # Deliberately ancient version comment -- shape is still exact.
-  - uses: actions/checkout@1e31de5234b9f8995739874a8ce0492dc87873e2 # v1.0.0
+  - uses: actions/checkout@cccccccccccccccccccccccccccccccccccccccc # v1.0.0
 YAML
 assert_exit "old-but-well-formed SHA pin passes (staleness is not blocking)" 0 "$CASE4"
 
@@ -121,7 +121,7 @@ on:
 #     - uses: actions/checkout@<sha>
 #     - uses: ./.github/actions/codeartifact-auth
 steps:
-  - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+  - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v6.0.3
 YAML
 assert_exit "commented-out example uses: lines are ignored" 0 "$CASE5"
 

@@ -15,10 +15,9 @@
  *   rendered templates only, never on verbatim scripts (a shell script
  *   may legitimately contain `__`-delimited words).
  * - {@link renderDependabotYml} performs the composite expansion of
- *   `__DEPENDABOT_ECOSYSTEMS__` documented in the `github-setup`
- *   plugin's `gh-repo-setup-protection` SKILL.md "Step 3": one rendered
- *   copy of `ecosystem-block.yml` per armed ecosystem, with the variant
- *   parts resolved per ecosystem *class*.
+ *   `__DEPENDABOT_ECOSYSTEMS__`: one rendered copy of
+ *   `ecosystem-block.yml` per armed ecosystem, with the variant parts
+ *   resolved per ecosystem *class* by {@link renderEcosystemBlock}.
  * - {@link renderPrAutomationTemplate} (issue #25) substitutes the
  *   PR-automation payload's placeholders: the three per-repo tokens
  *   {@link renderTemplate} already handles, {@link PR_AUTOMATION_CONSTANTS}
@@ -244,12 +243,10 @@ export const PR_AUTOMATION_CONSTANTS: Readonly<Record<string, string>> = {
  * {@link renderTemplate} already resolves
  * (`__GH_ORG__`/`__GH_REPO__`/`__DEFAULT_BRANCH__`).
  *
- * The full surface always renders — no conditional-drop logic (unlike
- * the interactive `gh-repo-setup-pr-automation` skill, which drops the
- * `workflow_run` trigger / REST-merge job / regen scripts when a repo
- * lacks the workflows they key off). On a managed repo the gates and
- * guards are guaranteed present in the same per-repo converger PR, so
- * every placeholder always resolves.
+ * The full surface always renders, with no conditional-drop logic: the
+ * `workflow_run` trigger and the lockfile-regen pass key off the gate
+ * and guard workflows `src/converge/files.ts` ships in the same
+ * per-repo converger PR, so every placeholder always resolves.
  *
  * @param options per-org inputs; `prAutomationIdentity` defaults to
  *   {@link DEFAULT_PR_AUTOMATION_IDENTITY} when absent.
@@ -275,9 +272,6 @@ export function renderPrAutomationTemplate(
  * on every managed repo. Kept sorted so the rendered blocks are
  * deterministic (a re-run is a byte-for-byte no-op, not a reorder
  * churn). `github-actions` is the always-armed floor.
- *
- * Source of the set: the `gh-repo-setup-protection` SKILL.md Step 2/3
- * supported list.
  */
 export const DEPENDABOT_ECOSYSTEMS: readonly string[] = [
   "bundler",
@@ -306,11 +300,9 @@ export type NamedDependabotGroups = Readonly<Record<string, readonly string[]>>;
  * lockstep/stack families whose members must move together because they
  * share a runtime compatibility contract (same-repo sub-actions/packages
  * exchanging versioned state, a framework + its plugin family, or an SDK
- * core + pinned transitives). Exact definitions and precedence taken
- * verbatim from `Fablegate/fablegate_quasar_fastapi`'s live production
- * `dependabot.yml`, the repo that incurred the motivating incident
- * (`github/codeql-action/init`/`analyze` version skew broke the
- * required CodeQL check on `main`).
+ * core + pinned transitives). A family split across PRs leaves its
+ * members at different versions between merges: `github/codeql-action/init`
+ * and `analyze` at different versions fail the required CodeQL check.
  *
  * This is org-specific content (issue #88): a different org supplies
  * its own registry through {@link OrgRenderOptions.namedDependabotGroups}
@@ -459,13 +451,14 @@ function stripLeadingComments(text: string): string {
  *
  * The block placeholders (`__DIRECTORY_BLOCK__`,
  * `__VERSIONING_STRATEGY_BLOCK__`, `__COOLDOWN_BLOCK__`,
- * `__NAMED_GROUPS_BLOCK__`) each sit alone on an indented line. The
- * substituted value's first line carries no leading indent (the
- * template's own indent supplies it) and continuation lines carry their
- * own absolute indent. When a block is empty for a class
- * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip, or
- * `__NAMED_GROUPS_BLOCK__` for an org whose registry is empty), the
- * whole placeholder line is dropped so no whitespace-only line remains.
+ * `__IGNORE_BLOCK__`, `__NAMED_GROUPS_BLOCK__`) each sit alone on an
+ * indented line. The substituted value's first line carries no leading
+ * indent (the template's own indent supplies it) and continuation lines
+ * carry their own absolute indent. When a block is empty for a class
+ * (`__VERSIONING_STRATEGY_BLOCK__` off npm/pip, `__IGNORE_BLOCK__` on
+ * github-actions, or `__NAMED_GROUPS_BLOCK__` for an org whose registry
+ * is empty), the whole placeholder line is dropped so no whitespace-only
+ * line remains.
  * `__NAMED_GROUPS_BLOCK__` renders the same `namedGroupsBlock` (already
  * rendered by {@link renderNamedGroupsBlock}) into every ecosystem.
  */
@@ -499,6 +492,16 @@ function renderEcosystemBlock(
       ? "cooldown:\n      semver-major-days: 14\n      semver-minor-days: 7\n      semver-patch-days: 7\n      default-days: 7"
       : "cooldown:\n      default-days: 7";
 
+  // __IGNORE_BLOCK__: every ecosystem but github-actions ignores
+  // semver-major version updates; github-actions takes them after the
+  // cooldown, since an action's major release is mostly a runtime move
+  // (Node.js 20 to 24) that leaves a pin on a deprecated runtime when
+  // skipped. Empty (line dropped) for github-actions.
+  const ignoreBlock =
+    cls === "github-actions"
+      ? null
+      : 'ignore:\n      - dependency-name: "*"\n        update-types:\n          - "version-update:semver-major"';
+
   const lines = blockTemplate.split("\n");
   const out: string[] = [];
   for (const line of lines) {
@@ -507,6 +510,12 @@ function renderEcosystemBlock(
       // Empty-block collapse: drop the whole line when there is no value.
       if (versioningBlock !== null) {
         out.push(substituteBlockLine(line, versioningBlock));
+      }
+      continue;
+    }
+    if (trimmed === "__IGNORE_BLOCK__") {
+      if (ignoreBlock !== null) {
+        out.push(substituteBlockLine(line, ignoreBlock));
       }
       continue;
     }

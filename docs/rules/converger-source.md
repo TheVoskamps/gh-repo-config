@@ -26,3 +26,22 @@ alike. A new App permission check passes it its own required map and
 words its own failure from the shortfall it returns, never ordering
 levels itself, so no two checks can disagree about which grant
 satisfies which requirement.
+
+## The sweep merges its own PRs
+
+The merge pass in `src/sweep.ts` merges green converger PRs, and is
+never handed to the fanned-out PR-automation workflows. A newly managed
+repo's first converger PR is the one that installs those workflows, so
+they are not on its default branch yet, and `auto-rebase-prs.yml`'s
+REST-merge pass runs, on its `workflow_run` and `schedule` triggers,
+only the default branch's copy. The `protect-main` ruleset step waits
+on that PR reaching the default branch.
+
+## The two Apps stay separate
+
+`PR_AUTOMATION_REQUIRED_PERMISSIONS` never gains a scope only the
+converger holds — Administration, Organization administration, or
+Organization custom properties — and the converger and PR-automation
+Apps are never folded into one. The PR-automation App's token is minted
+by workflows on every managed repo; the converger's only by the sweeper
+workflow.

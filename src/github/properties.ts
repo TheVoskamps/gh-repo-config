@@ -10,7 +10,7 @@
  * via `actions/create-github-app-token` and passes it through the
  * environment).
  *
- * Custom-property REST shape (verified in the design doc):
+ * Custom-property REST shape:
  * - Read all repos' values (paginated): `GET /orgs/{org}/properties/values`.
  * - Read a property's schema (for its org-level default value):
  *   `GET /orgs/{org}/properties/schema/{name}`.

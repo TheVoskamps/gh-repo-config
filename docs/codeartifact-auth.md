@@ -275,7 +275,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@<sha> # vX.Y.Z
       - uses: ./.github/actions/codeartifact-auth
         with:
           role: ${{ vars.CODEARTIFACT_ROLE }}

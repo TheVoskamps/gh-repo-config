@@ -2,7 +2,7 @@
 # renderPrAutomationTemplate) into the target repo at
 # .github/workflows/auto-rebase-prs.yml.
 #
-# Placeholders (see the github-setup plugin payload README for the convention):
+# Placeholders, each substituted by renderPrAutomationTemplate:
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
 #   __APP_CLIENT_ID_SECRET__  ORG secret, visible to all repositories,
@@ -16,10 +16,10 @@
 #                        "<repo>-auto-rebase[bot]"
 #   __REQUIRED_CHECK_WORKFLOW__  name of the repo's required-check
 #                        workflow that, on completion, should trigger a
-#                        rebase pass (e.g. no-back-merging-guard). If the
-#                        repo has no such workflow, the
-#                        /gh-repo-setup-pr-automation skill drops this
-#                        workflow_run trigger when rendering.
+#                        rebase pass (e.g. no-back-merging-guard). The
+#                        trigger always renders: the converger ships that
+#                        workflow (src/converge/files.ts's
+#                        RENDERED_WORKFLOWS) in the same converger PR.
 #   __DO_NOT_MERGE_LABEL__  label that opts a PR out of automation
 #   __REST_MERGE_METHOD__  REST merge method (lowercase): merge | squash
 #                        | rebase. Used by the Dependabot REST-merge
@@ -27,11 +27,9 @@
 #   __INSTALL_GATE_WORKFLOW__  name of the dependency-install-gate
 #                        workflow whose failing check signals a
 #                        lockfile desync (e.g. dependency-install-gate).
-#                        Drives the #1218 lockfile-regen pass below. If
-#                        the repo has no such workflow, the
-#                        /gh-repo-setup-pr-automation skill drops the
-#                        lockfile-regen step (and the auto-rebase-lockfile-
-#                        regen.sh script) when rendering.
+#                        Drives the lockfile-regen pass below. The
+#                        pass always renders, for the same reason as the
+#                        __REQUIRED_CHECK_WORKFLOW__ trigger above.
 #   __INSTALL_GATE_CHECK__  name of the CheckRun within
 #                        __INSTALL_GATE_WORKFLOW__ that fails on a lockfile
 #                        desync (e.g. install-gate-required).
@@ -247,9 +245,8 @@ on:
 # That is one provisioning requirement on the secret objects, so
 # satisfying it once covers every workflow that reads them;
 # auto-enable-automerge.yml's header states why each half of it is
-# needed. Set both by hand: the interactive /gh-repo-setup-pr-automation
-# skill seeds an App-ID secret (<prefix>_APP_ID) and no Client-ID secret
-# at all. The mint step below feeds the Client ID to
+# needed. The converger provisions neither: set both by hand. The mint
+# step below feeds the Client ID to
 # actions/create-github-app-token's client-id: input, the non-deprecated
 # one; its app-id: input carries an upstream deprecationMessage.
 # Until the App is provisioned the first workflow run fails fast at the
@@ -301,7 +298,7 @@ jobs:
     steps:
       - name: Mint App installation token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ secrets.__APP_CLIENT_ID_SECRET__ }}
           private-key: ${{ secrets.__APP_PRIVATE_KEY_SECRET__ }}
@@ -345,7 +342,7 @@ jobs:
           esac
 
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -362,9 +359,13 @@ jobs:
       # `Set up Node`, so the regen replays the lockfile the same way the
       # gate will after the force-push.
       - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+          # setup-node otherwise restores an npm cache whenever package.json
+          # names npm as its packageManager, which can fail the step when it
+          # finds no lockfile, and adds a cache restore to this App-token job.
+          package-manager-cache: false
 
       - name: Rebase eligible PRs
         env:
@@ -583,9 +584,7 @@ jobs:
       # on a DIFFERENT trigger (the dependency-install-gate's
       # `__INSTALL_GATE_CHECK__` check failing) and on a DIFFERENT
       # candidate set (any author, including Dependabot). See the header
-      # comment. The /gh-repo-setup-pr-automation skill drops this whole
-      # step (and the auto-rebase-lockfile-regen.sh script) when the repo
-      # has no dependency-install-gate workflow to key off.
+      # comment.
       # ---------------------------------------------------------------
       - name: Regenerate desynced lockfiles on gate-red PRs
         env:
@@ -890,13 +889,13 @@ jobs:
       #
       # NOTE on the bypass actor: this pass only achieves an unattended
       # merge of a code-owner-protected PR if the App "__APP_NAME__" is
-      # added as a `pull_request` bypass actor in the repo's
-      # branch-protection ruleset. Adding the bypass actor is a
-      # branch-protection concern owned by /gh-repo-setup-protection,
-      # not this skill. Without the bypass, a green Dependabot PR on an
-      # un-code-owned path still merges (no review required); one on a
-      # code-owned path is left for a human, exactly as a human PR would
-      # be.
+      # a `pull_request` bypass actor in the repo's `protect-main`
+      # ruleset. The converger adds it there when it converges that
+      # ruleset (src/converge/ruleset.ts), and omits it while the App is
+      # not installed in the org. Without the bypass, a green Dependabot
+      # PR on an un-code-owned path still merges (no review required);
+      # one on a code-owned path is left for a human, exactly as a human
+      # PR would be.
       # ---------------------------------------------------------------
       - name: REST-merge green Dependabot PRs
         if: >-

@@ -1,4 +1,4 @@
-# Dependency-install-gate workflow rendered by /gh-repo-setup-protection.
+# Dependency-install-gate workflow, rendered by the converger.
 #
 # Installed at <repo-root>/.github/workflows/dependency-install-gate.yml
 # (alongside its sibling script at
@@ -18,13 +18,12 @@
 #                          check, no empty-green noise).
 # A PM whose manifest lands AFTER setup (e.g. the repo's first
 # `package-lock.json`) is picked up automatically on the next PR, with
-# NO skill re-run.
+# NOTHING re-installed.
 #
 # Each Node package manager keys off its OWN lockfile (npm ->
 # package-lock.json, pnpm -> pnpm-lock.yaml, yarn -> yarn.lock), so a
 # pnpm/yarn repo is gated by the right tool instead of silently passing
-# an npm-only check (the dead-check / false-assurance bug this rendering
-# fixes, issue #111).
+# an npm-only check that gates nothing.
 #
 # ONE JOB, NOT THREE (issue #77). This workflow used to be a `detect`
 # job, a `gate` matrix with one leg per present PM, and an
@@ -43,7 +42,7 @@
 # Every invariant of the previous three-job shape survives: still
 # runtime-armed per PR, still fails open when no manifest is present,
 # still no phantom check (the job always runs and always concludes, so
-# a required check is never left pending — the #91/#230 hang this
+# a required check is never left pending — the phantom-check hang this
 # shape's `if: always()` aggregator originally fixed cannot return).
 #
 # PER-PM VISIBILITY — the trade-off this collapse makes, and how it is
@@ -77,8 +76,7 @@
 # requirements pin) from auto-merging into the default branch.
 # Dependabot PRs and hand edits can desync a lockfile from its manifest;
 # without a PR-time gate the desync merges and breaks local dev and
-# downstream pipelines. Proven against ExampleProject's
-# example-app-repo workflow.
+# downstream pipelines.
 #
 # Install-integrity ONLY -- there is NO build step (`npm run build`,
 # `cdk synth`, etc.); build coverage is out of scope. The discovery +
@@ -117,7 +115,7 @@
 # CodeArtifact-backed PyPI registry is out of scope -- see
 # docs/codeartifact-auth.md.)
 #
-# Hardening invariants (do not regress these — see issue #222 item 9):
+# Hardening invariants (do not regress these):
 #   - Every action is SHA-pinned (a floating @v4/@v5 tag is a supply-
 #     chain risk; the trailing comment records the human-readable tag).
 #   - Least privilege: `contents: read` workflow-wide, and the ONLY
@@ -194,7 +192,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
@@ -241,13 +239,17 @@ jobs:
 
       - name: Set up Node
         if: ${{ steps.detect.outputs.node == 'true' }}
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+          # setup-node otherwise restores an npm cache whenever package.json
+          # names npm as its packageManager, which can fail the step when it
+          # finds no lockfile.
+          package-manager-cache: false
 
       - name: Set up Python
         if: ${{ steps.detect.outputs.pip == 'true' }}
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
 

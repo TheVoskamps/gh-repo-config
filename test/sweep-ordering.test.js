@@ -105,7 +105,7 @@ test("ordering gate: a repo whose file PR did NOT merge this tick is deferred an
   });
 
   // The ruleset step must NOT run for a repo whose producing workflows
-  // are not yet on the default branch (the #91/#230 phantom-check guard).
+  // are not yet on the default branch (the phantom-check guard).
   assert.deepEqual(rulesetCalls, [], "ruleset step did not run");
   assert.deepEqual(report.rulesetDeferred, ["pending-repo"]);
   assert.deepEqual(report.converged, [], "not stamp-eligible this tick");

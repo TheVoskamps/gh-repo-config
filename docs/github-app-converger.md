@@ -6,9 +6,7 @@ A short-lived installation token is minted per workflow run from the
 Client ID and private key stored in secrets; there is no long-lived
 token to rotate manually.
 
-This document is the checked-in record of that App. It is maintained
-by the `/gh-create-app` skill — re-run the skill to verify or update
-it.
+This document is the checked-in record of that App.
 
 ## Identity
 
@@ -71,14 +69,11 @@ scope; Organization custom properties to read the selection property
 `gh-repo-config-mode` (both its schema `default_value` and every repo's
 own value) and to read and write the `gh-repo-config-version` stamp —
 write is needed for the stamp alone, since the converger never writes a
-repo's mode. See `docs/repo-selection.md`. The org-level `~ALL` ruleset
-the design moves `protect-main` to is not built: every ruleset endpoint
-`src/github/rulesets.ts` calls is repo-scoped, under
-`/repos/{o}/{r}/rulesets`, and that installations call is the only
-org-level one it makes — a read that writes nothing. That elevated
-scope is precisely why it is a **separate** App — the PR-automation App
-must never hold it. See
-`docs/org-repo-configuration-fanout-decomposition.md`.
+repo's mode. See `docs/repo-selection.md`. The converger writes no
+org-level ruleset: every ruleset endpoint `src/github/rulesets.ts`
+calls is repo-scoped, under `/repos/{o}/{r}/rulesets`, and that
+installations call is the only org-level one it makes — a read that
+writes nothing.
 
 The pull-request surface the converger drives is not all REST: it also
 issues two GraphQL calls, the `convertPullRequestToDraft` and
@@ -229,7 +224,7 @@ every run:
     steps:
       - name: Mint App installation token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@<sha> # vX.Y.Z
         with:
           client-id: ${{ secrets.CONVERGER_APP_CLIENT_ID }}
           private-key: ${{ secrets.CONVERGER_APP_PRIVATE_KEY }}

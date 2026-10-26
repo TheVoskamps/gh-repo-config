@@ -219,8 +219,9 @@ gh api -X PATCH /orgs/TheVoskamps/properties/values \
 gh api -X DELETE /orgs/TheVoskamps/properties/schema/gh-repo-config-default
 
 # 6. Dry-run tick: the summary header must name the declared default
-#    (opt-out) and convergence-test must be the only converge candidate
-gh workflow run sweep.yml --repo TheVoskamps/gh-repo-config -f dry-run=true
+#    (opt-out) and convergence-test must be the only converge candidate.
+#    The sweep runs on the org's sweeper repo, never on this one.
+gh workflow run sweep.yml --repo TheVoskamps/gh-repo-config-sweeper -f dry-run=true
 ```
 
 Steady-state flip, whenever the operator is ready (no code change
@@ -243,8 +244,8 @@ gh api -X PUT /orgs/TheVoskamps/properties/schema/gh-repo-config-mode \
   -f "allowed_values[]=opt-out"
 
 # 9. Dry-run again; review each repo's "would change" lines, then let
-#    the daily tick run (or dispatch with dry-run=false)
-gh workflow run sweep.yml --repo TheVoskamps/gh-repo-config -f dry-run=true
+#    the next scheduled tick run (or dispatch with dry-run=false)
+gh workflow run sweep.yml --repo TheVoskamps/gh-repo-config-sweeper -f dry-run=true
 ```
 
 Flip verification: the summary header names `opt-in` as the declared

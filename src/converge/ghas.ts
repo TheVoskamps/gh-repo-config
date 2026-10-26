@@ -143,9 +143,9 @@ export async function convergeGhasSettings(
   }
 
   // Push-protection bypass lockdown — best-effort, never a hard
-  // failure. Mirrors the `gh-repo-setup-protection` skill's posture:
-  // attempt the delegated-bypass enablement and surface the residual
-  // manual step honestly rather than inventing a stable "nobody" toggle.
+  // failure: attempt the delegated-bypass enablement and surface the
+  // residual manual step honestly rather than inventing a stable
+  // "nobody" toggle.
   if (dryRun) {
     results.push({ setting: SETTING_NAMES.pushProtectionBypass, outcome: "changed" });
   } else {

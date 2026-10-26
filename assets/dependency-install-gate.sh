@@ -3,8 +3,9 @@
 # dependency-install-gate.sh
 #
 # Installed verbatim (no placeholders) at
-# <repo-root>/.github/scripts/dependency-install-gate.sh by
-# /gh-repo-setup-protection, alongside its workflow at
+# <repo-root>/.github/scripts/dependency-install-gate.sh by the
+# converger (VERBATIM_SCRIPTS in src/converge/files.ts), alongside its
+# workflow at
 # <repo-root>/.github/workflows/dependency-install-gate.yml.
 #
 # Strict, lockfile-honoring install gate over the repo's dependency
@@ -167,7 +168,7 @@ present_mode() {
 # string) when none are present, so the workflow's detect step yields an
 # empty list and the gate job takes its fail-open branch BEFORE the
 # install loop, passing green. A PM whose manifest lands after setup is
-# picked up on the next PR with no skill re-run.
+# picked up on the next PR with nothing re-installed.
 if [ "$MODE" = "--present" ]; then
   entries=""
   for m in $ALL_MODES; do

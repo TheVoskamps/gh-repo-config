@@ -31,7 +31,7 @@
 # Unset at both levels means this script no-ops.
 #
 # Composite actions cannot read the `vars` context (a template validation
-# error -- community discussions #49689 and #43878), which is why the
+# error), which is why the
 # value arrives as an action input and why the variable name is static.
 #
 # EXACTLY ONE ENDPOINT PER REPO. A value naming more than one endpoint is

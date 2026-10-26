@@ -33,6 +33,22 @@ from steps, not from separate jobs. `test/files.test.js`'s
 a job means editing that table, and the PR argues the billing cost
 there.
 
+## The converger takes no per-repo setting
+
+A payload renders the same on every managed repo but for values derived
+from the repo itself and the org's `gh-repo-config.json`. What differs
+between repos is read by the rendered workflow when it runs: every
+Dependabot ecosystem is armed, the gates and CodeQL each detect what is
+present before they act, and `codeartifact-auth` acts on the
+`CODEARTIFACT_ROLE` Actions variable, set at org level and overridden
+at repo level, and no-ops where it is unset. A new payload reads its
+variance the same ways rather than adding a per-repo input to the
+converger. Two payloads are decided by the repo itself: the sweeper
+workflow, which lands on one repo per org, by the repo's identity, and
+each seed-if-absent community file, such as `LICENSE`, by the repo's
+tree — it is skipped, never overwritten, wherever the repo already holds
+a copy at the root, under `.github/`, or under `docs/`.
+
 ## A detection mode reports over stdout only
 
 A payload script's detection mode (`--present`, `--matrix`) prints its
