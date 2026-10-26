@@ -12,7 +12,8 @@
 # `main`, created and pushed by a maintainer once that merge carries the
 # bumped package.json version. Only such a tag releases: the `release`
 # job fails on a tag at any commit outside `main`'s first-parent merge
-# commits before any other step runs, and `publish-template` needs it.
+# commits right after checkout, before it installs or builds anything,
+# and `publish-template` needs it.
 name: release
 
 on:
