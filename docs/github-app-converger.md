@@ -69,14 +69,11 @@ scope; Organization custom properties to read the selection property
 `gh-repo-config-mode` (both its schema `default_value` and every repo's
 own value) and to read and write the `gh-repo-config-version` stamp —
 write is needed for the stamp alone, since the converger never writes a
-repo's mode. See `docs/repo-selection.md`. The org-level `~ALL` ruleset
-the design moves `protect-main` to is not built: every ruleset endpoint
-`src/github/rulesets.ts` calls is repo-scoped, under
-`/repos/{o}/{r}/rulesets`, and that installations call is the only
-org-level one it makes — a read that writes nothing. That elevated
-scope is precisely why it is a **separate** App — the PR-automation App
-must never hold it. See
-`docs/org-repo-configuration-fanout-decomposition.md`.
+repo's mode. See `docs/repo-selection.md`. The converger writes no
+org-level ruleset: every ruleset endpoint `src/github/rulesets.ts`
+calls is repo-scoped, under `/repos/{o}/{r}/rulesets`, and that
+installations call is the only org-level one it makes — a read that
+writes nothing.
 
 The pull-request surface the converger drives is not all REST: it also
 issues two GraphQL calls, the `convertPullRequestToDraft` and
