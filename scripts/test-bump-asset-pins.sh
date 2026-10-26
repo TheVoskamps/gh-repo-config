@@ -108,6 +108,10 @@ print((datetime.now(timezone.utc) - timedelta(days=int(sys.argv[1]))).strftime('
 # of `/`, `?`, `&`, `=` with `_`; a missing fixture serves `[]`. A
 # `<name>.status` file holding an HTTP status makes the call fail as gh
 # does, printing `gh: ... (HTTP <status>)` on stderr and exiting 1.
+# A paged list is `<name>.page1.json`, `<name>.page2.json`, ..., one JSON
+# array per page. With `--paginate` the fake writes every page's entries
+# as one merged JSON array, the shape real gh 2.103.0 writes for a
+# multi-page list; without it, the first page alone.
 make_fake_gh() {
   local bin_dir="$1/bin"
   mkdir -p "$bin_dir"
@@ -135,6 +139,24 @@ if [ -f "$status_file" ]; then
   exit 1
 elif [ -f "$fixture" ]; then
   cat "$fixture"
+elif [ -f "${FAKE_GH_FIXTURES}/${safe}.page1.json" ]; then
+  paginate=0
+  for arg in "$@"; do
+    if [ "$arg" = --paginate ]; then
+      paginate=1
+    fi
+  done
+  if [ "$paginate" -eq 1 ]; then
+    pages=()
+    n=1
+    while [ -f "${FAKE_GH_FIXTURES}/${safe}.page${n}.json" ]; do
+      pages+=("${FAKE_GH_FIXTURES}/${safe}.page${n}.json")
+      n=$((n + 1))
+    done
+    jq -c -s add "${pages[@]}"
+  else
+    cat "${FAKE_GH_FIXTURES}/${safe}.page1.json"
+  fi
 else
   echo "[]"
 fi
@@ -1183,9 +1205,9 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# Case 23: `gh api --paginate` writes one JSON array per page. The first
-# page holds only v3.0.0, soaked but on node20; the second holds v2.0.0,
-# on node24. A bumper that read the first page alone would select nothing.
+# Case 23: the releases list spans two pages. The first holds only
+# v3.0.0, soaked but on node20; the second holds v2.0.0, on node24. A
+# bumper that read the first page alone would select nothing.
 # ---------------------------------------------------------------------
 CASE23="$TMP_ROOT/case23"
 mkdir -p "$CASE23/assets" "$CASE23/fixtures"
@@ -1198,10 +1220,12 @@ steps:
   - uses: paged-owner/paged-action@eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 YAML
 
-cat > "$CASE23/fixtures/repos_paged-owner_paged-action_releases.json" <<JSON
+cat > "$CASE23/fixtures/repos_paged-owner_paged-action_releases.page1.json" <<JSON
 [
   {"tag_name": "v3.0.0", "published_at": "$(iso_days_ago 10)", "draft": false, "prerelease": false}
 ]
+JSON
+cat > "$CASE23/fixtures/repos_paged-owner_paged-action_releases.page2.json" <<JSON
 [
   {"tag_name": "v2.0.0", "published_at": "$(iso_days_ago 30)", "draft": false, "prerelease": false}
 ]
@@ -1244,10 +1268,12 @@ cat > "$CASE24/fixtures/repos_paged-owner_paged-action_releases.json" <<JSON
   {"tag_name": "v1.1.0", "published_at": "$(iso_now)", "draft": false, "prerelease": false}
 ]
 JSON
-cat > "$CASE24/fixtures/advisories_ecosystem_actions_affects_paged-owner_paged-action.json" <<'JSON'
+cat > "$CASE24/fixtures/advisories_ecosystem_actions_affects_paged-owner_paged-action.page1.json" <<'JSON'
 [
   {"vulnerabilities": [{"vulnerable_version_range": "< 0.5.0", "first_patched_version": "0.5.0"}]}
 ]
+JSON
+cat > "$CASE24/fixtures/advisories_ecosystem_actions_affects_paged-owner_paged-action.page2.json" <<'JSON'
 [
   {"vulnerabilities": [{"vulnerable_version_range": "< 1.1.0", "first_patched_version": "1.1.0"}]}
 ]

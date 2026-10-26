@@ -260,9 +260,10 @@ resolve_bump() {
   # is a quoted heredoc (<<'PY'), so no shell expansion happens inside
   # it at all.
   #
-  # `--paginate` writes one JSON array per page, one after another, and
-  # --slurpfile reads them as an array of those pages, so each list is
-  # every page's entries concatenated, never the first page alone.
+  # `--paginate` fetches every page and, in gh 2.103.0, writes their
+  # entries as one merged JSON array. --slurpfile reads a file as an
+  # array of its top-level values, so `[$x[][]]` yields every entry
+  # whether the file holds that one array or one array per page.
   local combined_json_file
   combined_json_file="$(mktemp)" || { rm -f "$releases_file" "$advisories_file"; return 1; }
   if ! jq -n --slurpfile releases "$releases_file" --slurpfile advisories "$advisories_file" \
