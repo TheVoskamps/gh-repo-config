@@ -5,10 +5,10 @@ GitHub Organization-wide Repo configuration for fan-out of rulesets, actions, an
 ## Development
 
 ```bash
-npm ci
-npm run build
-npm test
-npm run lint:md
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm test
+pnpm lint
 ```
 
 Releases are published as immutable, attested GitHub Releases from

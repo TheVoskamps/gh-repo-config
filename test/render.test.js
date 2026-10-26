@@ -38,9 +38,7 @@ test("assertNoUnresolvedTokens throws with the offending token names", () => {
 });
 
 test("assertNoUnresolvedTokens passes on fully-rendered content", () => {
-  assert.doesNotThrow(() =>
-    assertNoUnresolvedTokens("version: 2\nupdates: []\n", "t"),
-  );
+  assert.doesNotThrow(() => assertNoUnresolvedTokens("version: 2\nupdates: []\n", "t"));
 });
 
 test("assertNoUnresolvedTokens does not flag lowercase __words__ (script-safe shape)", () => {
@@ -57,9 +55,7 @@ test("renderDependabotYml expands one block per armed ecosystem, sorted, no toke
   assert.doesNotThrow(() => assertNoUnresolvedTokens(out, "dependabot.yml"));
 
   // One package-ecosystem line per armed ecosystem.
-  const ecoLines = out
-    .split("\n")
-    .filter((l) => l.includes("package-ecosystem:"));
+  const ecoLines = out.split("\n").filter((l) => l.includes("package-ecosystem:"));
   assert.equal(ecoLines.length, DEPENDABOT_ECOSYSTEMS.length);
 
   // Rendered in the sorted order of DEPENDABOT_ECOSYSTEMS.
@@ -123,9 +119,7 @@ test("empty-block collapse leaves no whitespace-only line where versioning-strat
   // No line is whitespace-only (spaces/tabs with nothing else). Blank
   // separator lines between blocks are fully empty (length 0), not
   // whitespace-only.
-  const whitespaceOnly = out
-    .split("\n")
-    .filter((l) => l.length > 0 && l.trim() === "");
+  const whitespaceOnly = out.split("\n").filter((l) => l.length > 0 && l.trim() === "");
   assert.deepEqual(whitespaceOnly, []);
 });
 
@@ -256,9 +250,7 @@ test("named groups precede the *-minor-and-patch catch-all (first-match-wins pre
   for (const eco of DEPENDABOT_ECOSYSTEMS) {
     const block = blockFor(out, eco);
     const codeqlIdx = block.indexOf(`${GROUP_KEY_INDENT}codeql-action:`);
-    const catchAllIdx = block.indexOf(
-      `${GROUP_KEY_INDENT}${eco}-minor-and-patch:`,
-    );
+    const catchAllIdx = block.indexOf(`${GROUP_KEY_INDENT}${eco}-minor-and-patch:`);
     assert.notEqual(codeqlIdx, -1, `${eco} missing codeql-action group`);
     assert.notEqual(catchAllIdx, -1, `${eco} missing minor-and-patch group`);
     assert.ok(
@@ -276,14 +268,8 @@ test("docker block also receives the full named-group union, indentation intact 
   );
   const docker = blockFor(out, "docker");
   assert.match(docker, new RegExp(`^${GROUP_KEY_INDENT}aws-cdk:$`, "m"));
-  assert.match(
-    docker,
-    new RegExp(`^${GROUP_KEY_INDENT}fastapi-stack:$`, "m"),
-  );
-  assert.match(
-    docker,
-    new RegExp(`^${GROUP_KEY_INDENT}docker-minor-and-patch:$`, "m"),
-  );
+  assert.match(docker, new RegExp(`^${GROUP_KEY_INDENT}fastapi-stack:$`, "m"));
+  assert.match(docker, new RegExp(`^${GROUP_KEY_INDENT}docker-minor-and-patch:$`, "m"));
   // Full verbatim contiguous block, same as the npm/docker/github-actions
   // check above — belt-and-suspenders for docker specifically, since
   // docker is the "other"-class ecosystem the reviewer called out by
@@ -297,10 +283,7 @@ test("docker block also receives the full named-group union, indentation intact 
 // the org's own registry in the same shape and at the same position.
 
 test("NAMED_DEPENDABOT_GROUPS is exactly the rendered default registry (issue #88)", () => {
-  assert.equal(
-    renderNamedGroupsBlock(DEFAULT_NAMED_DEPENDABOT_GROUPS),
-    NAMED_DEPENDABOT_GROUPS,
-  );
+  assert.equal(renderNamedGroupsBlock(DEFAULT_NAMED_DEPENDABOT_GROUPS), NAMED_DEPENDABOT_GROUPS);
   // The default registry's group order is the rendered order.
   assert.deepEqual(Object.keys(DEFAULT_NAMED_DEPENDABOT_GROUPS), [
     "codeql-action",
@@ -355,7 +338,10 @@ test("an org-supplied registry replaces the default in every ecosystem block, in
     // Precedence preserved: the org's groups precede the catch-all.
     const firstIdx = block.indexOf(`${GROUP_KEY_INDENT}acme-sdk:`);
     const catchAllIdx = block.indexOf(`${GROUP_KEY_INDENT}${eco}-minor-and-patch:`);
-    assert.ok(firstIdx !== -1 && catchAllIdx !== -1 && firstIdx < catchAllIdx, `${eco}: precedence`);
+    assert.ok(
+      firstIdx !== -1 && catchAllIdx !== -1 && firstIdx < catchAllIdx,
+      `${eco}: precedence`,
+    );
   }
 });
 
@@ -373,7 +359,10 @@ test("an empty org registry drops the named-groups line entirely, leaving no whi
   for (const eco of DEPENDABOT_ECOSYSTEMS) {
     const block = blockFor(out, eco);
     // `groups:` is immediately followed by the catch-all.
-    assert.match(block, new RegExp(`^    groups:\\n${GROUP_KEY_INDENT}${eco}-minor-and-patch:$`, "m"));
+    assert.match(
+      block,
+      new RegExp(`^    groups:\\n${GROUP_KEY_INDENT}${eco}-minor-and-patch:$`, "m"),
+    );
   }
 });
 
@@ -476,7 +465,10 @@ test("PR_AUTOMATION_CONSTANTS carries only the org-agnostic contract constants; 
   // neither template carries would be dead surface here.
   const templates = ["auto-rebase-prs.yml", "auto-enable-automerge.yml"].map(readAssetText);
   for (const token of IDENTITY_TOKENS) {
-    assert.ok(templates.some((t) => t.includes(token)), `${token} used by neither template`);
+    assert.ok(
+      templates.some((t) => t.includes(token)),
+      `${token} used by neither template`,
+    );
   }
 });
 
@@ -554,28 +546,28 @@ test("botSlug is a pattern: per-repo tokens inside it resolve, so the default's 
 });
 
 test("a botSlug carrying an unknown token fails the unresolved-token assertion rather than shipping (issue #89)", () => {
-  const out = renderPrAutomationTemplate(
-    readAssetText("auto-rebase-prs.yml"),
-    CTX,
-    { prAutomationIdentity: { ...ORG_IDENTITY, botSlug: "__NOT_A_TOKEN__[bot]" } },
-  );
+  const out = renderPrAutomationTemplate(readAssetText("auto-rebase-prs.yml"), CTX, {
+    prAutomationIdentity: { ...ORG_IDENTITY, botSlug: "__NOT_A_TOKEN__[bot]" },
+  });
   assert.throws(() => assertNoUnresolvedTokens(out, "auto-rebase-prs.yml"), /__NOT_A_TOKEN__/);
 });
 
 test("renderPrAutomationTemplate interpolates __BOT_SLUG__ from the per-repo name", () => {
-  const out = renderPrAutomationTemplate(
-    readAssetText("auto-rebase-prs.yml"),
-    { org: "O", repo: "widgets", defaultBranch: "main" },
-  );
+  const out = renderPrAutomationTemplate(readAssetText("auto-rebase-prs.yml"), {
+    org: "O",
+    repo: "widgets",
+    defaultBranch: "main",
+  });
   assert.match(out, /widgets-auto-rebase\[bot\]/);
   assert.doesNotMatch(out, /__BOT_SLUG__/);
 });
 
 test("renderPrAutomationTemplate renders the per-repo default branch", () => {
-  const out = renderPrAutomationTemplate(
-    readAssetText("auto-rebase-prs.yml"),
-    { org: "O", repo: "r", defaultBranch: "trunk" },
-  );
+  const out = renderPrAutomationTemplate(readAssetText("auto-rebase-prs.yml"), {
+    org: "O",
+    repo: "r",
+    defaultBranch: "trunk",
+  });
   assert.match(out, /branches: \[trunk\]/);
 });
 
@@ -583,9 +575,7 @@ test("renderPrAutomationTemplate renders the per-repo default branch", () => {
 // line up to the next one, or end of file).
 function blockFor(rendered, ecosystem) {
   const lines = rendered.split("\n");
-  const start = lines.findIndex((l) =>
-    l.includes(`package-ecosystem: "${ecosystem}"`),
-  );
+  const start = lines.findIndex((l) => l.includes(`package-ecosystem: "${ecosystem}"`));
   assert.notEqual(start, -1, `no block for ${ecosystem}`);
   let end = start + 1;
   while (end < lines.length && !lines[end].includes("package-ecosystem:")) {

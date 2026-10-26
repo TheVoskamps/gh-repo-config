@@ -165,10 +165,7 @@ test("evaluateRequiredChecks requests check-runs with an explicit filter=latest"
   const client = new MergeClient({ token: "t", fetch });
   await client.evaluateRequiredChecks("Org", "repo", "sha1", ["ci"]);
   const call = fetch.calls.find((c) => c.url.includes("/check-runs"));
-  assert.ok(
-    call.url.includes("filter=latest"),
-    `expected filter=latest in ${call.url}`,
-  );
+  assert.ok(call.url.includes("filter=latest"), `expected filter=latest in ${call.url}`);
 });
 
 test("evaluateRequiredChecks falls back to the legacy combined status when a context has no check-run", async () => {
@@ -222,9 +219,7 @@ test("mergePullRequest issues a merge-commit-only PUT pinned to the given head a
 
 test("mergePullRequest returns false (not throw) on 405/409", async () => {
   for (const status of [405, 409]) {
-    const fetch = fakeFetch([
-      { match: "/pulls/5/merge", method: "PUT", status, body: {} },
-    ]);
+    const fetch = fakeFetch([{ match: "/pulls/5/merge", method: "PUT", status, body: {} }]);
     const client = new MergeClient({ token: "t", fetch });
     const merged = await client.mergePullRequest("Org", "repo", 5, "sha5");
     assert.equal(merged, false, `status ${status} should return false, not throw`);
@@ -232,9 +227,7 @@ test("mergePullRequest returns false (not throw) on 405/409", async () => {
 });
 
 test("mergePullRequest throws on other non-ok statuses", async () => {
-  const fetch = fakeFetch([
-    { match: "/pulls/5/merge", method: "PUT", status: 500, body: {} },
-  ]);
+  const fetch = fakeFetch([{ match: "/pulls/5/merge", method: "PUT", status: 500, body: {} }]);
   const client = new MergeClient({ token: "t", fetch });
   await assert.rejects(() => client.mergePullRequest("Org", "repo", 5, "sha5"), /500/);
 });
@@ -493,13 +486,7 @@ test("evaluateAndMerge: no reserved paths costs no file listing at all (issue #9
   const fetch = fakeFetch(GREEN_ROUTES);
   const client = new MergeClient({ token: "t", fetch });
   for (const options of [undefined, {}, { humanApprovalPaths: [] }]) {
-    const result = await client.evaluateAndMerge(
-      "Org",
-      "repo",
-      OPEN_PR,
-      false,
-      options,
-    );
+    const result = await client.evaluateAndMerge("Org", "repo", OPEN_PR, false, options);
     assert.equal(result.outcome, "merged");
   }
 });
@@ -511,12 +498,7 @@ test("evaluateAndMerge: a green DRAFT PR is awaiting-human and costs no API call
   // assertion that no check-state read and no merge PUT was spent.
   const fetch = fakeFetch(GREEN_ROUTES);
   const client = new MergeClient({ token: "t", fetch });
-  const result = await client.evaluateAndMerge(
-    "Org",
-    "repo",
-    { ...OPEN_PR, draft: true },
-    false,
-  );
+  const result = await client.evaluateAndMerge("Org", "repo", { ...OPEN_PR, draft: true }, false);
 
   assert.equal(result.outcome, "awaiting-human");
   assert.match(result.reason, /draft/);
@@ -532,21 +514,16 @@ test("evaluateAndMerge: a PR that is BOTH drafted and reserved reports the reser
     { match: "/pulls/1/files", body: [{ filename: SWEEPER_WORKFLOW_PATH }] },
   ]);
   const client = new MergeClient({ token: "t", fetch });
-  const result = await client.evaluateAndMerge(
-    "Org",
-    "repo",
-    { ...OPEN_PR, draft: true },
-    false,
-    { humanApprovalPaths: [SWEEPER_WORKFLOW_PATH] },
-  );
+  const result = await client.evaluateAndMerge("Org", "repo", { ...OPEN_PR, draft: true }, false, {
+    humanApprovalPaths: [SWEEPER_WORKFLOW_PATH],
+  });
 
   assert.equal(result.outcome, "awaiting-human");
   assert.match(result.reason, /reserved for human approval/);
 });
 
 test("listChangedFiles pages until a short page (issue #92)", async () => {
-  const page = (n) =>
-    Array.from({ length: n }, (_, i) => ({ filename: `f${i}.txt` }));
+  const page = (n) => Array.from({ length: n }, (_, i) => ({ filename: `f${i}.txt` }));
   let call = 0;
   const fetch = async (url) => {
     call++;

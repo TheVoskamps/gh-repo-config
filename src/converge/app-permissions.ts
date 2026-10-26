@@ -49,9 +49,7 @@ export function findMissingPermissions(
 ): MissingPermission[] {
   const missing: MissingPermission[] = [];
   for (const [permission, level] of Object.entries(required)) {
-    const grantedLevel = Object.hasOwn(granted, permission)
-      ? granted[permission]
-      : undefined;
+    const grantedLevel = Object.hasOwn(granted, permission) ? granted[permission] : undefined;
     const rank = Object.hasOwn(LEVEL_RANK, grantedLevel ?? "")
       ? LEVEL_RANK[grantedLevel as PermissionLevel]
       : 0;
@@ -69,9 +67,7 @@ export function findMissingPermissions(
  * (`auto-enable-automerge.yml`, `auto-rebase-prs.yml`) need of the App
  * they run as.
  */
-export const PR_AUTOMATION_REQUIRED_PERMISSIONS: Readonly<
-  Record<string, "read" | "write">
-> = {
+export const PR_AUTOMATION_REQUIRED_PERMISSIONS: Readonly<Record<string, "read" | "write">> = {
   /** Resolving a check run's workflow when judging which required checks are green. */
   actions: "read",
   /** Reading a PR's check runs before merging it. */

@@ -34,10 +34,7 @@
  * `assets/` change carries.
  */
 import { readFile } from "node:fs/promises";
-import type {
-  NamedDependabotGroups,
-  PrAutomationIdentity,
-} from "../converge/render.js";
+import type { NamedDependabotGroups, PrAutomationIdentity } from "../converge/render.js";
 
 /**
  * The `sweeper-update-policy` values. Controls how the sweeper repo
@@ -175,10 +172,7 @@ function parseNamedGroups(raw: unknown): NamedDependabotGroups {
  * unknown key is reported even when another key's malformed value then
  * fails the whole parse.
  */
-function warnUnknownKeys(
-  parsed: Record<string, unknown>,
-  onWarning: OrgConfigWarningSink,
-): void {
+function warnUnknownKeys(parsed: Record<string, unknown>, onWarning: OrgConfigWarningSink): void {
   for (const key of Object.keys(parsed)) {
     if (!(KNOWN_KEYS as readonly string[]).includes(key)) {
       onWarning(`org config: unknown key "${key}" (ignored)`);
@@ -190,9 +184,7 @@ function warnUnknownKeys(
   }
   for (const key of Object.keys(identity)) {
     if (!(IDENTITY_KEYS as readonly string[]).includes(key)) {
-      onWarning(
-        `org config: unknown key "pr-automation-identity.${key}" (ignored)`,
-      );
+      onWarning(`org config: unknown key "pr-automation-identity.${key}" (ignored)`);
     }
   }
 }
@@ -211,10 +203,7 @@ function parseIdentity(raw: unknown): PrAutomationIdentity {
   };
 }
 
-function requireIdentityString(
-  raw: Record<string, unknown>,
-  key: string,
-): string {
+function requireIdentityString(raw: Record<string, unknown>, key: string): string {
   const value = raw[key];
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(
@@ -234,10 +223,7 @@ function parseVersionPin(raw: unknown): string {
 }
 
 function parsePolicy(raw: unknown): SweeperUpdatePolicy {
-  if (
-    typeof raw !== "string" ||
-    !(SWEEPER_UPDATE_POLICIES as readonly string[]).includes(raw)
-  ) {
+  if (typeof raw !== "string" || !(SWEEPER_UPDATE_POLICIES as readonly string[]).includes(raw)) {
     throw new Error(
       `org config "sweeper-update-policy": must be one of ${SWEEPER_UPDATE_POLICIES.join(", ")}, got ${JSON.stringify(raw)}`,
     );
@@ -280,9 +266,7 @@ export function parseOrgConfig(
     ...("pr-automation-identity" in parsed
       ? { prAutomationIdentity: parseIdentity(parsed["pr-automation-identity"]) }
       : {}),
-    ...("version-pin" in parsed
-      ? { versionPin: parseVersionPin(parsed["version-pin"]) }
-      : {}),
+    ...("version-pin" in parsed ? { versionPin: parseVersionPin(parsed["version-pin"]) } : {}),
     sweeperUpdatePolicy:
       "sweeper-update-policy" in parsed
         ? parsePolicy(parsed["sweeper-update-policy"])
@@ -328,18 +312,13 @@ export async function readOrgConfig(
  * @param currentVersion the running converger's version, bare (no `v`).
  * @throws Error naming both values when they disagree.
  */
-export function assertVersionPinSatisfied(
-  pin: string | undefined,
-  currentVersion: string,
-): void {
+export function assertVersionPinSatisfied(pin: string | undefined, currentVersion: string): void {
   if (pin === undefined) {
     return;
   }
   const pinned = pin.slice(1);
   if (pinned !== currentVersion) {
-    throw new Error(
-      `org config "version-pin" is ${pin} but this converger is ${currentVersion}`,
-    );
+    throw new Error(`org config "version-pin" is ${pin} but this converger is ${currentVersion}`);
   }
 }
 
@@ -362,9 +341,7 @@ export function parseSweeperRepo(raw: string | undefined): string | undefined {
     return undefined;
   }
   if (!SWEEPER_REPO_PATTERN.test(raw)) {
-    throw new Error(
-      `GH_REPO_CONFIG_SWEEPER_REPO must be owner/repo, got ${JSON.stringify(raw)}`,
-    );
+    throw new Error(`GH_REPO_CONFIG_SWEEPER_REPO must be owner/repo, got ${JSON.stringify(raw)}`);
   }
   return raw;
 }

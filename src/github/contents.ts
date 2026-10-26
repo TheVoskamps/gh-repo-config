@@ -206,19 +206,12 @@ export class ContentsClient {
     const res = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}`, {
       headers: this.headers(),
     });
-    const body = await this.json<RawRepo>(
-      res,
-      `Failed to read repo ${owner}/${repo}`,
-    );
+    const body = await this.json<RawRepo>(res, `Failed to read repo ${owner}/${repo}`);
     return body.default_branch;
   }
 
   /** Read a branch's head commit SHA. */
-  async getBranchHeadSha(
-    owner: string,
-    repo: string,
-    branch: string,
-  ): Promise<string> {
+  async getBranchHeadSha(owner: string, repo: string, branch: string): Promise<string> {
     const res = await this.doFetch(
       `${this.apiBase}/repos/${owner}/${repo}/git/ref/heads/${branch}`,
       { headers: this.headers() },
@@ -282,15 +275,10 @@ export class ContentsClient {
    * the content" or "absent" per file, with no ref/tree round-trips and
    * no distinct handling for an empty repo.
    */
-  async readFileIfPresent(
-    owner: string,
-    repo: string,
-    path: string,
-  ): Promise<string | undefined> {
-    const res = await this.doFetch(
-      `${this.apiBase}/repos/${owner}/${repo}/contents/${path}`,
-      { headers: this.headers() },
-    );
+  async readFileIfPresent(owner: string, repo: string, path: string): Promise<string | undefined> {
+    const res = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}/contents/${path}`, {
+      headers: this.headers(),
+    });
     if (res.status === 404) {
       return undefined;
     }
@@ -311,14 +299,10 @@ export class ContentsClient {
 
   /** Read a blob's content as a UTF-8 string. */
   async readBlob(owner: string, repo: string, sha: string): Promise<string> {
-    const res = await this.doFetch(
-      `${this.apiBase}/repos/${owner}/${repo}/git/blobs/${sha}`,
-      { headers: this.headers() },
-    );
-    const body = await this.json<RawBlob>(
-      res,
-      `Failed to read blob ${sha} for ${owner}/${repo}`,
-    );
+    const res = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}/git/blobs/${sha}`, {
+      headers: this.headers(),
+    });
+    const body = await this.json<RawBlob>(res, `Failed to read blob ${sha} for ${owner}/${repo}`);
     if (body.encoding === "base64") {
       return Buffer.from(body.content, "base64").toString("utf8");
     }
@@ -326,26 +310,16 @@ export class ContentsClient {
   }
 
   /** Create a blob from UTF-8 content; returns its SHA. */
-  async createBlob(
-    owner: string,
-    repo: string,
-    content: string,
-  ): Promise<string> {
-    const res = await this.doFetch(
-      `${this.apiBase}/repos/${owner}/${repo}/git/blobs`,
-      {
-        method: "POST",
-        headers: { ...this.headers(), "content-type": "application/json" },
-        body: JSON.stringify({
-          content: Buffer.from(content, "utf8").toString("base64"),
-          encoding: "base64",
-        }),
-      },
-    );
-    const body = await this.json<RawCreated>(
-      res,
-      `Failed to create blob for ${owner}/${repo}`,
-    );
+  async createBlob(owner: string, repo: string, content: string): Promise<string> {
+    const res = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}/git/blobs`, {
+      method: "POST",
+      headers: { ...this.headers(), "content-type": "application/json" },
+      body: JSON.stringify({
+        content: Buffer.from(content, "utf8").toString("base64"),
+        encoding: "base64",
+      }),
+    });
+    const body = await this.json<RawCreated>(res, `Failed to create blob for ${owner}/${repo}`);
     return body.sha;
   }
 
@@ -361,26 +335,20 @@ export class ContentsClient {
     baseTreeSha: string,
     entries: readonly { path: string; mode: string; sha: string }[],
   ): Promise<string> {
-    const res = await this.doFetch(
-      `${this.apiBase}/repos/${owner}/${repo}/git/trees`,
-      {
-        method: "POST",
-        headers: { ...this.headers(), "content-type": "application/json" },
-        body: JSON.stringify({
-          base_tree: baseTreeSha,
-          tree: entries.map((e) => ({
-            path: e.path,
-            mode: e.mode,
-            type: "blob",
-            sha: e.sha,
-          })),
-        }),
-      },
-    );
-    const body = await this.json<RawCreated>(
-      res,
-      `Failed to create tree for ${owner}/${repo}`,
-    );
+    const res = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}/git/trees`, {
+      method: "POST",
+      headers: { ...this.headers(), "content-type": "application/json" },
+      body: JSON.stringify({
+        base_tree: baseTreeSha,
+        tree: entries.map((e) => ({
+          path: e.path,
+          mode: e.mode,
+          type: "blob",
+          sha: e.sha,
+        })),
+      }),
+    });
+    const body = await this.json<RawCreated>(res, `Failed to create tree for ${owner}/${repo}`);
     return body.sha;
   }
 
@@ -389,15 +357,10 @@ export class ContentsClient {
    * them against the commit it is about to create, since a commit with
    * the same tree and parents carries nothing the existing one does not.
    */
-  async getCommit(
-    owner: string,
-    repo: string,
-    sha: string,
-  ): Promise<CommitInfo> {
-    const res = await this.doFetch(
-      `${this.apiBase}/repos/${owner}/${repo}/git/commits/${sha}`,
-      { headers: this.headers() },
-    );
+  async getCommit(owner: string, repo: string, sha: string): Promise<CommitInfo> {
+    const res = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}/git/commits/${sha}`, {
+      headers: this.headers(),
+    });
     const body = await this.json<RawCommit>(
       res,
       `Failed to read commit ${sha} for ${owner}/${repo}`,
@@ -416,22 +379,16 @@ export class ContentsClient {
     treeSha: string,
     parentSha: string,
   ): Promise<string> {
-    const res = await this.doFetch(
-      `${this.apiBase}/repos/${owner}/${repo}/git/commits`,
-      {
-        method: "POST",
-        headers: { ...this.headers(), "content-type": "application/json" },
-        body: JSON.stringify({
-          message,
-          tree: treeSha,
-          parents: [parentSha],
-        }),
-      },
-    );
-    const body = await this.json<RawCreated>(
-      res,
-      `Failed to create commit for ${owner}/${repo}`,
-    );
+    const res = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}/git/commits`, {
+      method: "POST",
+      headers: { ...this.headers(), "content-type": "application/json" },
+      body: JSON.stringify({
+        message,
+        tree: treeSha,
+        parents: [parentSha],
+      }),
+    });
+    const body = await this.json<RawCreated>(res, `Failed to create commit for ${owner}/${repo}`);
     return body.sha;
   }
 
@@ -458,24 +415,15 @@ export class ContentsClient {
           body: JSON.stringify({ sha: commitSha, force: true }),
         },
       );
-      await this.json<unknown>(
-        res,
-        `Failed to update ref heads/${branch} for ${owner}/${repo}`,
-      );
+      await this.json<unknown>(res, `Failed to update ref heads/${branch} for ${owner}/${repo}`);
       return;
     }
-    const res = await this.doFetch(
-      `${this.apiBase}/repos/${owner}/${repo}/git/refs`,
-      {
-        method: "POST",
-        headers: { ...this.headers(), "content-type": "application/json" },
-        body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: commitSha }),
-      },
-    );
-    await this.json<unknown>(
-      res,
-      `Failed to create ref heads/${branch} for ${owner}/${repo}`,
-    );
+    const res = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}/git/refs`, {
+      method: "POST",
+      headers: { ...this.headers(), "content-type": "application/json" },
+      body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: commitSha }),
+    });
+    await this.json<unknown>(res, `Failed to create ref heads/${branch} for ${owner}/${repo}`);
   }
 
   /**
@@ -492,10 +440,7 @@ export class ContentsClient {
       `${this.apiBase}/repos/${owner}/${repo}/pulls?state=open&head=${owner}:${branch}&per_page=100`,
       { headers: this.headers() },
     );
-    const body = await this.json<RawPull[]>(
-      res,
-      `Failed to list PRs for ${owner}/${repo}`,
-    );
+    const body = await this.json<RawPull[]>(res, `Failed to list PRs for ${owner}/${repo}`);
     const match = body.find((p) => p.head.ref === branch);
     if (!match) {
       return undefined;
@@ -526,18 +471,12 @@ export class ContentsClient {
     body: string,
     draft: boolean,
   ): Promise<{ number: number; url: string }> {
-    const res = await this.doFetch(
-      `${this.apiBase}/repos/${owner}/${repo}/pulls`,
-      {
-        method: "POST",
-        headers: { ...this.headers(), "content-type": "application/json" },
-        body: JSON.stringify({ title, head: branch, base, body, draft }),
-      },
-    );
-    const created = await this.json<RawPull>(
-      res,
-      `Failed to create PR for ${owner}/${repo}`,
-    );
+    const res = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}/pulls`, {
+      method: "POST",
+      headers: { ...this.headers(), "content-type": "application/json" },
+      body: JSON.stringify({ title, head: branch, base, body, draft }),
+    });
+    const created = await this.json<RawPull>(res, `Failed to create PR for ${owner}/${repo}`);
     return { number: created.number, url: created.html_url };
   }
 
@@ -563,9 +502,7 @@ export class ContentsClient {
     });
     const body = await this.json<RawGraphQlResponse>(res, what);
     if (body.errors && body.errors.length > 0) {
-      throw new Error(
-        `${what}: ${body.errors.map((e) => e.message).join("; ")}`,
-      );
+      throw new Error(`${what}: ${body.errors.map((e) => e.message).join("; ")}`);
     }
   }
 

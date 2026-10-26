@@ -72,9 +72,7 @@ test("a fully-converged repo reports noop: true even though push-protection-bypa
   // that (the bypass call is excluded from the noop calculation — see
   // the next test).
   assert.equal(result.noop, true);
-  const readGated = result.results.filter(
-    (r) => r.setting !== "push-protection-delegated-bypass",
-  );
+  const readGated = result.results.filter((r) => r.setting !== "push-protection-delegated-bypass");
   assert.ok(readGated.every((r) => r.outcome === "already-converged"));
 });
 
@@ -200,10 +198,7 @@ test("a 500 (unexpected error) on a write throws, rather than being silently swa
     },
     calls,
   );
-  await assert.rejects(
-    () => convergeGhasSettings(client, OWNER, REPO, false),
-    /500/,
-  );
+  await assert.rejects(() => convergeGhasSettings(client, OWNER, REPO, false), /500/);
 });
 
 test("dryRun computes the diff without issuing any writes", async () => {

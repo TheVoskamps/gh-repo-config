@@ -130,18 +130,11 @@ export {
   type CommunityFileContent,
 } from "./converge/files.js";
 
-export {
-  readOrgCommunityFiles,
-  COMMUNITY_SOURCE_REPO,
-} from "./converge/community.js";
+export { readOrgCommunityFiles, COMMUNITY_SOURCE_REPO } from "./converge/community.js";
 
 export { ASSETS_DIR, readAssetText } from "./converge/assets.js";
 
-export {
-  convergeRepoFiles,
-  CONVERGE_BRANCH,
-  type ConvergeResult,
-} from "./converge/writer.js";
+export { convergeRepoFiles, CONVERGE_BRANCH, type ConvergeResult } from "./converge/writer.js";
 
 export {
   RepoSettingsClient,

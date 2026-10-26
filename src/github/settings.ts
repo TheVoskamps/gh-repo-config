@@ -101,21 +101,18 @@ export class RepoSettingsClient {
    * repo object.
    */
   async readSettings(owner: string, repo: string): Promise<RepoSecuritySettings> {
-    const [vulnerabilityAlertsEnabled, automatedSecurityFixesEnabled, rawRepo] =
-      await Promise.all([
-        this.readVulnerabilityAlertsEnabled(owner, repo),
-        this.readAutomatedSecurityFixesEnabled(owner, repo),
-        this.readRepo(owner, repo),
-      ]);
+    const [vulnerabilityAlertsEnabled, automatedSecurityFixesEnabled, rawRepo] = await Promise.all([
+      this.readVulnerabilityAlertsEnabled(owner, repo),
+      this.readAutomatedSecurityFixesEnabled(owner, repo),
+      this.readRepo(owner, repo),
+    ]);
 
     const secAnalysis = rawRepo.security_and_analysis;
     return {
       vulnerabilityAlertsEnabled,
       automatedSecurityFixesEnabled,
       secretScanning: asStatus(secAnalysis?.secret_scanning?.status),
-      secretScanningPushProtection: asStatus(
-        secAnalysis?.secret_scanning_push_protection?.status,
-      ),
+      secretScanningPushProtection: asStatus(secAnalysis?.secret_scanning_push_protection?.status),
       allowMergeCommit: rawRepo.allow_merge_commit ?? false,
       allowSquashMerge: rawRepo.allow_squash_merge ?? false,
       allowRebaseMerge: rawRepo.allow_rebase_merge ?? false,

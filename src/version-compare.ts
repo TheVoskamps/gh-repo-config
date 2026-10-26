@@ -13,7 +13,7 @@
  * prerelease `CURRENT_VERSION` is *rejected*, not tolerated:
  * `test/version.test.js` asserts it against an anchored
  * `/^\d+\.\d+\.\d+$/`, so `0.3.0-rc.1` (or `0.3.0+build5`) fails
- * `npm test` and cannot ship.
+ * `pnpm test` and cannot ship.
  *
  * Rejecting is the only option because a prerelease and its release
  * share an `X.Y.Z` core, which this comparison cannot tell apart: a
@@ -75,15 +75,10 @@ function parseCore(version: string | undefined | null): SemverCore | undefined {
  *   is a converger-side bug, not a target-repo condition, and must fail
  *   loudly rather than silently skipping every repo.
  */
-export function isBehind(
-  stamp: string | undefined | null,
-  current: string,
-): boolean {
+export function isBehind(stamp: string | undefined | null, current: string): boolean {
   const currentCore = parseCore(current);
   if (!currentCore) {
-    throw new Error(
-      `Converger CURRENT_VERSION is not a parseable X.Y.Z version: ${current}`,
-    );
+    throw new Error(`Converger CURRENT_VERSION is not a parseable X.Y.Z version: ${current}`);
   }
   const stampCore = parseCore(stamp);
   if (!stampCore) {

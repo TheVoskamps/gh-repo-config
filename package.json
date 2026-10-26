@@ -1,25 +1,26 @@
 {
   "name": "gh-repo-config",
-  "version": "0.12.1",
+  "version": "0.13.0",
+  "private": true,
   "description": "Org-wide repo-configuration converger — deterministic core consumed as an immutable GitHub Release.",
   "license": "MIT",
-  "private": true,
-  "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
   "bin": {
     "gh-repo-config": "bin/gh-repo-config.js"
   },
+  "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test test/**/*.test.js",
-    "lint:md": "markdownlint-cli2",
-    "prepack": "npm run build"
+    "lint": "shellcheck assets/*.sh scripts/*.sh template/scripts/*.sh && for f in assets/*.sh scripts/*.sh template/scripts/*.sh; do bash -n \"$f\" || exit 1; done && grep -l --null '^on:' assets/*.yml | xargs -0 actionlint -shellcheck= .github/workflows/*.yml && tsc -p tsconfig.json --noEmit && oxlint --deny-warnings && yamllint . && git ls-files -z '*.json' | xargs -0 jsonlint --quiet && tombi lint && oxfmt --check && markdownlint-cli2",
+    "format": "oxfmt",
+    "prepack": "pnpm run build"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
-    "markdownlint-cli2": "0.24.0",
     "typescript": "5.9.3"
-  }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@12.14.0"
 }

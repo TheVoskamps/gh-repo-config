@@ -46,8 +46,7 @@ async function withConfigFile(text, body) {
  */
 function unreadableConfigError(path) {
   return (error) =>
-    error instanceof Error &&
-    error.message.includes(`org config file ${path} could not be read`);
+    error instanceof Error && error.message.includes(`org config file ${path} could not be read`);
 }
 
 // ---------------------------------------------------------------------
@@ -88,17 +87,13 @@ test("a fully populated file resolves every key", () => {
 });
 
 test("each key alone leaves the others at their defaults", () => {
-  const groupsOnly = parseOrgConfig(
-    JSON.stringify({ "named-dependabot-groups": { g: ["p"] } }),
-  );
+  const groupsOnly = parseOrgConfig(JSON.stringify({ "named-dependabot-groups": { g: ["p"] } }));
   assert.deepEqual(groupsOnly.namedDependabotGroups, { g: ["p"] });
   assert.equal(groupsOnly.prAutomationIdentity, undefined);
   assert.equal(groupsOnly.versionPin, undefined);
   assert.equal(groupsOnly.sweeperUpdatePolicy, DEFAULT_SWEEPER_UPDATE_POLICY);
 
-  const identityOnly = parseOrgConfig(
-    JSON.stringify({ "pr-automation-identity": IDENTITY_JSON }),
-  );
+  const identityOnly = parseOrgConfig(JSON.stringify({ "pr-automation-identity": IDENTITY_JSON }));
   assert.equal(identityOnly.prAutomationIdentity.appName, "acme-pr-automations");
   assert.equal(identityOnly.namedDependabotGroups, undefined);
 
@@ -107,9 +102,7 @@ test("each key alone leaves the others at their defaults", () => {
   assert.equal(pinOnly.namedDependabotGroups, undefined);
 
   for (const policy of SWEEPER_UPDATE_POLICIES) {
-    const policyOnly = parseOrgConfig(
-      JSON.stringify({ "sweeper-update-policy": policy }),
-    );
+    const policyOnly = parseOrgConfig(JSON.stringify({ "sweeper-update-policy": policy }));
     assert.equal(policyOnly.sweeperUpdatePolicy, policy);
     assert.equal(policyOnly.versionPin, undefined);
   }
@@ -267,9 +260,7 @@ test("readOrgConfig reads and parses a file, passing its sink through", async ()
     (path) => readOrgConfig(path, (w) => warnings.push(w)),
   );
   assert.equal(config.versionPin, "v4.5.6");
-  assert.deepEqual(warnings, [
-    'org config: unknown key "sweeper-update-schedule" (ignored)',
-  ]);
+  assert.deepEqual(warnings, ['org config: unknown key "sweeper-update-schedule" (ignored)']);
 });
 
 test("readOrgConfig on a missing file is a hard error naming the path", async () => {
@@ -295,10 +286,7 @@ test("parseSweeperRepo accepts owner/repo, treats absent as none, rejects the re
   assert.equal(parseSweeperRepo(""), undefined);
   assert.equal(parseSweeperRepo("TheVoskamps/sweeper"), "TheVoskamps/sweeper");
   for (const bad of ["sweeper", "a/b/c", "/b", "a/", "a b/c"]) {
-    assert.throws(
-      () => parseSweeperRepo(bad),
-      /GH_REPO_CONFIG_SWEEPER_REPO must be owner\/repo/,
-    );
+    assert.throws(() => parseSweeperRepo(bad), /GH_REPO_CONFIG_SWEEPER_REPO must be owner\/repo/);
   }
 });
 
@@ -469,10 +457,7 @@ test("no config file and no sweeper repo: the sweep behaves exactly as before", 
   // payload carries the baked defaults.
   assert.deepEqual(bypassAppIds(api.rulesetBodies[0]), [3835765, 4319606]);
   assert.match(api.written(".github/dependabot.yml"), /codeql-action/);
-  assert.match(
-    api.written(".github/workflows/auto-rebase-prs.yml"),
-    /AUTOMERGE_APP_CLIENT_ID/,
-  );
+  assert.match(api.written(".github/workflows/auto-rebase-prs.yml"), /AUTOMERGE_APP_CLIENT_ID/);
 });
 
 test("a populated config file reaches every consumer", async () => {
@@ -537,13 +522,11 @@ test("the PR-automation preflight checks the configured identity's App, not the 
     }
     throw new Error(`the sweep went past the preflight: ${url}`);
   };
-  await withConfigFile(
-    JSON.stringify({ "pr-automation-identity": IDENTITY_JSON }),
-    (path) =>
-      assert.rejects(
-        () => withFetch(fetchImpl, () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path })),
-        /acme-pr-automations on TheVoskamps[\s\S]*issues: none \(need write\)/,
-      ),
+  await withConfigFile(JSON.stringify({ "pr-automation-identity": IDENTITY_JSON }), (path) =>
+    assert.rejects(
+      () => withFetch(fetchImpl, () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path })),
+      /acme-pr-automations on TheVoskamps[\s\S]*issues: none \(need write\)/,
+    ),
   );
 });
 
@@ -552,9 +535,7 @@ test("a version-pin matching CURRENT_VERSION lets the sweep run", async () => {
   const report = await withConfigFile(
     JSON.stringify({ "version-pin": `v${CURRENT_VERSION}` }),
     (path) =>
-      withFetch(api.fetchImpl, () =>
-        runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path }),
-      ),
+      withFetch(api.fetchImpl, () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path })),
   );
   assert.deepEqual(report.stamped, [REPO]);
 });
@@ -566,9 +547,7 @@ test("an unknown key warns on stderr and the sweep still runs", async () => {
   console.error = (m) => errors.push(m);
   try {
     await withConfigFile(JSON.stringify({ "future-key": 1 }), (path) =>
-      withFetch(api.fetchImpl, () =>
-        runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path }),
-      ),
+      withFetch(api.fetchImpl, () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path })),
     );
   } finally {
     console.error = originalError;
@@ -583,21 +562,18 @@ test("an unknown key still warns on stderr when the same file then fails the swe
   const errors = [];
   console.error = (m) => errors.push(m);
   try {
-    await withConfigFile(
-      JSON.stringify({ "pr-automation-identity": partial }),
-      async (path) => {
-        await withFetch(
-          async () => {
-            throw new Error("no API call should have been made");
-          },
-          () =>
-            assert.rejects(
-              () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path }),
-              /"pr-automation-identity\.bot-slug": required/,
-            ),
-        );
-      },
-    );
+    await withConfigFile(JSON.stringify({ "pr-automation-identity": partial }), async (path) => {
+      await withFetch(
+        async () => {
+          throw new Error("no API call should have been made");
+        },
+        () =>
+          assert.rejects(
+            () => runSweepFromEnv({ ...BASE_ENV, GH_REPO_CONFIG_FILE: path }),
+            /"pr-automation-identity\.bot-slug": required/,
+          ),
+      );
+    });
   } finally {
     console.error = originalError;
   }

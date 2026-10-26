@@ -47,11 +47,7 @@ export async function readOrgCommunityFiles(
 ): Promise<CommunityFileContent> {
   const found: Record<string, string> = {};
   for (const path of COMMUNITY_FILE_PATHS) {
-    const content = await client.readFileIfPresent(
-      org,
-      COMMUNITY_SOURCE_REPO,
-      path,
-    );
+    const content = await client.readFileIfPresent(org, COMMUNITY_SOURCE_REPO, path);
     if (content !== undefined) {
       found[path] = content;
     }

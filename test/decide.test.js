@@ -54,17 +54,10 @@ test("a repo still carrying the retired 'process' token follows the default", ()
     decideRepo({ mode: "process", version: "0.1.0" }, "opt-out", V).action,
     "skip-unmanaged",
   );
-  assert.equal(
-    decideRepo({ mode: "process", version: "0.1.0" }, "opt-in", V).action,
-    "converge",
-  );
+  assert.equal(decideRepo({ mode: "process", version: "0.1.0" }, "opt-in", V).action, "converge");
 });
 
 test("decideRepoFromRaw normalizes a garbage default to opt-out", () => {
-  const d = decideRepoFromRaw(
-    { mode: undefined, version: undefined },
-    "garbage",
-    V,
-  );
+  const d = decideRepoFromRaw({ mode: undefined, version: undefined }, "garbage", V);
   assert.equal(d.action, "skip-unmanaged");
 });

@@ -5,20 +5,10 @@
 ### Committed code imports only what `package.json` declares
 
 No import the diff adds under `src/`, `test/`, or `assets/` names a
-package the root `package.json` does not declare. `npm test` backs the
-`ci-required` check, so an undeclared transitive import couples that
-check to another package's dependency graph. The live case is
-`js-yaml`, which resolves only as a dependency of `markdownlint-cli2`:
-tests inspect rendered YAML with hand-rolled string helpers instead.
-Scratch under `.claude/tmp/<task slug>/` may import it, and a real
-parse there is the oracle a hand-rolled helper is cross-checked
-against.
-
-### A `js-yaml` import uses the namespace form
-
-Every `js-yaml` import is `import * as yaml from "js-yaml"`: the
-version `package-lock.json` hoists has named exports only, so a default
-import throws.
+package the root `package.json` does not declare. pnpm links only
+declared packages into the root `node_modules`, so an undeclared import
+does not resolve. Tests inspect rendered YAML with hand-rolled string
+helpers, since no YAML parser is declared.
 
 ### A test fixture never coincides with the runtime value it stands in for
 
@@ -61,6 +51,20 @@ asserts the exact expected value rather than a count, so a leaked entry
 names itself in the failure.
 
 ## For Authors and Checkers
+
+### Code passes `pnpm lint`
+
+Every Code file the diff touches passes `pnpm lint`, run from the
+worktree root; `pnpm format` writes the formatting fixes it reports.
+Run a linter only through `pnpm lint`, which spells each the way CI
+runs it: actionlint's `-shellcheck=`, for one, turns off its own
+shellcheck pass over `run:` blocks, so a bare `actionlint` picks up
+`shellcheck` from `PATH` and fails on `SC2016` findings CI never
+reports.
+
+A linter absent from `PATH` is a stop-and-report, never an install, and
+the report gives the PR's `gh pr checks <N>` state, since CI runs
+`pnpm lint`.
 
 ### A TSDoc comment on an exported symbol states its contract and why
 

@@ -201,9 +201,7 @@ export async function convergeGhasSettings(
   // its current state exists) and always reports `changed` on success,
   // so including it would make `noop` false on every single converge
   // pass, defeating its purpose as "nothing else needed correcting."
-  const noopEligible = results.filter(
-    (r) => r.setting !== SETTING_NAMES.pushProtectionBypass,
-  );
+  const noopEligible = results.filter((r) => r.setting !== SETTING_NAMES.pushProtectionBypass);
   return {
     results,
     noop: noopEligible.every((r) => r.outcome === "already-converged"),

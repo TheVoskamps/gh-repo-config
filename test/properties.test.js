@@ -64,9 +64,7 @@ test("readDefaultMode reports an unrecognized value as 'set' with its raw text",
 
 test("readDefaultMode reports provenance 'defined-no-value' on a 200 with no default", async () => {
   for (const body of [{}, { default_value: null }]) {
-    const fetch = fakeFetch([
-      { match: `/properties/schema/${PROPERTY_NAMES.mode}`, body },
-    ]);
+    const fetch = fakeFetch([{ match: `/properties/schema/${PROPERTY_NAMES.mode}`, body }]);
     const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
     assert.deepEqual(await client.readDefaultMode(), {
       provenance: "defined-no-value",
@@ -110,9 +108,7 @@ test("readAllRepoValues projects mode and version, unset -> undefined", async ()
         },
         {
           repository_name: "r2",
-          properties: [
-            { property_name: PROPERTY_NAMES.mode, value: null },
-          ],
+          properties: [{ property_name: PROPERTY_NAMES.mode, value: null }],
         },
       ],
     },
@@ -126,9 +122,7 @@ test("readAllRepoValues projects mode and version, unset -> undefined", async ()
 });
 
 test("stampVersion batches at the 30-repo cap", async () => {
-  const fetch = fakeFetch([
-    { match: "/properties/values", method: "PATCH", body: {} },
-  ]);
+  const fetch = fakeFetch([{ match: "/properties/values", method: "PATCH", body: {} }]);
   const client = new OrgPropertiesClient({ org: "Org", token: "t", fetch });
   const repos = Array.from({ length: 65 }, (_, i) => `r${i}`);
   await client.stampVersion(repos, "0.2.0");

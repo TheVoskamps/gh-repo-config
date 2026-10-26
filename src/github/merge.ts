@@ -273,11 +273,7 @@ export class MergeClient {
    * Returns an empty array when no `required_status_checks` rule
    * applies (e.g. an unprotected fixture branch).
    */
-  async getRequiredCheckContexts(
-    owner: string,
-    repo: string,
-    branch: string,
-  ): Promise<string[]> {
+  async getRequiredCheckContexts(owner: string, repo: string, branch: string): Promise<string[]> {
     const url = `${this.apiBase}/repos/${owner}/${repo}/rules/branches/${branch}`;
     const res = await this.doFetch(url, { headers: this.headers() });
     if (!res.ok) {
@@ -324,9 +320,7 @@ export class MergeClient {
     ]);
 
     const checkRunByName = new Map(checkRuns.map((r) => [r.name, r]));
-    const statusByContext = new Map(
-      combinedStatus.statuses.map((s) => [s.context, s.state]),
-    );
+    const statusByContext = new Map(combinedStatus.statuses.map((s) => [s.context, s.state]));
 
     return requiredContexts.map((context) => {
       const run = checkRunByName.get(context);
@@ -343,11 +337,7 @@ export class MergeClient {
     });
   }
 
-  private async getCheckRuns(
-    owner: string,
-    repo: string,
-    ref: string,
-  ): Promise<RawCheckRun[]> {
+  private async getCheckRuns(owner: string, repo: string, ref: string): Promise<RawCheckRun[]> {
     // `filter=latest` is GitHub's implicit default (only the most
     // recent check-run per name/app), but making it explicit avoids
     // relying on that default holding across API changes.
@@ -388,11 +378,7 @@ export class MergeClient {
    * silently truncating at 100 and merging a PR whose reserved path sat
    * on page two.
    */
-  async listChangedFiles(
-    owner: string,
-    repo: string,
-    number: number,
-  ): Promise<string[]> {
+  async listChangedFiles(owner: string, repo: string, number: number): Promise<string[]> {
     const perPage = 100;
     const paths: string[] = [];
     for (let page = 1; ; page++) {
@@ -511,17 +497,8 @@ export class MergeClient {
       };
     }
 
-    const requiredContexts = await this.getRequiredCheckContexts(
-      owner,
-      repo,
-      pr.baseRef,
-    );
-    const checks = await this.evaluateRequiredChecks(
-      owner,
-      repo,
-      pr.headSha,
-      requiredContexts,
-    );
+    const requiredContexts = await this.getRequiredCheckContexts(owner, repo, pr.baseRef);
+    const checks = await this.evaluateRequiredChecks(owner, repo, pr.headSha, requiredContexts);
     const overall = rollUp(checks.map((c) => c.state));
 
     if (overall === "red") {
@@ -556,12 +533,7 @@ export class MergeClient {
       };
     }
 
-    const merged = await this.mergePullRequest(
-      owner,
-      repo,
-      pr.number,
-      pr.headSha,
-    );
+    const merged = await this.mergePullRequest(owner, repo, pr.number, pr.headSha);
     if (!merged) {
       return {
         pr,

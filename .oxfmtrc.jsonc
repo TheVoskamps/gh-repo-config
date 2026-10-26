@@ -1,0 +1,19 @@
+{
+  // Markdown is markdownlint-cli2's, under `.markdownlint-cli2.jsonc`, so a second formatter over it would contest that
+  // config. The templated payloads carry `__TOKEN__` placeholders that are not valid YAML until rendered. The rendered
+  // copies under `.github/` are sweep output, never hand-edited, and lag their `assets/` source until the next sweep.
+  "ignorePatterns": [
+    "**/*.md",
+    "assets/dependabot.yml",
+    "assets/ecosystem-block.yml",
+    ".github/actions/codeartifact-auth/action.yml",
+    ".github/codeql/codeql-config.yml",
+    ".github/dependabot.yml",
+    ".github/workflows/auto-enable-automerge.yml",
+    ".github/workflows/auto-rebase-prs.yml",
+    ".github/workflows/codeql.yml",
+    ".github/workflows/dependency-install-gate.yml",
+    ".github/workflows/dependency-pinned-gate.yml",
+    ".github/workflows/no-back-merging-guard.yml",
+  ],
+}
