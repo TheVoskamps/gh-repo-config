@@ -8,14 +8,15 @@
  *
  * The version is read from this package's own `package.json`, the one
  * source of truth for both the npm package version and the value the
- * sweep stamps target repos with. It is bumped in every PR, not at
- * release time: `.github/workflows/sweep.yml` builds and runs the CLI
- * from `main`'s source tree rather than from a release tarball, so a
- * change that ships without a bump leaves every already-stamped repo
- * on the `skip-current` verdict and reaches nobody
- * (`.claude/rules/pr-conventions.md`). A `vX.Y.Z` tag is pushed
- * separately and must match whatever value `main` carries at that
- * point (`.github/workflows/release.yml`).
+ * sweep stamps target repos with. The sweep (`assets/sweeper-sweep.yml`)
+ * runs a verified release tarball, never `main`'s source tree, and a
+ * release is cut by pushing a `vX.Y.Z` tag that must match the value
+ * `main` carries at that point (`.github/workflows/release.yml`). The
+ * version is bumped in every PR, not at release time, so any commit on
+ * `main` can be tagged as a release that every already-stamped repo is
+ * behind; one left at a released version cannot be tagged again, and
+ * every repo stamped at it stays on the `skip-current` verdict
+ * (`.claude/rules/pr-conventions.md`).
  */
 import { createRequire } from "node:module";
 

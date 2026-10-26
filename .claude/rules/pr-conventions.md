@@ -3,10 +3,15 @@
 ## Every PR advances the `version` core
 
 Every PR bumps `version` in the root `package.json` past main's
-`MAJOR.MINOR.PATCH` core. The sweep builds from `main`'s source tree,
-never a release tarball, and skips every repo already stamped at that
-version, so a change merged without a bump reaches no repo a prior
-sweep stamped. The version compare reads only the core, so a
+`MAJOR.MINOR.PATCH` core. The sweep runs a release tarball, never
+`main`'s source tree: the release the org's `version-pin` names, else
+the latest. A release is cut by pushing a `vX.Y.Z` tag that
+`release.yml` requires to equal `package.json`'s `version`, and the
+sweep skips every repo already stamped at the version it runs. The bump
+keeps `main` ahead of the last release, so any commit on it can be
+tagged as a release every stamped repo is behind; a change merged
+without one leaves `main` at a version already released, which no new
+tag can ship. The version compare reads only the core, so a
 prerelease or build identifier delivers nothing and fails `pnpm test`.
 Re-check the bump after a rebase, since a concurrent merge may have
 taken the value you picked. Semver picks the component; the move to
