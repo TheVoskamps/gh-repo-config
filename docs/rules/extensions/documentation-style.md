@@ -89,9 +89,3 @@ Every claim the diff adds about GitHub API behaviour that GitHub's
 documentation does not state carries the experiment beside it: the
 exact `gh api` calls with real values inlined, the org and date they
 ran on, and what each returned.
-
-### A `docs/` file carrying a status marker is not edited to match the code
-
-No diff edits a `docs/` file whose first lines carry a `Status:` line
-to describe as-built behaviour. Such a file records
-intent, and code diverging from it is information it keeps.

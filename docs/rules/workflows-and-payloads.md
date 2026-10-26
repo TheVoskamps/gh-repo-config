@@ -33,6 +33,16 @@ from steps, not from separate jobs. `test/files.test.js`'s
 a job means editing that table, and the PR argues the billing cost
 there.
 
+## A payload takes no per-repo setting
+
+A payload renders the same on every managed repo but for values derived
+from the repo itself and the org's `gh-repo-config.json`. What a repo
+holds is discovered by the rendered workflow when it runs: every
+Dependabot ecosystem is armed, and the gates and CodeQL each detect
+what is present before they act. A new payload does the same
+rather than adding a per-repo toggle. The sweeper workflow, which lands
+on one repo per org, is the one payload a repo's identity decides.
+
 ## A detection mode reports over stdout only
 
 A payload script's detection mode (`--present`, `--matrix`) prints its

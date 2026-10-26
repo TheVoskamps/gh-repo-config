@@ -27,6 +27,5 @@ export — grep the retired term across the whole repo
 (`--exclude-dir=node_modules --exclude-dir=dist`) rather than
 re-reading the diff's own files, since the falsified prose mostly sits
 in files the diff never touched. Historical narration stays, a
-present-tense claim is a defect, and a `docs/` file whose first lines
-carry a `Status:` line is never a hit. Fixing an out-of-diff one-line
+present-tense claim is a defect. Fixing an out-of-diff one-line
 comment is in scope; a refactor is not.

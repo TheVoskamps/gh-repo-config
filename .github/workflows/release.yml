@@ -6,8 +6,7 @@
 # this workflow is the only supported way this repo's releases are
 # created. It does not enable release immutability itself — GitHub
 # does not (yet) expose an API/CLI for that repo setting, only a
-# one-time manual toggle under Settings > General > Releases. See the
-# release-immutability note in docs/org-repo-configuration-fanout-design.md.
+# one-time manual toggle under Settings > General > Releases.
 #
 # Trigger: push of a `v*` tag (e.g. `v0.1.0`), created and pushed by a
 # maintainer once package.json's version is bumped.
