@@ -43,8 +43,11 @@ present before they act, and `codeartifact-auth` acts on the
 `CODEARTIFACT_ROLE` Actions variable, set at org level and overridden
 at repo level, and no-ops where it is unset. A new payload reads its
 variance the same ways rather than adding a per-repo input to the
-converger. The sweeper workflow, which lands on one repo per org, is
-the one payload a repo's identity decides.
+converger. Two payloads are decided by the repo itself: the sweeper
+workflow, which lands on one repo per org, by the repo's identity, and
+each seed-if-absent community file, such as `LICENSE`, by the repo's
+tree — it is skipped, never overwritten, wherever the repo already holds
+a copy at the root, under `.github/`, or under `docs/`.
 
 ## A detection mode reports over stdout only
 

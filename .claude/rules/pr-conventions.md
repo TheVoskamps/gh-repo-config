@@ -10,8 +10,11 @@ the latest. A release is cut by pushing a `vX.Y.Z` tag that
 sweep skips every repo already stamped at the version it runs. A tag is
 pushed independently of any PR, so no PR can count on `main`'s current
 version being unreleased; the bump keeps `main` above every release cut
-before the merge, so a tag at any later commit ships a version every
-stamped repo is behind. The version compare reads only the core, so a
+from a `main` commit before the merge, so a tag at any later `main`
+commit ships a version every stamped repo is behind. That holds only
+for tags on `main`: `release.yml` checks a tag against its own commit's
+`package.json` alone, so a tag pushed on any other commit can ship a
+version `main` has not passed. The version compare reads only the core, so a
 prerelease or build identifier delivers nothing and fails `pnpm test`.
 Re-check the bump after a rebase, since a concurrent merge may have
 taken the value you picked. Semver picks the component; the move to
