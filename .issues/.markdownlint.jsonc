@@ -1,0 +1,7 @@
+{
+  // `/repo-config` writes `repo-config.md` with its `github-project:` YAML
+  // block between the front matter and the first heading, so the file can
+  // never open on an H1. Keep the repo-wide rules and disable MD041 here.
+  "extends": "../.markdownlint.jsonc",
+  "MD041": false,
+}
