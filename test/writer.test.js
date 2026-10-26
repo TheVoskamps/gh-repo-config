@@ -498,7 +498,8 @@ test("bare target: the seeded community files carry the org's .github-repo conte
 });
 
 test("a file absent from the org's .github repo is silently not seeded; the others still are (issue #90)", async () => {
-  const { LICENSE: _license, ...withoutLicense } = ORG_COMMUNITY;
+  const withoutLicense = { ...ORG_COMMUNITY };
+  delete withoutLicense.LICENSE;
   const fetch = fakeFetch([
     ...readRoutes({ treeEntries: {}, blobs: {}, community: { files: withoutLicense } }),
     ...writeRoutes({ openPr: [] }),
@@ -570,7 +571,8 @@ test("a non-404 failure reading the org's .github repo propagates rather than si
 });
 
 test("readOrgCommunityFiles returns exactly the present files, decoded (issue #90)", async () => {
-  const { PATENTS: _patents, ...present } = ORG_COMMUNITY;
+  const present = { ...ORG_COMMUNITY };
+  delete present.PATENTS;
   const fetch = fakeFetch(communityRoutes({ files: present }));
   const client = new ContentsClient({ token: "t", fetch });
   assert.deepEqual(await readOrgCommunityFiles(client, OWNER), present);

@@ -523,7 +523,8 @@ test("community files ship the org's own content byte-for-byte at repo root, non
 });
 
 test("a community file the org does not carry produces no payload entry — no error, no empty file (issue #90)", () => {
-  const { LICENSE: _license, ...withoutLicense } = COMMUNITY_CONTENT;
+  const withoutLicense = { ...COMMUNITY_CONTENT };
+  delete withoutLicense.LICENSE;
   const files = buildDesiredFiles(CTX, { communityFiles: withoutLicense });
   const paths = files.map((f) => f.path);
   assert.equal(paths.includes("LICENSE"), false);
