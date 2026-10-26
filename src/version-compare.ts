@@ -18,12 +18,7 @@
  * Rejecting is the only option because a prerelease and its release
  * share an `X.Y.Z` core, which this comparison cannot tell apart: a
  * repo stamped `0.3.0-rc.1` reads as *not behind* `0.3.0`, so it would
- * never converge to the release. (`main`'s version need not
- * correspond to any release tag: it is bumped in every PR
- * (`.claude/rules/pr-conventions.md`), while tags are pushed
- * separately (`.github/workflows/release.yml`). The sweep runs only a
- * release tarball, so the `CURRENT_VERSION` it stamps with is always a
- * release tag's.)
+ * never converge to the release.
  */
 
 interface SemverCore {
