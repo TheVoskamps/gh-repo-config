@@ -230,6 +230,14 @@ The PR-automation App, with **Custom** permissions `Contents: write`,
 The skill stores the numeric App ID in the secret it is given for it.
 Step 3 overwrites both Client-ID secrets with the Client ID.
 
+Each `--metadata-path` is relative to the root of the sweeper clone the
+skill runs in. There it writes, uncommitted, a record of the App it
+registered: the slug, App ID, settings and install URL, and the
+permissions granted. Both records describe the adopter's own Apps and
+live in the adopter's sweeper repo. The converger record's path is also
+the one this repo keeps its own converger App's record under, and
+nothing the runbook runs writes to this repo.
+
 Name the PR-automation App in `gh-repo-config.json`, which then reads:
 
 ```json
@@ -244,7 +252,7 @@ Name the PR-automation App in `gh-repo-config.json`, which then reads:
 }
 ```
 
-Commit it with the two metadata docs the skill wrote:
+Commit it with the two App records the skill wrote:
 
 ```bash
 git add gh-repo-config.json docs/github-app-converger.md docs/github-app-pr-automation.md
