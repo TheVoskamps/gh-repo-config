@@ -7,15 +7,15 @@ Every PR bumps `version` in the root `package.json` past main's
 `main`'s source tree: the release the org's `version-pin` names, else
 the latest. A release is cut by pushing a `vX.Y.Z` tag that
 `release.yml` requires to equal `package.json`'s `version`, and the
-sweep skips every repo already stamped at the version it runs. A tag is
-pushed independently of any PR, so no PR can count on `main`'s current
-version being unreleased; the bump keeps `main` above every release cut
-from a `main` commit before the merge, so a tag at any later `main`
-commit ships a version every stamped repo is behind. That holds only
-for tags on `main`: `release.yml` checks a tag against its own commit's
-`package.json` alone, so a tag pushed on any other commit can ship a
-version `main` has not passed. The version compare reads only the core, so a
-prerelease or build identifier delivers nothing and fails `pnpm test`.
+sweep skips every repo already stamped at the version it runs.
+`release.yml` releases only from a tag on a merge commit on `main`'s
+first-parent history, and rejects every other tag. A tag is pushed
+independently of any PR, so no PR can count on `main`'s current version
+being unreleased; the bump keeps `main` above every release cut from a
+`main` merge commit before the merge, so a tag at any later one ships a
+version every stamped repo is behind. The version compare reads only
+the core, so a prerelease or build identifier delivers nothing and
+fails `pnpm test`.
 Re-check the bump after a rebase, since a concurrent merge may have
 taken the value you picked. Semver picks the component; the move to
 `1.0.0` is a human's decision, never routine work.

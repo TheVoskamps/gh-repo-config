@@ -8,8 +8,11 @@
 # does not (yet) expose an API/CLI for that repo setting, only a
 # one-time manual toggle under Settings > General > Releases.
 #
-# Trigger: push of a `v*` tag (e.g. `v0.1.0`), created and pushed by a
-# maintainer once package.json's version is bumped.
+# Trigger: push of a `v*` tag (e.g. `v0.1.0`) on a merge commit on
+# `main`, created and pushed by a maintainer once that merge carries the
+# bumped package.json version. Only such a tag releases: the `release`
+# job fails on a tag at any commit outside `main`'s first-parent merge
+# commits before any other step runs, and `publish-template` needs it.
 name: release
 
 on:
@@ -29,7 +32,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      # A merge commit on `main`'s first-parent history is one `main`
+      # reached by merging a PR, so a tag anywhere else would ship code
+      # that never passed review. `fetch-depth: 0` above already fetched
+      # `origin/main` with full history. grep reads all of rev-list's
+      # output rather than quitting at the first match as `-q` does, so
+      # rev-list cannot die of SIGPIPE and fail the pipeline under
+      # `pipefail`.
+      - name: Verify tag is a merge commit on main
+        run: |
+          if ! git rev-list --first-parent --merges origin/main | grep -xF "$GITHUB_SHA" > /dev/null; then
+            echo "Tag $GITHUB_REF_NAME points at $GITHUB_SHA, which is not a merge commit on main's first-parent history" >&2
+            exit 1
+          fi
 
       # Installs the pnpm version `package.json`'s `packageManager` pins.
       - name: Set up pnpm
