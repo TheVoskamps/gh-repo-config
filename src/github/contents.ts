@@ -576,9 +576,11 @@ export class ContentsClient {
    * This is GraphQL because there is no REST equivalent: `draft` is
    * writable only on the create call, and
    * `PATCH /repos/{o}/{r}/pulls/{n}` silently carries no such field. The
-   * mutation is what lets a PR opened before the anchor appeared in it —
-   * or opened by an earlier converger version — still be held once an
-   * anchor-touching commit lands on its branch.
+   * mutation is what lets an open PR that is not yet a draft — opened
+   * before the anchor appeared in it, opened by an earlier converger
+   * version, or marked ready by a maintainer — still be held on any tick
+   * whose changed paths touch the anchor, whether or not that tick lands
+   * a commit on its branch.
    */
   async convertPullRequestToDraft(
     owner: string,
