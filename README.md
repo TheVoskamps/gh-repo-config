@@ -12,7 +12,9 @@ pnpm lint
 ```
 
 Releases are published as attested GitHub Releases from
-`.github/workflows/release.yml` on `v*` tag push.
+`.github/workflows/release.yml` on the push of a `v*` tag that points
+at a merge commit on `main`'s first-parent history; a tag on any other
+commit fails the run before it builds anything.
 
 ## Architecture decisions
 
@@ -34,6 +36,18 @@ drifts silently, while a public release asset needs no access beyond a
 workflow's default token to download. A release carries a build-provenance attestation, and every consumer runs
 `gh attestation verify` against this repo on the tarball before
 unpacking or running anything from it.
+
+### A release ships only what `main` merged
+
+Every org's sweep downloads the latest release, and a tag is pushed by
+hand, independently of any pull request, so the tag is the one point
+where unreviewed code could reach every managed repo. The release
+workflow therefore accepts only a tag at a merge commit on `main`'s
+first-parent history — a commit `main` reached by merging a pull request
+through its review and merge gates — and fails on any other tag, a
+feature-branch commit included, before it installs or builds anything.
+No ruleset in this repo targets tags, so this check is what stands in
+for one.
 
 ### Each org sweeps itself from its own private repo
 
