@@ -839,8 +839,9 @@ export async function runSweep(
  * - `GH_REPO_CONFIG_TOKEN` — a bearer token (the App installation token).
  * - `GH_REPO_CONFIG_APP_SLUG` — the converger App's slug, used by the
  *   merge pass (issue #24) to match `user.login === "<slug>[bot]"` when
- *   listing a repo's open PRs. `sweep.yml` already knows this — it's
- *   the App the token-mint step mints from.
+ *   listing a repo's open PRs. The sweeper workflow,
+ *   `assets/sweeper-sweep.yml`, already knows this — it's the App its
+ *   token-mint step mints from.
  *
  * Optional env:
  * - `GH_REPO_CONFIG_DRY_RUN` — `true` to decide/log without stamping or
