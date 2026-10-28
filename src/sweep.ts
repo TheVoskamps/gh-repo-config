@@ -1022,7 +1022,7 @@ export async function runSweepFromEnv(env: NodeJS.ProcessEnv = process.env): Pro
     // 403/404 (feature/plan unavailable). Throws only on an unexpected
     // (auth/scope) failure.
     convergeDefaultSetup: (repo: string) =>
-      convergeDefaultSetup(codeScanningClient, org, repo, dryRun, contentsClient),
+      convergeDefaultSetup(codeScanningClient, org, repo, dryRun),
     // The real `protect-main` ruleset convergence step (issue #16). Runs
     // in the ordering-gated pass after the merge pass: create/converge
     // the ruleset (or delete-and-defer when an org ruleset governs).

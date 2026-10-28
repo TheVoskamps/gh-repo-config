@@ -160,12 +160,12 @@ export {
   type CodeScanningAnalysis,
   type AnalysesListResult,
   type AnalysisDeleteResult,
+  type DefaultBranchFile,
 } from "./github/code-scanning.js";
 
 export {
   convergeDefaultSetup,
   STALE_CATEGORY_PREFIX,
-  type DefaultBranchReader,
   type DefaultSetupOutcome,
   type DefaultSetupConvergeResult,
 } from "./converge/default-setup.js";

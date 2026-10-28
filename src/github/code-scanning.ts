@@ -20,6 +20,9 @@
  *   analyses, newest first, to find stale configurations (issue #158).
  * - `DELETE /repos/{o}/{r}/code-scanning/analyses/{id}` — delete one
  *   analysis, with `confirm_delete` when it is its configuration's last.
+ * - `GET  /repos/{o}/{r}` and `GET /repos/{o}/{r}/contents/{path}` — read
+ *   the default branch's name and the CodeQL workflow on it, which gates
+ *   the stale-configuration deletion (issue #158).
  */
 
 /** Config for {@link CodeScanningClient}. */
@@ -98,6 +101,25 @@ interface RawAnalysisDelete {
   readonly confirm_delete_url?: string | null;
 }
 
+/**
+ * One file read from a repo's default branch: the branch's name, and the
+ * file's content, absent when the path holds no regular file there.
+ */
+export interface DefaultBranchFile {
+  readonly branch: string;
+  readonly content?: string;
+}
+
+interface RawRepo {
+  readonly default_branch: string;
+}
+
+interface RawContentsFile {
+  readonly type: string;
+  readonly content?: string;
+  readonly encoding?: string;
+}
+
 /** The analyses list's largest page size. */
 const ANALYSES_PAGE_SIZE = 100;
 
@@ -165,6 +187,54 @@ export class CodeScanningClient {
       headers: { ...this.headers(), "content-type": "application/json" },
       body: JSON.stringify({ state: "not-configured" }),
     });
+  }
+
+  /**
+   * Read the repo's default branch and the file at `path` on it. A 404 on
+   * the file, or a path that is not a regular file, leaves `content`
+   * absent; any other non-ok status throws.
+   */
+  async readDefaultBranchFile(
+    owner: string,
+    repo: string,
+    path: string,
+  ): Promise<DefaultBranchFile> {
+    const repoRes = await this.doFetch(`${this.apiBase}/repos/${owner}/${repo}`, {
+      headers: this.headers(),
+    });
+    if (!repoRes.ok) {
+      throw new Error(
+        `Failed to read repo ${owner}/${repo}: ${repoRes.status} ${repoRes.statusText}`,
+      );
+    }
+    const branch = ((await repoRes.json()) as RawRepo).default_branch;
+
+    const url =
+      `${this.apiBase}/repos/${owner}/${repo}/contents/${path}` +
+      `?ref=${encodeURIComponent(branch)}`;
+    const res = await this.doFetch(url, { headers: this.headers() });
+    if (res.status === 404) {
+      return { branch };
+    }
+    if (!res.ok) {
+      throw new Error(
+        `Failed to read ${path} from ${owner}/${repo}@${branch}: ${res.status} ${res.statusText}`,
+      );
+    }
+    // A directory at that path returns an array.
+    const body = (await res.json()) as RawContentsFile | readonly RawContentsFile[];
+    if (Array.isArray(body)) {
+      return { branch };
+    }
+    const file = body as RawContentsFile;
+    if (file.type !== "file" || file.content === undefined) {
+      return { branch };
+    }
+    const content =
+      file.encoding === "base64"
+        ? Buffer.from(file.content, "base64").toString("utf8")
+        : file.content;
+    return { branch, content };
   }
 
   /**

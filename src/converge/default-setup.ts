@@ -25,10 +25,6 @@
  * `failed`.
  */
 import type { CodeScanningClient } from "../github/code-scanning.js";
-import type { ContentsClient } from "../github/contents.js";
-
-/** The reads the stale-configuration guard needs from the default branch. */
-export type DefaultBranchReader = Pick<ContentsClient, "getDefaultBranch" | "readFileIfPresent">;
 
 /**
  * The category prefix of every configuration the converger deletes. Both
@@ -80,14 +76,12 @@ interface StaleConfigurationsResult {
  * @param owner the target repo's owner (org/user).
  * @param repo the target repo's name (without owner).
  * @param dryRun when `true`, decide and report the diff without writing.
- * @param defaultBranch reads the repo's default branch and its workflow.
  */
 export async function convergeDefaultSetup(
   client: CodeScanningClient,
   owner: string,
   repo: string,
   dryRun: boolean,
-  defaultBranch: DefaultBranchReader,
 ): Promise<DefaultSetupConvergeResult> {
   const read = await client.readDefaultSetup(owner, repo);
   if (read.kind === "unavailable") {
@@ -101,7 +95,7 @@ export async function convergeDefaultSetup(
   if (read.status.state === "not-configured") {
     return withStale(
       { outcome: "already-converged" },
-      await deleteStaleConfigurations(client, defaultBranch, owner, repo, dryRun),
+      await deleteStaleConfigurations(client, owner, repo, dryRun),
     );
   }
 
@@ -127,7 +121,7 @@ export async function convergeDefaultSetup(
 
   return withStale(
     { outcome: "changed", reason: priorReason },
-    await deleteStaleConfigurations(client, defaultBranch, owner, repo, dryRun),
+    await deleteStaleConfigurations(client, owner, repo, dryRun),
   );
 }
 
@@ -152,21 +146,19 @@ function withStale(
  */
 async function deleteStaleConfigurations(
   client: CodeScanningClient,
-  defaultBranch: DefaultBranchReader,
   owner: string,
   repo: string,
   dryRun: boolean,
 ): Promise<StaleConfigurationsResult> {
-  const workflow = await defaultBranch.readFileIfPresent(owner, repo, CODEQL_WORKFLOW_PATH);
-  if (workflow === undefined || !CODEQL_REQUIRED_JOB.test(workflow)) {
+  const workflow = await client.readDefaultBranchFile(owner, repo, CODEQL_WORKFLOW_PATH);
+  if (workflow.content === undefined || !CODEQL_REQUIRED_JOB.test(workflow.content)) {
     return {
       deleted: [],
       skipped: `the default branch has no ${CODEQL_WORKFLOW_PATH} with a codeql-required job`,
     };
   }
 
-  const branch = await defaultBranch.getDefaultBranch(owner, repo);
-  const list = await client.listCodeqlAnalyses(owner, repo, branch);
+  const list = await client.listCodeqlAnalyses(owner, repo, workflow.branch);
   if (list.kind === "unavailable") {
     return { deleted: [], skipped: `code scanning analyses unavailable (${list.status})` };
   }
