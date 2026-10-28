@@ -39,7 +39,8 @@ export interface ConvergerPermission {
 export const CONVERGER_REQUIRED_PERMISSIONS: Readonly<Record<string, ConvergerPermission>> = {
   // GET /repos/{o}/{r}, GET …/rules/branches/{b}, GET …/rulesets.
   metadata: { level: "read", name: "Metadata", scope: "repository" },
-  // The git-data writes (blobs, trees, commits, refs) and PUT …/pulls/{n}/merge.
+  // The git-data writes (blobs, trees, commits, refs), PUT …/pulls/{n}/merge,
+  // and the file reads, GET …/contents/{path}.
   contents: { level: "write", name: "Contents", scope: "repository" },
   // Creating or moving a ref onto a commit that touches .github/workflows/.
   workflows: { level: "write", name: "Workflows", scope: "repository" },

@@ -165,9 +165,11 @@ export {
 
 export {
   convergeDefaultSetup,
+  deleteStaleConfigurations,
   STALE_CATEGORY_PREFIX,
   type DefaultSetupOutcome,
   type DefaultSetupConvergeResult,
+  type StaleConfigurationsResult,
 } from "./converge/default-setup.js";
 
 export {

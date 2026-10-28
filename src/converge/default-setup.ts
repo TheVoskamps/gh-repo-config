@@ -63,7 +63,7 @@ export interface DefaultSetupConvergeResult {
 }
 
 /** What {@link deleteStaleConfigurations} did. */
-interface StaleConfigurationsResult {
+export interface StaleConfigurationsResult {
   readonly deleted: readonly string[];
   readonly skipped?: string;
 }
@@ -151,8 +151,12 @@ function withStale(
  * A missing workflow returns `skipped` before anything is listed. A
  * 403/404 on the list, or on any deletion, returns `skipped` with the
  * categories already deleted; any other non-ok status throws.
+ *
+ * It does not read default setup itself, so the caller must already have
+ * it at `not-configured`: a `changed` or `already-converged` outcome of
+ * {@link convergeDefaultSetup} in the same sweep.
  */
-async function deleteStaleConfigurations(
+export async function deleteStaleConfigurations(
   client: CodeScanningClient,
   owner: string,
   repo: string,
