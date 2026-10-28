@@ -3,8 +3,9 @@
 # dependency-pinned-gate.sh
 #
 # Installed verbatim (no placeholders) at
-# <repo-root>/.github/scripts/dependency-pinned-gate.sh by
-# /gh-repo-setup-protection, alongside its workflow at
+# <repo-root>/.github/scripts/dependency-pinned-gate.sh by the
+# converger (VERBATIM_SCRIPTS in src/converge/files.ts), alongside its
+# workflow at
 # <repo-root>/.github/workflows/dependency-pinned-gate.yml.
 #
 # Strict EXACT-VERSION gate over the repo's dependency manifests,
@@ -95,7 +96,8 @@
 #   decide which ecosystems its check LOOP then runs this script for. It
 #   reuses the SAME discovery predicate that loop uses, so the detected
 #   set cannot drift from what the gate checks. `actions` is effectively
-#   an always-present floor (the skill always installs workflow files).
+#   an always-present floor (the converger always installs workflow
+#   files).
 #   Emits `[]` (valid JSON, not an empty string) when none are present.
 #
 # Behavior:
@@ -178,7 +180,7 @@ present_mode() {
 # string) when none are present, so the workflow's run step yields an
 # empty list and takes its fail-open branch BEFORE the check loop,
 # passing green. An ecosystem whose manifest lands after setup is picked
-# up on the next PR with no skill re-run.
+# up on the next PR with nothing re-installed.
 if [ "$MODE" = "--present" ]; then
   entries=""
   for m in $ALL_MODES; do

@@ -226,7 +226,8 @@ commit_all "$R"
 run_case "npm: exact deps but no lockfile (red)" 1 "$R" npm
 
 # Green: pnpm workspace member with only a root pnpm-lock.yaml (no
-# sibling lockfile) -- the false-positive case from issue #170.
+# sibling lockfile) -- a pnpm workspace keeps one lockfile at its root,
+# so requiring one beside each member would be a false positive.
 R="$TMP/npm-pnpm-workspace"; git_init_repo "$R"
 writef "$R/package.json" <<'JSON'
 {
@@ -914,7 +915,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v6.0.3
       - uses: ./.github/actions/local-thing
 YML
 commit_all "$R"
