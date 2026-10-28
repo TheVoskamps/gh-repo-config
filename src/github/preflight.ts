@@ -52,6 +52,8 @@ export const CONVERGER_REQUIRED_PERMISSIONS: Readonly<Record<string, ConvergerPe
   // PATCH /repos/{o}/{r}, the ruleset writes, vulnerability-alerts,
   // automated-security-fixes, and code-scanning default setup.
   administration: { level: "write", name: "Administration", scope: "repository" },
+  // GET and DELETE …/code-scanning/analyses.
+  security_events: { level: "write", name: "Code scanning alerts", scope: "repository" },
   // GET /orgs/{org}/installations.
   organization_administration: {
     level: "read",

@@ -16,6 +16,10 @@
  *   default-setup state (`{ state, languages, ... }`).
  * - `PATCH /repos/{o}/{r}/code-scanning/default-setup` — set the state
  *   (`{ state: "not-configured" }`).
+ * - `GET  /repos/{o}/{r}/code-scanning/analyses` — list one ref's CodeQL
+ *   analyses, newest first, to find stale configurations (issue #158).
+ * - `DELETE /repos/{o}/{r}/code-scanning/analyses/{id}` — delete one
+ *   analysis, with `confirm_delete` when it is its configuration's last.
  */
 
 /** Config for {@link CodeScanningClient}. */
@@ -62,7 +66,45 @@ export type DefaultSetupReadResult =
    */
   | { readonly kind: "unavailable"; readonly status: number };
 
-/** Reads and converges one repo's CodeQL default-setup state. */
+/** One CodeQL analysis, as the analyses list reports it. */
+export interface CodeScanningAnalysis {
+  readonly id: number;
+  /** The analysis category; empty when GitHub reports none. */
+  readonly category: string;
+}
+
+interface RawAnalysis {
+  readonly id: number;
+  readonly category?: string | null;
+}
+
+/** A list of analyses, or a 403/404 (code scanning unavailable). */
+export type AnalysesListResult =
+  | { readonly kind: "listed"; readonly analyses: readonly CodeScanningAnalysis[] }
+  | { readonly kind: "unavailable"; readonly status: number };
+
+/**
+ * One analysis deletion. `next` is the URL that deletes the next analysis
+ * of the same configuration — the response's `next_analysis_url`, else its
+ * `confirm_delete_url` when the next deletion removes the configuration's
+ * last analysis — and is absent once the configuration is gone.
+ */
+export type AnalysisDeleteResult =
+  | { readonly kind: "deleted"; readonly next?: string }
+  | { readonly kind: "unavailable"; readonly status: number };
+
+interface RawAnalysisDelete {
+  readonly next_analysis_url?: string | null;
+  readonly confirm_delete_url?: string | null;
+}
+
+/** The analyses list's largest page size. */
+const ANALYSES_PAGE_SIZE = 100;
+
+/**
+ * Reads and converges one repo's CodeQL default-setup state, and lists
+ * and deletes its CodeQL analyses.
+ */
 export class CodeScanningClient {
   private readonly token: string;
   private readonly apiBase: string;
@@ -123,5 +165,72 @@ export class CodeScanningClient {
       headers: { ...this.headers(), "content-type": "application/json" },
       body: JSON.stringify({ state: "not-configured" }),
     });
+  }
+
+  /**
+   * List every CodeQL analysis on `branch`, newest first, reading every
+   * page. A 403/404 is `unavailable`; any other non-ok status throws.
+   */
+  async listCodeqlAnalyses(
+    owner: string,
+    repo: string,
+    branch: string,
+  ): Promise<AnalysesListResult> {
+    const ref = encodeURIComponent(`refs/heads/${branch}`);
+    const analyses: CodeScanningAnalysis[] = [];
+    for (let page = 1; ; page++) {
+      const url =
+        `${this.apiBase}/repos/${owner}/${repo}/code-scanning/analyses` +
+        `?tool_name=CodeQL&ref=${ref}&per_page=${ANALYSES_PAGE_SIZE}&page=${page}`;
+      const res = await this.doFetch(url, { headers: this.headers() });
+      if (res.status === 403 || res.status === 404) {
+        return { kind: "unavailable", status: res.status };
+      }
+      if (!res.ok) {
+        throw new Error(
+          `Failed to list code-scanning analyses for ${owner}/${repo}: ${res.status} ${res.statusText}`,
+        );
+      }
+      const body = (await res.json()) as readonly RawAnalysis[];
+      for (const raw of body) {
+        analyses.push({ id: raw.id, category: raw.category ?? "" });
+      }
+      if (body.length < ANALYSES_PAGE_SIZE) {
+        return { kind: "listed", analyses };
+      }
+    }
+  }
+
+  /**
+   * Delete one analysis. `confirmDelete` is required when it is the last
+   * analysis of its configuration, and deletes the configuration with it.
+   */
+  async deleteAnalysis(
+    owner: string,
+    repo: string,
+    analysisId: number,
+    confirmDelete: boolean,
+  ): Promise<AnalysisDeleteResult> {
+    const url = `${this.apiBase}/repos/${owner}/${repo}/code-scanning/analyses/${analysisId}`;
+    return this.deleteAnalysisAt(confirmDelete ? `${url}?confirm_delete` : url);
+  }
+
+  /**
+   * Delete the analysis a previous deletion's `next` URL names. A 403/404
+   * is `unavailable`; any other non-ok status throws.
+   */
+  async deleteAnalysisAt(url: string): Promise<AnalysisDeleteResult> {
+    const res = await this.doFetch(url, { method: "DELETE", headers: this.headers() });
+    if (res.status === 403 || res.status === 404) {
+      return { kind: "unavailable", status: res.status };
+    }
+    if (!res.ok) {
+      throw new Error(
+        `Failed to delete code-scanning analysis ${url}: ${res.status} ${res.statusText}`,
+      );
+    }
+    const body = (await res.json()) as RawAnalysisDelete;
+    const next = body.next_analysis_url ?? body.confirm_delete_url ?? undefined;
+    return next === undefined ? { kind: "deleted" } : { kind: "deleted", next };
   }
 }

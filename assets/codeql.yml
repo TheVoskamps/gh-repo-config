@@ -64,7 +64,10 @@
 # job ids below. Within the ubuntu job the per-language SARIF files are
 # merged by the CodeQL CLI into that one analysis, so no per-language
 # category (`/language:javascript-typescript`, ...) is written. Do NOT
-# add a literal `category:` to get one.
+# add a literal `category:` to get one. The `/language:*` configurations
+# default setup or the matrix shape left on the default branch stop
+# updating once this workflow replaces them, and the converger deletes
+# them.
 #
 # SWIFT IS ITS OWN JOB, AND ONLY WHEN SWIFT IS PRESENT. Swift analysis
 # needs macOS, which bills at roughly ten times the Linux rate, so a

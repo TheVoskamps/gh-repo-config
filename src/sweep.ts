@@ -330,15 +330,34 @@ function describeGhasResult(result: GhasConvergeResult): string {
  * One-line human-readable summary of a repo's
  * {@link DefaultSetupConvergeResult}.
  */
-function describeDefaultSetupResult(result: DefaultSetupConvergeResult): string {
+function describeDefaultSetupResult(result: DefaultSetupConvergeResult, dryRun: boolean): string {
   switch (result.outcome) {
     case "changed":
-      return `default setup: ${result.reason ?? "changed"}`;
+      return `default setup: ${result.reason ?? "changed"}; ${describeStaleConfigurations(result, dryRun)}`;
     case "already-converged":
-      return "default setup: already not-configured";
+      return `default setup: already not-configured; ${describeStaleConfigurations(result, dryRun)}`;
     case "skipped":
       return `default setup: skipped (${result.reason ?? "unavailable"})`;
   }
+}
+
+/**
+ * One-line human-readable summary of the stale `/language:*` CodeQL
+ * configurations a repo's default-setup step deleted, or under `dryRun`
+ * would delete, including why the deletion did not run or stopped.
+ */
+export function describeStaleConfigurations(
+  result: DefaultSetupConvergeResult,
+  dryRun: boolean,
+): string {
+  const { staleConfigurationsDeleted: deleted, staleConfigurationsSkipped: skipped } = result;
+  if (deleted.length === 0) {
+    return skipped === undefined
+      ? "no stale CodeQL configurations found"
+      : `stale CodeQL configuration deletion skipped (${skipped})`;
+  }
+  const listed = `stale CodeQL configurations ${dryRun ? "would be deleted" : "deleted"}: ${deleted.join(", ")}`;
+  return skipped === undefined ? listed : `${listed}; the rest skipped (${skipped})`;
 }
 
 /**
@@ -644,7 +663,7 @@ export async function runSweep(
         const dsResult = await convergeDefaultSetupStep(repo.repo);
         if (dsResult) {
           defaultSetupResults.push({ repo: repo.repo, result: dsResult });
-          log(`  ${repo.repo}: ${describeDefaultSetupResult(dsResult)}`);
+          log(`  ${repo.repo}: ${describeDefaultSetupResult(dsResult, dryRun)}`);
         }
       } catch (err) {
         defaultSetupOk = false;
@@ -998,11 +1017,12 @@ export async function runSweepFromEnv(env: NodeJS.ProcessEnv = process.env): Pro
     convergeGhas: (repo: string) => convergeGhasSettings(settingsClient, org, repo, dryRun),
     // The real CodeQL default-setup convergence step (issue #16): drive
     // server-side default setup to `not-configured` (mutually exclusive
-    // with the advanced workflow). Read-then-write, report-and-skip on a
+    // with the advanced workflow), then delete the stale `/language:*`
+    // configurations (issue #158). Read-then-write, report-and-skip on a
     // 403/404 (feature/plan unavailable). Throws only on an unexpected
     // (auth/scope) failure.
     convergeDefaultSetup: (repo: string) =>
-      convergeDefaultSetup(codeScanningClient, org, repo, dryRun),
+      convergeDefaultSetup(codeScanningClient, org, repo, dryRun, contentsClient),
     // The real `protect-main` ruleset convergence step (issue #16). Runs
     // in the ordering-gated pass after the merge pass: create/converge
     // the ruleset (or delete-and-defer when an org ruleset governs).

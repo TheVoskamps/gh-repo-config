@@ -383,7 +383,12 @@ function fakeApi() {
     if (url.includes("/automated-security-fixes")) {
       return method === "GET" ? ok({ enabled: false, paused: false }) : ok({});
     }
-    if (url.includes(`/repos/${ORG}/.github/contents/`)) {
+    // The org has no `.github` repo, and the managed repo has no CodeQL
+    // workflow yet, so the stale-configuration deletion does not run.
+    if (
+      url.includes(`/repos/${ORG}/.github/contents/`) ||
+      url.includes(`/repos/${ORG}/${REPO}/contents/.github/workflows/codeql.yml`)
+    ) {
       return { ok: false, status: 404, statusText: "Not Found", json: async () => ({}) };
     }
     if (url.endsWith(`/repos/${ORG}/${REPO}`)) return ok({ default_branch: "main" });

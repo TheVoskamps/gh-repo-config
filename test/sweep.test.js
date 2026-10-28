@@ -454,6 +454,53 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
         json: async () => ({ state: "not-configured" }),
       };
     }
+    // Stale-configuration deletion (issue #158): the shipped CodeQL
+    // workflow is on the default branch, and default setup left a
+    // two-analysis `/language:actions` configuration beside a third-party
+    // tool's category, which survives.
+    if (url.includes("/fixture-behind/contents/.github/workflows/codeql.yml")) {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          type: "file",
+          encoding: "base64",
+          content: Buffer.from("jobs:\n  codeql-required:\n").toString("base64"),
+        }),
+      };
+    }
+    if (url.includes("/code-scanning/analyses?") && method === "GET") {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => [
+          { id: 11, category: "/language:actions" },
+          { id: 12, category: "other-tool" },
+          { id: 10, category: "/language:actions" },
+        ],
+      };
+    }
+    if (url.endsWith("/code-scanning/analyses/11") && method === "DELETE") {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          next_analysis_url: null,
+          confirm_delete_url: "https://api.github.com/x/code-scanning/analyses/10?confirm_delete",
+        }),
+      };
+    }
+    if (url.endsWith("/code-scanning/analyses/10?confirm_delete") && method === "DELETE") {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ next_analysis_url: null, confirm_delete_url: null }),
+      };
+    }
     // Org installations: resolve both the converger and AUTOMERGE App
     // slugs to app_ids for the ruleset bypass actors, with the
     // PR-automation App granted everything its preflight requires.
@@ -622,6 +669,10 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     assert.equal(report.defaultSetupResults.length, 1);
     assert.equal(report.defaultSetupResults[0].repo, "fixture-behind");
     assert.equal(report.defaultSetupResults[0].result.outcome, "changed");
+    assert.deepEqual(report.defaultSetupResults[0].result.staleConfigurationsDeleted, [
+      "/language:actions",
+    ]);
+    assert.ok(!calls.some((c) => c.method === "DELETE" && c.url.endsWith("/analyses/12")));
 
     // protect-main ruleset: no existing/org ruleset → created, with both
     // Apps resolved to bypass actors.

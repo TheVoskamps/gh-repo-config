@@ -42,6 +42,7 @@ test("the required map covers every permission the sweep's endpoints need", () =
     checks: "read",
     statuses: "read",
     administration: "write",
+    security_events: "write",
     organization_administration: "read",
     organization_custom_properties: "write",
   });
