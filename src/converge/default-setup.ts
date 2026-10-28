@@ -125,6 +125,10 @@ export async function convergeDefaultSetup(
   );
 }
 
+/**
+ * A default-setup outcome with its stale-configuration deletion's result,
+ * carrying `staleConfigurationsSkipped` only when the deletion set one.
+ */
 function withStale(
   head: Pick<DefaultSetupConvergeResult, "outcome" | "reason">,
   stale: StaleConfigurationsResult,
@@ -143,6 +147,10 @@ function withStale(
  * analysis, so each configuration's deletion follows the response's next
  * URL until none is returned. Under `dryRun` nothing is deleted and the
  * categories that would be are returned.
+ *
+ * A missing workflow returns `skipped` before anything is listed. A
+ * 403/404 on the list, or on any deletion, returns `skipped` with the
+ * categories already deleted; any other non-ok status throws.
  */
 async function deleteStaleConfigurations(
   client: CodeScanningClient,
