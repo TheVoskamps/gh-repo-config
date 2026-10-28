@@ -135,7 +135,7 @@ test("default-setup: a 500 on the PATCH is a real failure and throws", async () 
 });
 
 // ---------------------------------------------------------------------
-// Stale `/language:*` configuration deletion (issue #158)
+// Stale `/language:*` configuration deletion
 // ---------------------------------------------------------------------
 
 // The default branch carries, newest first: two `/language:python`

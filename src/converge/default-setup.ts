@@ -10,7 +10,7 @@
  * converge to the fixed target, never to decide *whether* to act).
  *
  * Once default setup is `not-configured`, the step deletes the stale
- * per-language CodeQL configurations on the default branch (issue #158).
+ * per-language CodeQL configurations on the default branch.
  * Default setup and the old matrix-shaped `codeql.yml` both uploaded
  * under `/language:<lang>` categories, which the shipped workflow never
  * writes, so those configurations stop updating and would otherwise stay

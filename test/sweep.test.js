@@ -454,7 +454,7 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
         json: async () => ({ state: "not-configured" }),
       };
     }
-    // Stale-configuration deletion (issue #158): the shipped CodeQL
+    // Stale-configuration deletion: the shipped CodeQL
     // workflow is on the default branch, and default setup left a
     // two-analysis `/language:actions` configuration beside a third-party
     // tool's category, which survives.

@@ -17,12 +17,12 @@
  * - `PATCH /repos/{o}/{r}/code-scanning/default-setup` — set the state
  *   (`{ state: "not-configured" }`).
  * - `GET  /repos/{o}/{r}/code-scanning/analyses` — list one ref's CodeQL
- *   analyses, newest first, to find stale configurations (issue #158).
+ *   analyses, newest first, to find stale configurations.
  * - `DELETE /repos/{o}/{r}/code-scanning/analyses/{id}` — delete one
  *   analysis, with `confirm_delete` when it is its configuration's last.
  * - `GET  /repos/{o}/{r}` and `GET /repos/{o}/{r}/contents/{path}` — read
  *   the default branch's name and the CodeQL workflow on it, which gates
- *   the stale-configuration deletion (issue #158).
+ *   the stale-configuration deletion.
  */
 
 /** Config for {@link CodeScanningClient}. */

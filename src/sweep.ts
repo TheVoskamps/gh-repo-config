@@ -1018,7 +1018,7 @@ export async function runSweepFromEnv(env: NodeJS.ProcessEnv = process.env): Pro
     // The real CodeQL default-setup convergence step (issue #16): drive
     // server-side default setup to `not-configured` (mutually exclusive
     // with the advanced workflow), then delete the stale `/language:*`
-    // configurations (issue #158). Read-then-write, report-and-skip on a
+    // configurations. Read-then-write, report-and-skip on a
     // 403/404 (feature/plan unavailable). Throws only on an unexpected
     // (auth/scope) failure.
     convergeDefaultSetup: (repo: string) =>
