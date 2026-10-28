@@ -80,6 +80,7 @@ export {
   runSweep,
   runSweepFromEnv,
   describeDefaultModeProvenanceFailure,
+  describeStaleConfigurations,
   type SweepReport,
   type SweepRepoResult,
   type SweepConvergeResult,
@@ -156,12 +157,19 @@ export {
   type DefaultSetupState,
   type DefaultSetupStatus,
   type DefaultSetupReadResult,
+  type CodeScanningAnalysis,
+  type AnalysesListResult,
+  type AnalysisDeleteResult,
+  type DefaultBranchFile,
 } from "./github/code-scanning.js";
 
 export {
   convergeDefaultSetup,
+  deleteStaleConfigurations,
+  STALE_CATEGORY_PREFIX,
   type DefaultSetupOutcome,
   type DefaultSetupConvergeResult,
+  type StaleConfigurationsResult,
 } from "./converge/default-setup.js";
 
 export {

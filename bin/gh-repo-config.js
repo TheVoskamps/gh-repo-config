@@ -27,6 +27,7 @@
 import {
   CURRENT_VERSION,
   describeDefaultModeProvenanceFailure,
+  describeStaleConfigurations,
   runPreflightFromEnv,
   runSweepFromEnv,
 } from "../dist/index.js";
@@ -91,12 +92,17 @@ switch (command) {
           }
         }
       }
-      // CodeQL default-setup convergence outcome (issue #16).
+      // CodeQL default-setup convergence outcome, and the stale
+      // `/language:*` configurations it deleted, or in a dry run would.
       for (const { repo, result } of report.defaultSetupResults) {
-        if (result.outcome === "already-converged") continue;
-        console.log(
-          `  ${repo}: default-setup ${result.outcome}${result.reason ? ` — ${result.reason}` : ""}`,
-        );
+        if (result.outcome !== "already-converged") {
+          console.log(
+            `  ${repo}: default-setup ${result.outcome}${result.reason ? ` — ${result.reason}` : ""}`,
+          );
+        }
+        if (result.outcome !== "skipped") {
+          console.log(`  ${repo}: ${describeStaleConfigurations(result, report.dryRun)}`);
+        }
       }
       // protect-main ruleset convergence outcome (issue #16).
       for (const { repo, result } of report.rulesetResults) {

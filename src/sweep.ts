@@ -41,7 +41,10 @@
  * gated on the same version-skip decision, since both are things this
  * release's convergence is responsible for landing. The CodeQL
  * default-setup convergence step (issue #16) is a third such
- * pure-API concern in that same branch.
+ * pure-API concern in that same branch. Its stale `/language:*`
+ * configuration deletion runs again after the merge pass for a repo whose
+ * converger PR merged this tick, since that merge can be what puts the
+ * deletion's required `codeql.yml` on the default branch.
  *
  * The `protect-main` ruleset convergence step (issue #16) is different:
  * it runs in a SEPARATE pass AFTER the merge pass, because it must not
@@ -75,7 +78,12 @@ import { sweeperHumanApprovalPaths, type CommunityFileContent } from "./converge
 import { RepoSettingsClient, type RepoSettingsClientOptions } from "./github/settings.js";
 import { convergeGhasSettings, type GhasConvergeResult } from "./converge/ghas.js";
 import { CodeScanningClient, type CodeScanningClientOptions } from "./github/code-scanning.js";
-import { convergeDefaultSetup, type DefaultSetupConvergeResult } from "./converge/default-setup.js";
+import {
+  convergeDefaultSetup,
+  deleteStaleConfigurations,
+  type DefaultSetupConvergeResult,
+  type StaleConfigurationsResult,
+} from "./converge/default-setup.js";
 import { RulesetsClient, type RulesetsClientOptions } from "./github/rulesets.js";
 import {
   convergeProtectMainRuleset,
@@ -330,15 +338,53 @@ function describeGhasResult(result: GhasConvergeResult): string {
  * One-line human-readable summary of a repo's
  * {@link DefaultSetupConvergeResult}.
  */
-function describeDefaultSetupResult(result: DefaultSetupConvergeResult): string {
+function describeDefaultSetupResult(result: DefaultSetupConvergeResult, dryRun: boolean): string {
   switch (result.outcome) {
     case "changed":
-      return `default setup: ${result.reason ?? "changed"}`;
+      return `default setup: ${result.reason ?? "changed"}; ${describeStaleConfigurations(result, dryRun)}`;
     case "already-converged":
-      return "default setup: already not-configured";
+      return `default setup: already not-configured; ${describeStaleConfigurations(result, dryRun)}`;
     case "skipped":
       return `default setup: skipped (${result.reason ?? "unavailable"})`;
   }
+}
+
+/**
+ * One-line human-readable summary of the stale `/language:*` CodeQL
+ * configurations a repo's default-setup step deleted, or under `dryRun`
+ * would delete, including why the deletion did not run or stopped.
+ */
+export function describeStaleConfigurations(
+  result: DefaultSetupConvergeResult,
+  dryRun: boolean,
+): string {
+  const { staleConfigurationsDeleted: deleted, staleConfigurationsSkipped: skipped } = result;
+  if (deleted.length === 0) {
+    return skipped === undefined
+      ? "no stale CodeQL configurations found"
+      : `stale CodeQL configuration deletion skipped (${skipped})`;
+  }
+  const listed = `stale CodeQL configurations ${dryRun ? "would be deleted" : "deleted"}: ${deleted.join(", ")}`;
+  return skipped === undefined ? listed : `${listed}; the rest skipped (${skipped})`;
+}
+
+/**
+ * A repo's default-setup result with a post-merge deletion's result folded
+ * in: the categories both runs deleted, each once and in the order first
+ * deleted, and the later run's reason for skipping, if any.
+ */
+function withRerunStale(
+  result: DefaultSetupConvergeResult,
+  stale: StaleConfigurationsResult,
+): DefaultSetupConvergeResult {
+  return {
+    outcome: result.outcome,
+    ...(result.reason !== undefined ? { reason: result.reason } : {}),
+    staleConfigurationsDeleted: [
+      ...new Set([...result.staleConfigurationsDeleted, ...stale.deleted]),
+    ],
+    ...(stale.skipped !== undefined ? { staleConfigurationsSkipped: stale.skipped } : {}),
+  };
 }
 
 /**
@@ -476,6 +522,22 @@ export interface SweepOptions {
     repo: string,
   ) => Promise<DefaultSetupConvergeResult | void> | DefaultSetupConvergeResult | void;
   /**
+   * Injectable stale `/language:*` configuration deletion, run after the
+   * merge pass and before the ruleset pass and stamping, for each repo
+   * whose converge steps all succeeded, whose converger PR merged this
+   * tick, and whose {@link convergeDefaultSetup} outcome was `changed` or
+   * `already-converged`. The default-setup step's deletion read the
+   * default branch before that merge, so a `codeql.yml` the merge put
+   * there is seen only by this run. Its deleted categories are added to
+   * those of the repo's {@link SweepReport.defaultSetupResults} entry, and
+   * its skip reason, or its lack of one, replaces the entry's. A thrown
+   * error marks the repo `failed` and skips stamping. `runSweepFromEnv`
+   * wires in the real {@link deleteStaleConfigurations}.
+   */
+  readonly deleteStaleConfigurations?: (
+    repo: string,
+  ) => Promise<StaleConfigurationsResult | void> | StaleConfigurationsResult | void;
+  /**
    * Injectable `protect-main` ruleset convergence step (issue #16). Runs
    * in a **separate pass after the merge pass**, gated by the ordering
    * rule: for each due repo, the ruleset step runs only once the repo's
@@ -547,6 +609,7 @@ export async function runSweep(
   const converge = options.converge ?? (() => {});
   const convergeGhas = options.convergeGhas ?? (() => {});
   const convergeDefaultSetupStep = options.convergeDefaultSetup ?? (() => {});
+  const deleteStaleConfigurationsStep = options.deleteStaleConfigurations;
   const convergeRulesetStep = options.convergeRuleset;
   const dryRun = options.dryRun ?? false;
 
@@ -644,7 +707,7 @@ export async function runSweep(
         const dsResult = await convergeDefaultSetupStep(repo.repo);
         if (dsResult) {
           defaultSetupResults.push({ repo: repo.repo, result: dsResult });
-          log(`  ${repo.repo}: ${describeDefaultSetupResult(dsResult)}`);
+          log(`  ${repo.repo}: ${describeDefaultSetupResult(dsResult, dryRun)}`);
         }
       } catch (err) {
         defaultSetupOk = false;
@@ -720,6 +783,34 @@ export async function runSweep(
         // recorded for this repo (e.g. `converge` threw earlier this
         // tick) — that's already `failed` and already the right reason.
         markFailed(results, repo.repo, `merge pass failed: ${msg}`);
+      }
+    }
+  }
+
+  // The default-setup step's stale-configuration deletion read the default
+  // branch before the merge pass, so a converger PR merged above can have
+  // put the `codeql.yml` its guard requires there since. Run the deletion
+  // again for those repos, before the ruleset pass and stamping, so a
+  // stamped repo has had it run against the workflow it was stamped with.
+  // A repo whose default-setup outcome was `skipped` never had default
+  // setup confirmed `not-configured`, which the deletion requires.
+  if (deleteStaleConfigurationsStep) {
+    for (const repo of convergedOk.filter((name) => mergedThisTick.has(name))) {
+      const entryAt = defaultSetupResults.findIndex((entry) => entry.repo === repo);
+      const entry = defaultSetupResults[entryAt];
+      if (entry === undefined || entry.result.outcome === "skipped") continue;
+      try {
+        const stale = await deleteStaleConfigurationsStep(repo);
+        if (stale) {
+          const result = withRerunStale(entry.result, stale);
+          defaultSetupResults[entryAt] = { repo, result };
+          log(`  ${repo}: after the merge pass, ${describeStaleConfigurations(result, dryRun)}`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`  ${repo}: stale CodeQL configuration deletion failed, not stamping — ${msg}`);
+        markFailed(results, repo, `stale CodeQL configuration deletion failed: ${msg}`);
+        convergedOk.splice(convergedOk.indexOf(repo), 1);
       }
     }
   }
@@ -998,11 +1089,16 @@ export async function runSweepFromEnv(env: NodeJS.ProcessEnv = process.env): Pro
     convergeGhas: (repo: string) => convergeGhasSettings(settingsClient, org, repo, dryRun),
     // The real CodeQL default-setup convergence step (issue #16): drive
     // server-side default setup to `not-configured` (mutually exclusive
-    // with the advanced workflow). Read-then-write, report-and-skip on a
+    // with the advanced workflow), then delete the stale `/language:*`
+    // configurations. Read-then-write, report-and-skip on a
     // 403/404 (feature/plan unavailable). Throws only on an unexpected
     // (auth/scope) failure.
     convergeDefaultSetup: (repo: string) =>
       convergeDefaultSetup(codeScanningClient, org, repo, dryRun),
+    // The same deletion, again after the merge pass, for a repo whose
+    // converger PR merged this tick.
+    deleteStaleConfigurations: (repo: string) =>
+      deleteStaleConfigurations(codeScanningClient, org, repo, dryRun),
     // The real `protect-main` ruleset convergence step (issue #16). Runs
     // in the ordering-gated pass after the merge pass: create/converge
     // the ruleset (or delete-and-defer when an org ruleset governs).

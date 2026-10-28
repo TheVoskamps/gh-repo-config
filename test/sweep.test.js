@@ -454,6 +454,53 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
         json: async () => ({ state: "not-configured" }),
       };
     }
+    // Stale-configuration deletion: the shipped CodeQL
+    // workflow is on the default branch, and default setup left a
+    // two-analysis `/language:actions` configuration beside a third-party
+    // tool's category, which survives.
+    if (url.includes("/fixture-behind/contents/.github/workflows/codeql.yml")) {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          type: "file",
+          encoding: "base64",
+          content: Buffer.from("jobs:\n  codeql-required:\n").toString("base64"),
+        }),
+      };
+    }
+    if (url.includes("/code-scanning/analyses?") && method === "GET") {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => [
+          { id: 11, category: "/language:actions" },
+          { id: 12, category: "other-tool" },
+          { id: 10, category: "/language:actions" },
+        ],
+      };
+    }
+    if (url.endsWith("/code-scanning/analyses/11") && method === "DELETE") {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          next_analysis_url: null,
+          confirm_delete_url: "https://api.github.com/x/code-scanning/analyses/10?confirm_delete",
+        }),
+      };
+    }
+    if (url.endsWith("/code-scanning/analyses/10?confirm_delete") && method === "DELETE") {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ next_analysis_url: null, confirm_delete_url: null }),
+      };
+    }
     // Org installations: resolve both the converger and AUTOMERGE App
     // slugs to app_ids for the ruleset bypass actors, with the
     // PR-automation App granted everything its preflight requires.
@@ -622,6 +669,10 @@ test("runSweepFromEnv drives runSweep against the real CURRENT_VERSION", async (
     assert.equal(report.defaultSetupResults.length, 1);
     assert.equal(report.defaultSetupResults[0].repo, "fixture-behind");
     assert.equal(report.defaultSetupResults[0].result.outcome, "changed");
+    assert.deepEqual(report.defaultSetupResults[0].result.staleConfigurationsDeleted, [
+      "/language:actions",
+    ]);
+    assert.ok(!calls.some((c) => c.method === "DELETE" && c.url.endsWith("/analyses/12")));
 
     // protect-main ruleset: no existing/org ruleset → created, with both
     // Apps resolved to bypass actors.
@@ -1025,6 +1076,166 @@ test("dryRun is passed through to evaluateAndMerge so the merge pass never issue
   assert.deepEqual(dryRunFlags, [true]);
   assert.equal(report.merged.length, 1);
   assert.deepEqual(report.stamped, []); // dryRun symmetry with stamping
+});
+
+// Stale `/language:*` configuration deletion after the merge pass. Each
+// repo is behind and opens a converger PR; `merges` names the repos whose
+// PR the merge pass merges. `defaultSetup` stands in for the default-setup
+// step, which runs before that merge, and `deleteStale` for the post-merge
+// deletion.
+function staleRerunSweep({ repos, merges, defaultSetup, deleteStale }) {
+  const events = [];
+  const client = fakeClient({
+    defaultMode: "opt-out",
+    repos: repos.map((repo) => ({ repo, mode: "opt-in", version: "0.1.0" })),
+    stampVersionImpl: async (names) => {
+      events.push(`stamp ${names.join(",")}`);
+    },
+  });
+  const openPr = (repo) => ({
+    number: 1,
+    headSha: `sha-${repo}`,
+    headRef: "converger/work",
+    baseRef: "main",
+    authorLogin: "test-converger[bot]",
+    authorType: "Bot",
+  });
+  const mergeClient = {
+    listOwnOpenPullRequests: async (org, repo) => [openPr(repo)],
+    evaluateAndMerge: async (org, repo, pr) => {
+      const outcome = merges.includes(repo) ? "merged" : "pending";
+      events.push(`${outcome} ${repo}`);
+      return { pr, outcome, checks: [], reason: outcome };
+    },
+  };
+  const options = {
+    log: () => {},
+    mergeClient,
+    appSlug: "test-converger",
+    converge: () => ({ noop: false, changed: [".github/workflows/codeql.yml"] }),
+    convergeDefaultSetup: (repo) => {
+      events.push(`default-setup ${repo}`);
+      return defaultSetup(repo);
+    },
+    deleteStaleConfigurations: async (repo) => {
+      events.push(`delete ${repo}`);
+      return deleteStale(repo);
+    },
+    convergeRuleset: (repo) => {
+      events.push(`ruleset ${repo}`);
+    },
+  };
+  return { client, events, options };
+}
+
+const GUARD_SKIP =
+  "the default branch has no .github/workflows/codeql.yml with a codeql-required job";
+
+test("a repo whose codeql.yml merges in the merge pass has its /language:* configurations deleted before it is stamped", async () => {
+  const { client, events, options } = staleRerunSweep({
+    repos: ["fixture-a"],
+    merges: ["fixture-a"],
+    defaultSetup: () => ({
+      outcome: "changed",
+      reason: "was configured → not-configured",
+      staleConfigurationsDeleted: [],
+      staleConfigurationsSkipped: GUARD_SKIP,
+    }),
+    deleteStale: () => ({ deleted: ["/language:python", "/language:actions"] }),
+  });
+
+  const report = await runSweep(client, "TheVoskamps", V, options);
+
+  assert.deepEqual(events, [
+    "default-setup fixture-a",
+    "merged fixture-a",
+    "delete fixture-a",
+    "ruleset fixture-a",
+    "stamp fixture-a",
+  ]);
+  assert.deepEqual(report.stamped, ["fixture-a"]);
+  assert.deepEqual(report.defaultSetupResults, [
+    {
+      repo: "fixture-a",
+      result: {
+        outcome: "changed",
+        reason: "was configured → not-configured",
+        staleConfigurationsDeleted: ["/language:python", "/language:actions"],
+      },
+    },
+  ]);
+});
+
+test("the post-merge deletion keeps what the default-setup step deleted, and reports its own skip", async () => {
+  const { client, options } = staleRerunSweep({
+    repos: ["fixture-a"],
+    merges: ["fixture-a"],
+    defaultSetup: () => ({
+      outcome: "already-converged",
+      staleConfigurationsDeleted: ["/language:go"],
+    }),
+    deleteStale: () => ({
+      deleted: ["/language:go", "/language:ruby"],
+      skipped: "code scanning analysis deletion unavailable (403) at /language:swift",
+    }),
+  });
+
+  const report = await runSweep(client, "TheVoskamps", V, options);
+
+  assert.deepEqual(report.defaultSetupResults[0].result, {
+    outcome: "already-converged",
+    staleConfigurationsDeleted: ["/language:go", "/language:ruby"],
+    staleConfigurationsSkipped:
+      "code scanning analysis deletion unavailable (403) at /language:swift",
+  });
+  assert.deepEqual(report.stamped, ["fixture-a"]);
+});
+
+test("the post-merge deletion skips a repo whose PR did not merge, or whose default setup was skipped", async () => {
+  const { client, events, options } = staleRerunSweep({
+    repos: ["fixture-open", "fixture-unavailable"],
+    merges: ["fixture-unavailable"],
+    defaultSetup: (repo) =>
+      repo === "fixture-unavailable"
+        ? {
+            outcome: "skipped",
+            reason: "code scanning unavailable (404)",
+            staleConfigurationsDeleted: [],
+          }
+        : { outcome: "already-converged", staleConfigurationsDeleted: [] },
+    deleteStale: () => {
+      throw new Error("must not run");
+    },
+  });
+
+  const report = await runSweep(client, "TheVoskamps", V, options);
+
+  assert.ok(!events.some((e) => e.startsWith("delete ")));
+  assert.deepEqual(report.failed, []);
+  assert.deepEqual(report.rulesetDeferred, ["fixture-open"]);
+  assert.deepEqual(report.stamped, ["fixture-unavailable"]);
+});
+
+test("a post-merge deletion failure marks the repo failed and leaves it unstamped", async () => {
+  const { client, events, options } = staleRerunSweep({
+    repos: ["fixture-a", "fixture-b"],
+    merges: ["fixture-a", "fixture-b"],
+    defaultSetup: () => ({ outcome: "already-converged", staleConfigurationsDeleted: [] }),
+    deleteStale: (repo) => {
+      if (repo === "fixture-a") throw new Error("Failed to list code-scanning analyses: 500");
+      return { deleted: [] };
+    },
+  });
+
+  const report = await runSweep(client, "TheVoskamps", V, options);
+
+  assert.deepEqual(report.failed, ["fixture-a"]);
+  assert.match(
+    report.results.find((r) => r.repo === "fixture-a").reason,
+    /stale CodeQL configuration deletion failed: .*500/,
+  );
+  assert.ok(!events.includes("ruleset fixture-a"));
+  assert.deepEqual(report.stamped, ["fixture-b"]);
 });
 
 // Issue #67: the default read reports provenance, so an operator can
