@@ -64,7 +64,12 @@ export interface DefaultSetupConvergeResult {
 
 /** What {@link deleteStaleConfigurations} did. */
 export interface StaleConfigurationsResult {
+  /**
+   * The `/language:*` categories whose configurations were deleted, or in
+   * a dry run would be, in the order deleted.
+   */
   readonly deleted: readonly string[];
+  /** Why the deletion did not run, or stopped before the last category. */
   readonly skipped?: string;
 }
 

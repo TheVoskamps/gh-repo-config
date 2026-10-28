@@ -1,10 +1,11 @@
 /**
  * A thin GitHub REST client for the CodeQL **default-setup** state and
- * the CodeQL analyses on a repo's default branch. The converger ships an *advanced* CodeQL workflow
- * (`.github/workflows/codeql.yml`), and default setup + an advanced
- * workflow are mutually exclusive — a live default setup suppresses the
- * advanced workflow's results. So the converger drives default setup to
- * `not-configured` on every managed repo.
+ * the CodeQL analyses on a repo's default branch. The converger ships an
+ * *advanced* CodeQL workflow (`.github/workflows/codeql.yml`), and
+ * default setup + an advanced workflow are mutually exclusive — a live
+ * default setup suppresses the advanced workflow's results. So the
+ * converger drives default setup to `not-configured` on every managed
+ * repo.
  *
  * Zero runtime dependencies, mirroring {@link OrgPropertiesClient} in
  * `./properties.js` / {@link MergeClient} in `./merge.js` /

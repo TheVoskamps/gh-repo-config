@@ -528,8 +528,9 @@ export interface SweepOptions {
    * tick, and whose {@link convergeDefaultSetup} outcome was `changed` or
    * `already-converged`. The default-setup step's deletion read the
    * default branch before that merge, so a `codeql.yml` the merge put
-   * there is seen only by this run. Its result replaces the stale fields
-   * of the repo's {@link SweepReport.defaultSetupResults} entry. A thrown
+   * there is seen only by this run. Its deleted categories are added to
+   * those of the repo's {@link SweepReport.defaultSetupResults} entry, and
+   * its skip reason, or its lack of one, replaces the entry's. A thrown
    * error marks the repo `failed` and skips stamping. `runSweepFromEnv`
    * wires in the real {@link deleteStaleConfigurations}.
    */

@@ -1080,8 +1080,9 @@ test("dryRun is passed through to evaluateAndMerge so the merge pass never issue
 
 // Stale `/language:*` configuration deletion after the merge pass. Each
 // repo is behind and opens a converger PR; `merges` names the repos whose
-// PR the merge pass merges. The default-setup step ran before that merge,
-// so its deletion found no `codeql.yml` on the default branch.
+// PR the merge pass merges. `defaultSetup` stands in for the default-setup
+// step, which runs before that merge, and `deleteStale` for the post-merge
+// deletion.
 function staleRerunSweep({ repos, merges, defaultSetup, deleteStale }) {
   const events = [];
   const client = fakeClient({
