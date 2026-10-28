@@ -181,15 +181,17 @@ fails loudly (the new code finds `gh-repo-config-mode` without a
 working, not a regression.
 
 ```bash
+ORG=<your-org>
+
 # 1. Current per-repo state (audit input; re-run after migration to check)
-gh api /orgs/TheVoskamps/properties/values --paginate \
+gh api /orgs/$ORG/properties/values --paginate \
   --jq '.[] | [.repository_name, (.properties[] | select(.property_name == "gh-repo-config-mode") | .value // "(unset)")] | @tsv'
 
 # 2. Clear the two live old-vocabulary values: convergence-test holds
 #    "process" and gh-repo-config-sweeper-template holds "ignore", set so
 #    the template repo stays unmanaged under every org default. The
 #    allowed-values change in step 3 conflicts with either.
-gh api -X PATCH /orgs/TheVoskamps/properties/values \
+gh api -X PATCH /orgs/$ORG/properties/values \
   -f "repository_names[]=convergence-test" \
   -f "repository_names[]=gh-repo-config-sweeper-template" \
   -f "properties[][property_name]=gh-repo-config-mode" \
@@ -197,7 +199,7 @@ gh api -X PATCH /orgs/TheVoskamps/properties/values \
 
 # 3. Redefine the property: required, new vocabulary, default preserving
 #    today's behavior (nothing managed unless a repo opts in)
-gh api -X PUT /orgs/TheVoskamps/properties/schema/gh-repo-config-mode \
+gh api -X PUT /orgs/$ORG/properties/schema/gh-repo-config-mode \
   -f value_type=single_select \
   -F required=true \
   -f default_value=opt-out \
@@ -206,37 +208,39 @@ gh api -X PUT /orgs/TheVoskamps/properties/schema/gh-repo-config-mode \
 
 # 4. Re-flag both repos under the new vocabulary: the canary opt-in, the
 #    template repo opt-out
-gh api -X PATCH /orgs/TheVoskamps/properties/values \
+gh api -X PATCH /orgs/$ORG/properties/values \
   -f "repository_names[]=convergence-test" \
   -f "properties[][property_name]=gh-repo-config-mode" \
   -f "properties[][value]=opt-in"
-gh api -X PATCH /orgs/TheVoskamps/properties/values \
+gh api -X PATCH /orgs/$ORG/properties/values \
   -f "repository_names[]=gh-repo-config-sweeper-template" \
   -f "properties[][property_name]=gh-repo-config-mode" \
   -f "properties[][value]=opt-out"
 
 # 5. Retire the org-default property
-gh api -X DELETE /orgs/TheVoskamps/properties/schema/gh-repo-config-default
+gh api -X DELETE /orgs/$ORG/properties/schema/gh-repo-config-default
 
 # 6. Dry-run tick: the summary header must name the declared default
 #    (opt-out) and convergence-test must be the only converge candidate.
 #    The sweep runs on the org's sweeper repo, never on this one.
-gh workflow run sweep.yml --repo TheVoskamps/gh-repo-config-sweeper -f dry-run=true
+gh workflow run sweep.yml --repo "$ORG/gh-repo-config-sweeper" -f dry-run=true
 ```
 
 Steady-state flip, whenever the operator is ready (no code change
 involved):
 
 ```bash
+ORG=<your-org>
+
 # 7. Flag every repo that must stay unmanaged (repeat per repo, using
 #    the step-1 listing as the audit input)
-gh api -X PATCH /orgs/TheVoskamps/properties/values \
+gh api -X PATCH /orgs/$ORG/properties/values \
   -f "repository_names[]=<repo>" \
   -f "properties[][property_name]=gh-repo-config-mode" \
   -f "properties[][value]=opt-out"
 
 # 8. Flip the org default: unset repos are now managed
-gh api -X PUT /orgs/TheVoskamps/properties/schema/gh-repo-config-mode \
+gh api -X PUT /orgs/$ORG/properties/schema/gh-repo-config-mode \
   -f value_type=single_select \
   -F required=true \
   -f default_value=opt-in \
@@ -245,7 +249,7 @@ gh api -X PUT /orgs/TheVoskamps/properties/schema/gh-repo-config-mode \
 
 # 9. Dry-run again; review each repo's "would change" lines, then let
 #    the next scheduled tick run (or dispatch with dry-run=false)
-gh workflow run sweep.yml --repo TheVoskamps/gh-repo-config-sweeper -f dry-run=true
+gh workflow run sweep.yml --repo "$ORG/gh-repo-config-sweeper" -f dry-run=true
 ```
 
 Flip verification: the summary header names `opt-in` as the declared
