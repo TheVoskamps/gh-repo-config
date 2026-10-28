@@ -93,7 +93,7 @@ switch (command) {
         }
       }
       // CodeQL default-setup convergence outcome, and the stale
-      // `/language:*` configurations it deleted.
+      // `/language:*` configurations it deleted, or in a dry run would.
       for (const { repo, result } of report.defaultSetupResults) {
         if (result.outcome !== "already-converged") {
           console.log(

@@ -1,6 +1,6 @@
 /**
- * A thin GitHub REST client for the CodeQL **default-setup** state
- * (issue #16). The converger ships an *advanced* CodeQL workflow
+ * A thin GitHub REST client for the CodeQL **default-setup** state and
+ * the CodeQL analyses on a repo's default branch. The converger ships an *advanced* CodeQL workflow
  * (`.github/workflows/codeql.yml`), and default setup + an advanced
  * workflow are mutually exclusive — a live default setup suppresses the
  * advanced workflow's results. So the converger drives default setup to
@@ -274,6 +274,7 @@ export class CodeScanningClient {
   /**
    * Delete one analysis. `confirmDelete` is required when it is the last
    * analysis of its configuration, and deletes the configuration with it.
+   * A 403/404 is `unavailable`; any other non-ok status throws.
    */
   async deleteAnalysis(
     owner: string,
