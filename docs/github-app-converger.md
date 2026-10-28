@@ -34,12 +34,13 @@ reference pages.
 | Settings-page section | Permission | Level | Calls the map attributes to it |
 | --- | --- | --- | --- |
 | Repository | Metadata | Read-only | `GET /repos/{o}/{r}`, `GET …/rules/branches/{b}`, `GET …/rulesets` |
-| Repository | Contents | Read and write | the git-data writes (blobs, trees, commits, refs) and `PUT …/pulls/{n}/merge` |
+| Repository | Contents | Read and write | the git-data writes (blobs, trees, commits, refs), `PUT …/pulls/{n}/merge`, and the file reads, `GET …/contents/{path}` |
 | Repository | Workflows | Read and write | creating or moving a ref onto a commit that touches `.github/workflows/` |
 | Repository | Pull requests | Read and write | `POST …/pulls` and the GraphQL draft / ready-for-review mutations |
 | Repository | Checks | Read-only | `GET …/commits/{ref}/check-runs` |
 | Repository | Commit statuses | Read-only | `GET …/commits/{ref}/status` |
 | Repository | Administration | Read and write | `PATCH /repos/{o}/{r}`, the ruleset writes, vulnerability alerts, automated security fixes, and code-scanning default setup |
+| Repository | Code scanning alerts | Read and write | `GET` and `DELETE …/code-scanning/analyses` |
 | Organization | Administration | Read-only | `GET /orgs/{org}/installations` |
 | Organization | Custom properties | Read and write | `PATCH /orgs/{org}/properties/values` |
 

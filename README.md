@@ -107,7 +107,19 @@ canonical shape.
 Every managed repo gets the advanced-setup CodeQL workflow, which
 detects at run time which languages the repo holds, and has GitHub's
 default setup driven to not-configured, since the two are mutually
-exclusive.
+exclusive. The setups that workflow replaces — default setup and the
+earlier per-language matrix — uploaded one CodeQL configuration per
+language, under a `/language:` category the shipped workflow never
+writes, so those configurations stop updating and would otherwise sit
+in the repo's Security tab forever with their last alerts. The sweep
+deletes every `/language:` configuration on the default branch, and
+no category outside that prefix, since only the setups it replaces
+wrote it and a third-party tool's category is not its to remove.
+Deleting a configuration cannot be undone, so the deletion runs only
+once default setup is not-configured and the shipped workflow is on
+the default branch; a repo whose converger pull request merges during
+the sweep gets the deletion again before it is stamped, so the stamp
+never stands on a default branch the deletion has not seen.
 
 ### Community files are the org's own, seeded once
 
