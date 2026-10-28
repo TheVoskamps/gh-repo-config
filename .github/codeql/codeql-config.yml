@@ -1,8 +1,9 @@
-# CodeQL configuration rendered by /gh-repo-setup-protection.
+# CodeQL configuration, rendered by the converger.
 #
-# Installed at <repo-root>/.github/codeql/codeql-config.yml ONLY when
-# CodeQL is enabled for the target repo (paired with codeql.yml).
-# Referenced by the workflow's `config-file:` input.
+# Installed at <repo-root>/.github/codeql/codeql-config.yml on every
+# managed repo, paired with codeql.yml (RENDERED_AT_PATH in
+# src/converge/files.ts). Referenced by the workflow's `config-file:`
+# input.
 #
 # This file has no placeholders. It is shipped verbatim and gives the
 # security-extended query suite plus path filters that exclude vendored
