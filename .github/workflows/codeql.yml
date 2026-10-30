@@ -64,7 +64,10 @@
 # job ids below. Within the ubuntu job the per-language SARIF files are
 # merged by the CodeQL CLI into that one analysis, so no per-language
 # category (`/language:javascript-typescript`, ...) is written. Do NOT
-# add a literal `category:` to get one.
+# add a literal `category:` to get one. The `/language:*` configurations
+# default setup or the matrix shape left on the default branch stop
+# updating once this workflow replaces them, and the converger deletes
+# them.
 #
 # SWIFT IS ITS OWN JOB, AND ONLY WHEN SWIFT IS PRESENT. Swift analysis
 # needs macOS, which bills at roughly ten times the Linux rate, so a
@@ -214,7 +217,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           # A comma-separated list: every present ubuntu-runner language
           # in one database bootstrap.
@@ -229,7 +232,7 @@ jobs:
       # No `category:` — see the "NO EXPLICIT `category:`" note in the
       # header. The action derives one from this job's id.
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
 
   # The non-ubuntu (today: swift, on macOS) analysis, which EXISTS ONLY
   # when such a language is in the tree — a Swift-less repo never
@@ -252,7 +255,7 @@ jobs:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: ${{ needs.codeql-required.outputs.swift_languages }}
           config-file: ./.github/codeql/codeql-config.yml
@@ -261,4 +264,4 @@ jobs:
       # distinct from `codeql-required`'s, which is exactly what keeps
       # the two uploads from displacing each other.
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
